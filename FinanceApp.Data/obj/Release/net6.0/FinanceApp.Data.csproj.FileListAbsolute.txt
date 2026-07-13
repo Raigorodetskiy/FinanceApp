@@ -1,0 +1,17 @@
+/var/FinanceApp/FinanceApp.Data/bin/Release/net6.0/FinanceApp.Data.deps.json
+/var/FinanceApp/FinanceApp.Data/bin/Release/net6.0/FinanceApp.Data.runtimeconfig.json
+/var/FinanceApp/FinanceApp.Data/bin/Release/net6.0/FinanceApp.Data.dll
+/var/FinanceApp/FinanceApp.Data/bin/Release/net6.0/FinanceApp.Data.pdb
+/var/FinanceApp/FinanceApp.Data/bin/Release/net6.0/FinanceApp.Core.dll
+/var/FinanceApp/FinanceApp.Data/bin/Release/net6.0/FinanceApp.Core.pdb
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.csproj.AssemblyReference.cache
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.GeneratedMSBuildEditorConfig.editorconfig
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.AssemblyInfoInputs.cache
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.AssemblyInfo.cs
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.csproj.CoreCompileInputs.cache
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.dll
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/refint/FinanceApp.Data.dll
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.pdb
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceApp.Data.genruntimeconfig.cache
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/ref/FinanceApp.Data.dll
+/var/FinanceApp/FinanceApp.Data/obj/Release/net6.0/FinanceA.8D69383E.Up2Date

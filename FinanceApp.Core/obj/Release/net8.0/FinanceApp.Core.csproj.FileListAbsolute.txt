@@ -1,0 +1,11 @@
+/var/FinanceApp/FinanceApp.Core/bin/Release/net8.0/FinanceApp.Core.deps.json
+/var/FinanceApp/FinanceApp.Core/bin/Release/net8.0/FinanceApp.Core.dll
+/var/FinanceApp/FinanceApp.Core/bin/Release/net8.0/FinanceApp.Core.pdb
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/FinanceApp.Core.GeneratedMSBuildEditorConfig.editorconfig
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/FinanceApp.Core.AssemblyInfoInputs.cache
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/FinanceApp.Core.AssemblyInfo.cs
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/FinanceApp.Core.csproj.CoreCompileInputs.cache
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/FinanceApp.Core.dll
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/refint/FinanceApp.Core.dll
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/FinanceApp.Core.pdb
+/var/FinanceApp/FinanceApp.Core/obj/Release/net8.0/ref/FinanceApp.Core.dll

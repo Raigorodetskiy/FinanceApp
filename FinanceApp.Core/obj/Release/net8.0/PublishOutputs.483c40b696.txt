@@ -1,0 +1,3 @@
+/var/FinanceApp/publish/FinanceApp.Core.dll
+/var/FinanceApp/publish/FinanceApp.Core.deps.json
+/var/FinanceApp/publish/FinanceApp.Core.pdb
