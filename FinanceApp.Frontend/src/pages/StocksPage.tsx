@@ -31,6 +31,8 @@ import {
   updateStock,
   deleteStock,
   getPortfolios,
+  getStockPrice,
+  type StockPriceResponse,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio } from '../types';
@@ -45,6 +47,8 @@ const StocksPage: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [livePrices, setLivePrices] = useState<Record<string, StockPriceResponse | null>>({});
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -58,11 +62,33 @@ const StocksPage: React.FC = () => {
       ]);
       setStocks(stocksRes.data);
       setPortfolios(portfoliosRes.data);
+      await fetchLivePrices(stocksRes.data);
     } catch {
       message.error('Ошибка загрузки данных');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchLivePrices = async (stocksToLoad: Stock[]) => {
+    setPriceLoading(true);
+    const entries = await Promise.all(
+      stocksToLoad.map(async (stock) => {
+        const ticker = stock.ticker?.trim();
+        if (!ticker) {
+          return [stock.id.toString(), null] as const;
+        }
+
+        try {
+          const response = await getStockPrice(ticker);
+          return [stock.id.toString(), response.data] as const;
+        } catch {
+          return [stock.id.toString(), null] as const;
+        }
+      })
+    );
+    setLivePrices(Object.fromEntries(entries));
+    setPriceLoading(false);
   };
 
   useEffect(() => {
@@ -120,6 +146,26 @@ const StocksPage: React.FC = () => {
     }
   };
 
+  const formatLivePrice = (record: Stock) => {
+    const data = livePrices[record.id.toString()];
+    if (!data) return 'N/A';
+    return `€${data.currentPrice.toFixed(2)}`;
+  };
+
+  const formatLiveChange = (record: Stock) => {
+    const data = livePrices[record.id.toString()];
+    if (!data) return 'N/A';
+    const sign = data.change > 0 ? '+' : '';
+    return `${sign}${data.change.toFixed(2)}`;
+  };
+
+  const formatLivePercentChange = (record: Stock) => {
+    const data = livePrices[record.id.toString()];
+    if (!data) return 'N/A';
+    const sign = data.percentChange > 0 ? '+' : '';
+    return `${sign}${data.percentChange.toFixed(2)}%`;
+  };
+
   const columns = [
     {
       title: 'Тикер',
@@ -138,11 +184,20 @@ const StocksPage: React.FC = () => {
       key: 'exchange',
     },
     {
-      title: 'Текущая цена',
-      dataIndex: 'currentPrice',
+      title: 'Текущая цена (live)',
       key: 'currentPrice',
-      render: (v: number) => `€${v.toFixed(2)}`,
+      render: (_: unknown, record: Stock) => formatLivePrice(record),
       sorter: (a: Stock, b: Stock) => a.currentPrice - b.currentPrice,
+    },
+    {
+      title: 'Изменение',
+      key: 'change',
+      render: (_: unknown, record: Stock) => formatLiveChange(record),
+    },
+    {
+      title: 'Изменение (%)',
+      key: 'percentChange',
+      render: (_: unknown, record: Stock) => formatLivePercentChange(record),
     },
     {
       title: 'Обновлено',
@@ -232,13 +287,18 @@ const StocksPage: React.FC = () => {
           <Title level={4} style={{ margin: 0 }}>
             Акции
           </Title>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={openCreateModal}
-          >
-            Добавить акцию
-          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button loading={priceLoading} onClick={() => fetchLivePrices(stocks)}>
+              Обновить цены
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={openCreateModal}
+            >
+              Добавить акцию
+            </Button>
+          </div>
         </Header>
         <Content style={{ padding: 24 }}>
           {loading ? (

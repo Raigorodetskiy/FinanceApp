@@ -17,6 +17,13 @@ const api = axios.create({
   baseURL: API_BASE,
 });
 
+export interface StockPriceResponse {
+  symbol: string;
+  currentPrice: number;
+  change: number;
+  percentChange: number;
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -75,5 +82,8 @@ export const updateStock = (id: number, data: UpdateStockRequest) =>
   api.put<Stock>(`/Stocks/${id}`, data);
 
 export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
+
+export const getStockPrice = (symbol: string) =>
+  api.get<StockPriceResponse>(`/StockPrice/${symbol}`);
 
 export default api;
