@@ -31,6 +31,8 @@ import {
   getStocks,
   addPortfolioItem,
   getPortfolios,
+  getStockPrice,
+  type StockPriceResponse,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Portfolio, Stock, PortfolioItem } from '../types';
@@ -46,6 +48,7 @@ const PortfolioDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [livePrices, setLivePrices] = useState<Record<string, StockPriceResponse | null>>({});
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -62,11 +65,31 @@ const PortfolioDetailPage: React.FC = () => {
       setPortfolio(portfolioRes.data);
       setStocks(stocksRes.data);
       setPortfolios(portfoliosRes.data);
+      await fetchLivePrices(portfolioRes.data.items);
     } catch {
       message.error('Ошибка загрузки данных');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchLivePrices = async (items: PortfolioItem[]) => {
+    const entries = await Promise.all(
+      items.map(async (item) => {
+        const ticker = item.stock?.ticker?.trim();
+        if (!ticker) {
+          return [item.id.toString(), null] as const;
+        }
+
+        try {
+          const response = await getStockPrice(ticker);
+          return [item.id.toString(), response.data] as const;
+        } catch {
+          return [item.id.toString(), null] as const;
+        }
+      })
+    );
+    setLivePrices(Object.fromEntries(entries));
   };
 
   useEffect(() => {
@@ -139,14 +162,20 @@ const PortfolioDetailPage: React.FC = () => {
     {
       title: 'Тек. цена',
       key: 'currentPrice',
-      render: (_: unknown, record: PortfolioItem) =>
-        `€${record.stock.currentPrice.toFixed(2)}`,
+      render: (_: unknown, record: PortfolioItem) => {
+        const live = livePrices[record.id.toString()];
+        if (!live) return 'N/A';
+        return `€${live.currentPrice.toFixed(2)}`;
+      },
     },
     {
       title: 'Тек. стоимость',
       key: 'currentValue',
-      render: (_: unknown, record: PortfolioItem) =>
-        `€${(record.stock.currentPrice * record.quantity).toFixed(2)}`,
+      render: (_: unknown, record: PortfolioItem) => {
+        const live = livePrices[record.id.toString()];
+        if (!live) return 'N/A';
+        return `€${(live.currentPrice * record.quantity).toFixed(2)}`;
+      },
     },
     {
       title: 'P&L (€)',

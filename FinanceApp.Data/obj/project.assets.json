@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "targets": {
     "net8.0": {
       "Humanizer.Core/2.14.1": {
@@ -2130,19 +2130,19 @@
     ]
   },
   "packageFolders": {
-    "/root/.nuget/packages/": {}
+    "/home/runner/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/var/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
+      "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
       "projectName": "FinanceApp.Data",
-      "projectPath": "/var/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
-      "packagesPath": "/root/.nuget/packages/",
-      "outputPath": "/var/FinanceApp/FinanceApp.Data/obj/",
+      "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
+      "packagesPath": "/home/runner/.nuget/packages/",
+      "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "/root/.nuget/NuGet/NuGet.Config"
+        "/home/runner/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -2152,10 +2152,11 @@
       },
       "frameworks": {
         "net8.0": {
+          "framework": "net8.0",
           "targetAlias": "net8.0",
           "projectReferences": {
-            "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj": {
-              "projectPath": "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj"
+            "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj": {
+              "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj"
             }
           }
         }
@@ -2169,10 +2170,12 @@
         "enableAudit": "true",
         "auditLevel": "low",
         "auditMode": "direct"
-      }
+      },
+      "SdkAnalysisLevel": "10.0.300"
     },
     "frameworks": {
       "net8.0": {
+        "framework": "net8.0",
         "targetAlias": "net8.0",
         "dependencies": {
           "Microsoft.EntityFrameworkCore": {
@@ -2204,7 +2207,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

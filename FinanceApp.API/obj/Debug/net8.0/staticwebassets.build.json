@@ -1,11 +1,1 @@
-{
-  "Version": 1,
-  "Hash": "E3dtKxctxRBR4fRkG3DcT1sHvsRnwMI9TJnmIU9ZfB4=",
-  "Source": "FinanceApp.API",
-  "BasePath": "_content/FinanceApp.API",
-  "Mode": "Default",
-  "ManifestType": "Build",
-  "ReferencedProjectsConfiguration": [],
-  "DiscoveryPatterns": [],
-  "Assets": []
-}
+{"Version":1,"Hash":"zkNwNswDF2UFDKrL/zGL5VJRhIu1U79gWTMJL1Chu5Q=","Source":"FinanceApp.API","BasePath":"/","Mode":"Root","ManifestType":"Build","ReferencedProjectsConfiguration":[],"DiscoveryPatterns":[],"Assets":[],"Endpoints":[]}
