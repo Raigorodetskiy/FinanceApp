@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "rPmkkrLBvvk=",
+  "dgSpecHash": "VuB14kHVhEY=",
   "success": true,
-  "projectFilePath": "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
+  "projectFilePath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
   "expectedPackageFiles": [],
   "logs": []
 }

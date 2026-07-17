@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "/var/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj": {}
+    "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj": {}
   },
   "projects": {
-    "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj": {
+    "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
+        "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
         "projectName": "FinanceApp.Core",
-        "projectPath": "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
-        "packagesPath": "/root/.nuget/packages/",
-        "outputPath": "/var/FinanceApp/FinanceApp.Core/obj/",
+        "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
+        "packagesPath": "/home/runner/.nuget/packages/",
+        "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/root/.nuget/NuGet/NuGet.Config"
+          "/home/runner/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
@@ -24,6 +24,7 @@
         },
         "frameworks": {
           "net8.0": {
+            "framework": "net8.0",
             "targetAlias": "net8.0",
             "projectReferences": {}
           }
@@ -37,10 +38,12 @@
           "enableAudit": "true",
           "auditLevel": "low",
           "auditMode": "direct"
-        }
+        },
+        "SdkAnalysisLevel": "10.0.300"
       },
       "frameworks": {
         "net8.0": {
+          "framework": "net8.0",
           "targetAlias": "net8.0",
           "imports": [
             "net461",
@@ -58,21 +61,21 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "/var/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj": {
+    "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/var/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
+        "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
         "projectName": "FinanceApp.Data",
-        "projectPath": "/var/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
-        "packagesPath": "/root/.nuget/packages/",
-        "outputPath": "/var/FinanceApp/FinanceApp.Data/obj/",
+        "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
+        "packagesPath": "/home/runner/.nuget/packages/",
+        "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/root/.nuget/NuGet/NuGet.Config"
+          "/home/runner/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
@@ -82,10 +85,11 @@
         },
         "frameworks": {
           "net8.0": {
+            "framework": "net8.0",
             "targetAlias": "net8.0",
             "projectReferences": {
-              "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj": {
-                "projectPath": "/var/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj"
+              "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj": {
+                "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj"
               }
             }
           }
@@ -99,10 +103,12 @@
           "enableAudit": "true",
           "auditLevel": "low",
           "auditMode": "direct"
-        }
+        },
+        "SdkAnalysisLevel": "10.0.300"
       },
       "frameworks": {
         "net8.0": {
+          "framework": "net8.0",
           "targetAlias": "net8.0",
           "dependencies": {
             "Microsoft.EntityFrameworkCore": {
@@ -134,7 +140,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/8.0.404/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
