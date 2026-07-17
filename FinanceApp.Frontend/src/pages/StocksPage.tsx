@@ -72,23 +72,26 @@ const StocksPage: React.FC = () => {
 
   const fetchLivePrices = async (stocksToLoad: Stock[]) => {
     setPriceLoading(true);
-    const entries = await Promise.all(
-      stocksToLoad.map(async (stock) => {
-        const ticker = stock.ticker?.trim();
-        if (!ticker) {
-          return [stock.id.toString(), null] as const;
-        }
+    try {
+      const entries = await Promise.all(
+        stocksToLoad.map(async (stock) => {
+          const ticker = stock.ticker?.trim();
+          if (!ticker) {
+            return [stock.id.toString(), null] as const;
+          }
 
-        try {
-          const response = await getStockPrice(ticker);
-          return [stock.id.toString(), response.data] as const;
-        } catch {
-          return [stock.id.toString(), null] as const;
-        }
-      })
-    );
-    setLivePrices(Object.fromEntries(entries));
-    setPriceLoading(false);
+          try {
+            const response = await getStockPrice(ticker);
+            return [stock.id.toString(), response.data] as const;
+          } catch {
+            return [stock.id.toString(), null] as const;
+          }
+        })
+      );
+      setLivePrices(Object.fromEntries(entries));
+    } finally {
+      setPriceLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -166,6 +169,11 @@ const StocksPage: React.FC = () => {
     return `${sign}${data.percentChange.toFixed(2)}%`;
   };
 
+  const getSortableLivePrice = (record: Stock) => {
+    const data = livePrices[record.id.toString()];
+    return data?.currentPrice ?? Number.POSITIVE_INFINITY;
+  };
+
   const columns = [
     {
       title: 'Тикер',
@@ -187,7 +195,7 @@ const StocksPage: React.FC = () => {
       title: 'Текущая цена (live)',
       key: 'currentPrice',
       render: (_: unknown, record: Stock) => formatLivePrice(record),
-      sorter: (a: Stock, b: Stock) => a.currentPrice - b.currentPrice,
+      sorter: (a: Stock, b: Stock) => getSortableLivePrice(a) - getSortableLivePrice(b),
     },
     {
       title: 'Изменение',

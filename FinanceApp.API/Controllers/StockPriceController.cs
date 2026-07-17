@@ -32,40 +32,46 @@ public class StockPriceController : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Finnhub API key is not configured." });
         }
 
-        var encodedSymbol = Uri.EscapeDataString(symbol.Trim().ToUpperInvariant());
+        var normalizedSymbol = symbol.Trim().ToUpperInvariant();
+        var encodedSymbol = Uri.EscapeDataString(normalizedSymbol);
         var requestUri = $"https://finnhub.io/api/v1/quote?symbol={encodedSymbol}&token={Uri.EscapeDataString(apiKey)}";
 
         var client = _httpClientFactory.CreateClient();
         var response = await client.GetAsync(requestUri);
         if (!response.IsSuccessStatusCode)
         {
-            return StatusCode(StatusCodes.Status502BadGateway, new { message = "Failed to fetch stock price." });
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = $"Failed to fetch stock price from Finnhub. Status code: {(int)response.StatusCode}." });
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync();
         using var json = await JsonDocument.ParseAsync(stream);
         var root = json.RootElement;
 
-        var currentPrice = ReadDecimal(root, "c");
-        var change = ReadDecimal(root, "d");
-        var percentChange = ReadDecimal(root, "dp");
+        if (!TryReadDecimal(root, "c", out var currentPrice) ||
+            !TryReadDecimal(root, "d", out var change) ||
+            !TryReadDecimal(root, "dp", out var percentChange))
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "Finnhub returned an invalid quote payload." });
+        }
 
-        return Ok(new StockPriceResponse(encodedSymbol, currentPrice, change, percentChange));
+        return Ok(new StockPriceResponse(normalizedSymbol, currentPrice, change, percentChange));
     }
 
-    private static decimal ReadDecimal(JsonElement element, string propertyName)
+    private static bool TryReadDecimal(JsonElement element, string propertyName, out decimal value)
     {
-        if (!element.TryGetProperty(propertyName, out var value))
+        value = 0m;
+        if (!element.TryGetProperty(propertyName, out var jsonValue))
         {
-            return 0m;
+            return false;
         }
 
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+        if (jsonValue.ValueKind == JsonValueKind.Number && jsonValue.TryGetDecimal(out var number))
         {
-            return number;
+            value = number;
+            return true;
         }
 
-        return 0m;
+        return false;
     }
 
     public record StockPriceResponse(string Symbol, decimal CurrentPrice, decimal Change, decimal PercentChange);
