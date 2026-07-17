@@ -22,6 +22,12 @@ public class AuthController : ControllerBase
         _config = config;
     }
 
+    [HttpOptions("login")]
+    public IActionResult LoginOptions()
+    {
+        return Ok();
+    }
+
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginDto dto)
     {
