@@ -199,7 +199,7 @@ const StocksPage: React.FC = () => {
               {live?.loading
                 ? '...'
                 : live?.price != null
-                ? `$${live.price.toFixed(2)}`
+                ? `$${live.price.toFixed(2)} USD`
                 : '—'}
             </span>
             <Button
