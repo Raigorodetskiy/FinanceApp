@@ -76,4 +76,8 @@ export const updateStock = (id: number, data: UpdateStockRequest) =>
 
 export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
 
+// Stock prices (Finnhub)
+export const getStockPrice = (symbol: string) =>
+  api.get<{ symbol: string; currentPrice: number; change: number; percentChange: number }>(`/StockPrice/${symbol}`);
+
 export default api;

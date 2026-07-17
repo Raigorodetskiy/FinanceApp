@@ -22,6 +22,7 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -31,6 +32,7 @@ import {
   updateStock,
   deleteStock,
   getPortfolios,
+  getStockPrice,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio } from '../types';
@@ -45,6 +47,8 @@ const StocksPage: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; loading: boolean }>>({});
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -120,6 +124,46 @@ const StocksPage: React.FC = () => {
     }
   };
 
+  const handleRefreshPrices = async () => {
+    setRefreshing(true);
+    try {
+      const stocksWithTicker = stocks.filter((s) => s.ticker?.trim());
+      const results = await Promise.allSettled(
+        stocksWithTicker.map(async (stock) => {
+          const priceRes = await getStockPrice(stock.ticker);
+          await updateStock(stock.id, {
+            ...stock,
+            currentPrice: priceRes.data.currentPrice,
+            updatedAt: new Date().toISOString(),
+          });
+        })
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      await fetchData();
+      if (failed === 0) {
+        message.success('Цены обновлены');
+      } else {
+        message.warning(`Цены обновлены частично (${failed} ошибок)`);
+      }
+    } catch {
+      message.error('Ошибка обновления цен');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleFetchLivePrice = async (stock: Stock) => {
+    if (!stock.ticker?.trim()) return;
+    setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, loading: true } }));
+    try {
+      const res = await getStockPrice(stock.ticker);
+      setLivePrices((prev) => ({ ...prev, [stock.id]: { price: res.data.currentPrice, loading: false } }));
+    } catch {
+      setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, loading: false } }));
+      message.error(`Ошибка получения цены для ${stock.ticker}`);
+    }
+  };
+
   const columns = [
     {
       title: 'Тикер',
@@ -143,6 +187,31 @@ const StocksPage: React.FC = () => {
       key: 'currentPrice',
       render: (v: number) => `€${v.toFixed(2)}`,
       sorter: (a: Stock, b: Stock) => a.currentPrice - b.currentPrice,
+    },
+    {
+      title: 'Живая цена',
+      key: 'livePrice',
+      render: (_: unknown, record: Stock) => {
+        const live = livePrices[record.id];
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>
+              {live?.loading
+                ? '...'
+                : live?.price != null
+                ? `$${live.price.toFixed(2)} USD`
+                : '—'}
+            </span>
+            <Button
+              icon={<ReloadOutlined />}
+              size="small"
+              loading={live?.loading}
+              disabled={!record.ticker?.trim()}
+              onClick={() => handleFetchLivePrice(record)}
+            />
+          </div>
+        );
+      },
     },
     {
       title: 'Обновлено',
@@ -232,13 +301,22 @@ const StocksPage: React.FC = () => {
           <Title level={4} style={{ margin: 0 }}>
             Акции
           </Title>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={openCreateModal}
-          >
-            Добавить акцию
-          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={refreshing}
+              onClick={handleRefreshPrices}
+            >
+              Обновить цены
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={openCreateModal}
+            >
+              Добавить акцию
+            </Button>
+          </div>
         </Header>
         <Content style={{ padding: 24 }}>
           {loading ? (

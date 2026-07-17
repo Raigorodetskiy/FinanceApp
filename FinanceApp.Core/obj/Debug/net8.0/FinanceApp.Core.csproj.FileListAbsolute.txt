@@ -9,3 +9,14 @@
 /var/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/refint/FinanceApp.Core.dll
 /var/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.pdb
 /var/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/ref/FinanceApp.Core.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/bin/Debug/net8.0/FinanceApp.Core.deps.json
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/bin/Debug/net8.0/FinanceApp.Core.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/bin/Debug/net8.0/FinanceApp.Core.pdb
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.GeneratedMSBuildEditorConfig.editorconfig
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.AssemblyInfoInputs.cache
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.AssemblyInfo.cs
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.csproj.CoreCompileInputs.cache
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/refint/FinanceApp.Core.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.pdb
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/ref/FinanceApp.Core.dll
