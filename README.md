@@ -26,6 +26,15 @@ A React + TypeScript SPA that connects to the backend API.
 - React 18, TypeScript, Vite
 - Ant Design 5, Recharts, Axios, Day.js
 
+### Configuration
+
+Copy `.env.example` to `.env.local` and adjust as needed:
+```bash
+cp .env.example .env.local
+```
+
+By default the frontend connects to `http://173.249.42.11:5000/api`. Set `VITE_API_BASE_URL` in `.env.local` to override.
+
 ### Install
 ```bash
 cd FinanceApp.Frontend
