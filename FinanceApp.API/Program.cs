@@ -93,6 +93,34 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
+// Handle OPTIONS preflight before routing
+app.Use(async (context, next) =>
+{
+    if (context.Request.Method == "OPTIONS")
+    {
+        var origin = context.Request.Headers["Origin"].ToString();
+        var allowedOrigins = new[]
+        {
+            "http://173.249.42.11",
+            "http://173.249.42.11:80",
+            "http://173.249.42.11:3000",
+            "https://173.249.42.11",
+            "http://localhost:5173",
+            "http://localhost:3000"
+        };
+        if (allowedOrigins.Contains(origin))
+        {
+            context.Response.Headers["Access-Control-Allow-Origin"] = origin;
+            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+            context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+            context.Response.Headers["Access-Control-Max-Age"] = "86400";
+        }
+        context.Response.StatusCode = 204;
+        return;
+    }
+    await next();
+});
+
 app.UseRouting();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
