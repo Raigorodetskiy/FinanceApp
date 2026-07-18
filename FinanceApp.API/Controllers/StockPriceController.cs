@@ -1,9 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using System.Net.Http;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 namespace FinanceApp.API.Controllers;
 
@@ -47,5 +44,26 @@ public class StockPriceController : ControllerBase
         var percentChange = dpProp.GetDecimal();
 
         return Ok(new { symbol, currentPrice, change, percentChange });
+    }
+
+    [HttpGet("eurusd")]
+    public async Task<IActionResult> GetEurUsdRate()
+    {
+        var client = _httpClientFactory.CreateClient();
+        // Finnhub forex quote for EUR/USD
+        var url = $"https://finnhub.io/api/v1/quote?symbol=OANDA:EUR_USD&token={_apiKey}";
+        var response = await client.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+            return StatusCode((int)response.StatusCode, $"Finnhub error: {(int)response.StatusCode}");
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("c", out var cProp) || cProp.GetDecimal() == 0)
+            return StatusCode(502, "Could not get EUR/USD rate from Finnhub");
+
+        var eurUsd = cProp.GetDecimal();
+        return Ok(new { eurUsd });
     }
 }

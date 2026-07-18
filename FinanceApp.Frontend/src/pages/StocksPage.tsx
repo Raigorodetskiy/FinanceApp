@@ -33,6 +33,7 @@ import {
   deleteStock,
   getPortfolios,
   getStockPrice,
+  getEurUsdRate,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio } from '../types';
@@ -48,7 +49,7 @@ const StocksPage: React.FC = () => {
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; loading: boolean }>>({});
+  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean }>>({});
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -154,12 +155,39 @@ const StocksPage: React.FC = () => {
 
   const handleFetchLivePrice = async (stock: Stock) => {
     if (!stock.ticker?.trim()) return;
-    setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, loading: true } }));
+    setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, priceEur: null, loading: true } }));
     try {
-      const res = await getStockPrice(stock.ticker);
-      setLivePrices((prev) => ({ ...prev, [stock.id]: { price: res.data.currentPrice, loading: false } }));
+      const [priceRes, eurUsdRes] = await Promise.all([
+        getStockPrice(stock.ticker),
+        getEurUsdRate(),
+      ]);
+      const priceUsd = priceRes.data.currentPrice;
+      const eurUsd = eurUsdRes.data.eurUsd;
+      // EUR/USD rate means 1 EUR = eurUsd USD, so priceEur = priceUsd / eurUsd
+      const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
+
+      setLivePrices((prev) => ({
+        ...prev,
+        [stock.id]: { price: priceUsd, priceEur, loading: false },
+      }));
+
+      // Save converted EUR price to DB
+      await updateStock(stock.id, {
+        ...stock,
+        currentPrice: Math.round(priceEur * 100) / 100,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Update local stocks state so Текущая цена column refreshes
+      setStocks((prev) =>
+        prev.map((s) =>
+          s.id === stock.id
+            ? { ...s, currentPrice: Math.round(priceEur * 100) / 100, updatedAt: new Date().toISOString() }
+            : s
+        )
+      );
     } catch {
-      setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, loading: false } }));
+      setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, priceEur: null, loading: false } }));
       message.error(`Ошибка получения цены для ${stock.ticker}`);
     }
   };
@@ -182,7 +210,7 @@ const StocksPage: React.FC = () => {
       key: 'exchange',
     },
     {
-      title: 'Текущая цена',
+      title: 'Текущая цена (€)',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
       render: (v: number) => `€${v.toFixed(2)}`,
@@ -217,7 +245,7 @@ const StocksPage: React.FC = () => {
       title: 'Обновлено',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      render: (v: string) => dayjs(v).format('DD.MM.YYYY'),
+      render: (v: string) => dayjs(v).format('DD.MM.YYYY HH:mm'),
     },
     {
       title: 'Действия',
