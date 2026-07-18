@@ -80,4 +80,7 @@ export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
 export const getStockPrice = (symbol: string) =>
   api.get<{ symbol: string; currentPrice: number; change: number; percentChange: number }>(`/StockPrice/${symbol}`);
 
+export const getEurUsdRate = () =>
+  api.get<{ eurUsd: number }>('/StockPrice/eurusd');
+
 export default api;
