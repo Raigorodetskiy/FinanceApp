@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Layout,
   Menu,
@@ -39,7 +39,9 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio } from '../types';
 
 const { Sider, Header, Content } = Layout;
-const { Title } = Typography;
+const { Title, Text } = Typography;
+
+const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
@@ -50,9 +52,11 @@ const StocksPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean }>>({});
+  const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const stocksRef = useRef<Stock[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -62,6 +66,7 @@ const StocksPage: React.FC = () => {
         getPortfolios(),
       ]);
       setStocks(stocksRes.data);
+      stocksRef.current = stocksRes.data;
       setPortfolios(portfoliosRes.data);
     } catch {
       message.error('Ошибка загрузки данных');
@@ -73,6 +78,65 @@ const StocksPage: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleRefreshPrices = useCallback(async (silent = false) => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const currentStocks = stocksRef.current;
+      const stocksWithTicker = currentStocks.filter((s) => s.ticker?.trim());
+      const results = await Promise.allSettled(
+        stocksWithTicker.map(async (stock) => {
+          const priceRes = await getStockPrice(stock.ticker);
+          await updateStock(stock.id, {
+            ...stock,
+            currentPrice: priceRes.data.currentPrice,
+            updatedAt: new Date().toISOString(),
+          });
+        })
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      await fetchData();
+      if (!silent) {
+        if (failed === 0) {
+          message.success('Цены обновлены');
+        } else {
+          message.warning(`Цены обновлены частично (${failed} ошибок)`);
+        }
+      } else {
+        message.info('Цены автоматически обновлены');
+      }
+    } catch {
+      if (!silent) message.error('Ошибка обновления цен');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing]);
+
+  // Auto-refresh every 10 minutes
+  useEffect(() => {
+    const autoRefreshTimer = setInterval(() => {
+      handleRefreshPrices(true);
+      setCountdown(AUTO_REFRESH_INTERVAL);
+    }, AUTO_REFRESH_INTERVAL * 1000);
+
+    return () => clearInterval(autoRefreshTimer);
+  }, [handleRefreshPrices]);
+
+  // Countdown timer (updates every second)
+  useEffect(() => {
+    setCountdown(AUTO_REFRESH_INTERVAL);
+    const countdownTimer = setInterval(() => {
+      setCountdown((prev) => (prev <= 1 ? AUTO_REFRESH_INTERVAL : prev - 1));
+    }, 1000);
+    return () => clearInterval(countdownTimer);
+  }, []);
+
+  const formatCountdown = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   const openCreateModal = () => {
     setEditingStock(null);
@@ -125,34 +189,6 @@ const StocksPage: React.FC = () => {
     }
   };
 
-  const handleRefreshPrices = async () => {
-    setRefreshing(true);
-    try {
-      const stocksWithTicker = stocks.filter((s) => s.ticker?.trim());
-      const results = await Promise.allSettled(
-        stocksWithTicker.map(async (stock) => {
-          const priceRes = await getStockPrice(stock.ticker);
-          await updateStock(stock.id, {
-            ...stock,
-            currentPrice: priceRes.data.currentPrice,
-            updatedAt: new Date().toISOString(),
-          });
-        })
-      );
-      const failed = results.filter((r) => r.status === 'rejected').length;
-      await fetchData();
-      if (failed === 0) {
-        message.success('Цены обновлены');
-      } else {
-        message.warning(`Цены обновлены частично (${failed} ошибок)`);
-      }
-    } catch {
-      message.error('Ошибка обновления цен');
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   const handleFetchLivePrice = async (stock: Stock) => {
     if (!stock.ticker?.trim()) return;
     setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, priceEur: null, loading: true } }));
@@ -163,7 +199,6 @@ const StocksPage: React.FC = () => {
       ]);
       const priceUsd = priceRes.data.currentPrice;
       const eurUsd = eurUsdRes.data.eurUsd;
-      // EUR/USD rate means 1 EUR = eurUsd USD, so priceEur = priceUsd / eurUsd
       const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
 
       setLivePrices((prev) => ({
@@ -171,14 +206,12 @@ const StocksPage: React.FC = () => {
         [stock.id]: { price: priceUsd, priceEur, loading: false },
       }));
 
-      // Save converted EUR price to DB
       await updateStock(stock.id, {
         ...stock,
         currentPrice: Math.round(priceEur * 100) / 100,
         updatedAt: new Date().toISOString(),
       });
 
-      // Update local stocks state so Текущая цена column refreshes
       setStocks((prev) =>
         prev.map((s) =>
           s.id === stock.id
@@ -329,11 +362,14 @@ const StocksPage: React.FC = () => {
           <Title level={4} style={{ margin: 0 }}>
             Акции
           </Title>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Авто-обновление через {formatCountdown(countdown)}
+            </Text>
             <Button
               icon={<ReloadOutlined />}
               loading={refreshing}
-              onClick={handleRefreshPrices}
+              onClick={() => { handleRefreshPrices(false); setCountdown(AUTO_REFRESH_INTERVAL); }}
             >
               Обновить цены
             </Button>
