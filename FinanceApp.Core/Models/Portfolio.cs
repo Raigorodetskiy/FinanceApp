@@ -8,4 +8,5 @@ public class Portfolio
     public DateTime CreatedAt { get; set; }
     public User User { get; set; } = null!;
     public List<PortfolioItem> Items { get; set; } = new();
+    public List<Order> Orders { get; set; } = new();
 }

@@ -12,6 +12,7 @@ export interface Portfolio {
   userId: number;
   createdAt: string;
   items: PortfolioItem[];
+  orders: Order[];
 }
 
 export interface PortfolioItem {
@@ -31,6 +32,24 @@ export interface Stock {
   exchange: string;
   currentPrice: number;
   updatedAt: string;
+}
+
+export type OrderType = 'Buy' | 'Sell';
+export type OrderStatus = 'Pending' | 'Executed' | 'Cancelled';
+
+export interface Order {
+  id: number;
+  portfolioId: number;
+  stockId: number;
+  stock: Stock;
+  type: OrderType;
+  status: OrderStatus;
+  quantity: number;
+  price: number;
+  stopLoss: number | null;
+  stopMarket: number | null;
+  createdAt: string;
+  executedAt: string | null;
 }
 
 export interface LoginRequest {
@@ -68,4 +87,22 @@ export interface UpdateStockRequest {
   exchange: string;
   currentPrice: number;
   updatedAt: string;
+}
+
+export interface CreateOrderRequest {
+  stockId: number;
+  type: OrderType;
+  quantity: number;
+  price: number;
+  stopLoss?: number;
+  stopMarket?: number;
+}
+
+export interface UpdateOrderRequest {
+  type: OrderType;
+  status: OrderStatus;
+  quantity: number;
+  price: number;
+  stopLoss?: number;
+  stopMarket?: number;
 }
