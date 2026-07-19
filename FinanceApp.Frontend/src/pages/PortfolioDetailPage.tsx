@@ -164,7 +164,7 @@ const PortfolioDetailPage: React.FC = () => {
       render: (v: number) => v.toFixed(2),
     },
     {
-      title: 'Цен�� покупки',
+      title: 'Цена покупки',
       dataIndex: 'buyPrice',
       key: 'buyPrice',
       render: (v: number) => `€${v.toFixed(2)}`,
