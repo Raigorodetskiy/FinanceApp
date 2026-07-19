@@ -113,17 +113,14 @@ const StocksPage: React.FC = () => {
     }
   }, [refreshing]);
 
-  // Auto-refresh every 10 minutes
   useEffect(() => {
     const autoRefreshTimer = setInterval(() => {
       handleRefreshPrices(true);
       setCountdown(AUTO_REFRESH_INTERVAL);
     }, AUTO_REFRESH_INTERVAL * 1000);
-
     return () => clearInterval(autoRefreshTimer);
   }, [handleRefreshPrices]);
 
-  // Countdown timer (updates every second)
   useEffect(() => {
     setCountdown(AUTO_REFRESH_INTERVAL);
     const countdownTimer = setInterval(() => {
@@ -153,7 +150,6 @@ const StocksPage: React.FC = () => {
   const handleSubmit = async (values: {
     ticker: string;
     name: string;
-    exchange: string;
     currentPrice: number;
   }) => {
     setSubmitting(true);
@@ -162,11 +158,12 @@ const StocksPage: React.FC = () => {
         await updateStock(editingStock.id, {
           ...editingStock,
           ...values,
+          exchange: '',
           updatedAt: new Date().toISOString(),
         });
         message.success('Акция обновлена');
       } else {
-        await createStock(values);
+        await createStock({ ...values, exchange: '' });
         message.success('Акция добавлена');
       }
       setModalOpen(false);
@@ -236,11 +233,6 @@ const StocksPage: React.FC = () => {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
-    },
-    {
-      title: 'Биржа',
-      dataIndex: 'exchange',
-      key: 'exchange',
     },
     {
       title: 'Текущая цена (€)',
@@ -419,13 +411,6 @@ const StocksPage: React.FC = () => {
             rules={[{ required: true, message: 'Введите название' }]}
           >
             <Input placeholder="Apple Inc." />
-          </Form.Item>
-          <Form.Item
-            label="Биржа"
-            name="exchange"
-            rules={[{ required: true, message: 'Введите биржу' }]}
-          >
-            <Input placeholder="NASDAQ" />
           </Form.Item>
           <Form.Item
             label="Текущая цена (€)"

@@ -74,6 +74,36 @@ public class PortfoliosController : ControllerBase
         return Ok(item);
     }
 
+    [HttpPut("{id}/items/{itemId}")]
+    public async Task<IActionResult> UpdateItem(int id, int itemId, AddItemDto dto)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        if (!await _context.Portfolios.AnyAsync(p => p.Id == id && p.UserId == userId))
+            return NotFound("Portfolio not found");
+        var item = await _context.PortfolioItems
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.PortfolioId == id);
+        if (item == null) return NotFound("Item not found");
+        item.StockId = dto.StockId;
+        item.Quantity = dto.Quantity;
+        item.BuyPrice = dto.BuyPrice;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpDelete("{id}/items/{itemId}")]
+    public async Task<IActionResult> DeleteItem(int id, int itemId)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        if (!await _context.Portfolios.AnyAsync(p => p.Id == id && p.UserId == userId))
+            return NotFound("Portfolio not found");
+        var item = await _context.PortfolioItems
+            .FirstOrDefaultAsync(i => i.Id == itemId && i.PortfolioId == id);
+        if (item == null) return NotFound("Item not found");
+        _context.PortfolioItems.Remove(item);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {

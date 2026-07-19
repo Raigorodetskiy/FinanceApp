@@ -60,8 +60,14 @@ export const createPortfolio = (data: CreatePortfolioRequest) =>
 export const deletePortfolio = (id: number) =>
   api.delete(`/Portfolios/${id}`);
 
-export const addPortfolioItem = (id: number, data: AddPortfolioItemRequest) =>
-  api.post(`/Portfolios/${id}/items`, data);
+export const addPortfolioItem = (portfolioId: number, data: AddPortfolioItemRequest) =>
+  api.post(`/Portfolios/${portfolioId}/items`, data);
+
+export const updatePortfolioItem = (portfolioId: number, itemId: number, data: AddPortfolioItemRequest) =>
+  api.put(`/Portfolios/${portfolioId}/items/${itemId}`, data);
+
+export const deletePortfolioItem = (portfolioId: number, itemId: number) =>
+  api.delete(`/Portfolios/${portfolioId}/items/${itemId}`);
 
 // Stocks
 export const getStocks = () => api.get<Stock[]>('/Stocks');

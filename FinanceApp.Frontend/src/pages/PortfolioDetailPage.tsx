@@ -14,6 +14,7 @@ import {
   Row,
   Col,
   Tag,
+  Popconfirm,
   message,
 } from 'antd';
 import {
@@ -24,12 +25,16 @@ import {
   LogoutOutlined,
   PlusOutlined,
   ArrowLeftOutlined,
+  EditOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   getPortfolio,
   getStocks,
   addPortfolioItem,
+  updatePortfolioItem,
+  deletePortfolioItem,
   getPortfolios,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -45,7 +50,8 @@ const PortfolioDetailPage: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [editingItem, setEditingItem] = useState<PortfolioItem | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -73,23 +79,55 @@ const PortfolioDetailPage: React.FC = () => {
     fetchData();
   }, [id]);
 
-  const handleAddItem = async (values: {
+  const openAddModal = () => {
+    setEditingItem(null);
+    form.resetFields();
+    setModalOpen(true);
+  };
+
+  const openEditModal = (item: PortfolioItem) => {
+    setEditingItem(item);
+    form.setFieldsValue({
+      stockId: item.stockId,
+      quantity: item.quantity,
+      buyPrice: item.buyPrice,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async (values: {
     stockId: number;
     quantity: number;
     buyPrice: number;
   }) => {
     if (!id) return;
-    setAdding(true);
+    setSubmitting(true);
     try {
-      await addPortfolioItem(Number(id), values);
-      message.success('Позиция добавлена');
+      if (editingItem) {
+        await updatePortfolioItem(Number(id), editingItem.id, values);
+        message.success('Позиция обновлена');
+      } else {
+        await addPortfolioItem(Number(id), values);
+        message.success('Позиция добавлена');
+      }
       setModalOpen(false);
       form.resetFields();
       fetchData();
     } catch {
-      message.error('Ошибка добавления позиции');
+      message.error('Ошибка сохранения позиции');
     } finally {
-      setAdding(false);
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteItem = async (itemId: number) => {
+    if (!id) return;
+    try {
+      await deletePortfolioItem(Number(id), itemId);
+      message.success('Позиция удалена');
+      fetchData();
+    } catch {
+      message.error('Ошибка удаления позиции');
     }
   };
 
@@ -120,18 +158,13 @@ const PortfolioDetailPage: React.FC = () => {
       key: 'name',
     },
     {
-      title: 'Биржа',
-      dataIndex: ['stock', 'exchange'],
-      key: 'exchange',
-    },
-    {
       title: 'Кол-во',
       dataIndex: 'quantity',
       key: 'quantity',
       render: (v: number) => v.toFixed(2),
     },
     {
-      title: 'Цена покупки',
+      title: 'Цен�� покупки',
       dataIndex: 'buyPrice',
       key: 'buyPrice',
       render: (v: number) => `€${v.toFixed(2)}`,
@@ -178,6 +211,31 @@ const PortfolioDetailPage: React.FC = () => {
           </span>
         );
       },
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      render: (_: unknown, record: PortfolioItem) => (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button
+            icon={<EditOutlined />}
+            size="small"
+            onClick={() => openEditModal(record)}
+          >
+            Изменить
+          </Button>
+          <Popconfirm
+            title="Удалить позицию?"
+            onConfirm={() => handleDeleteItem(record.id)}
+            okText="Да"
+            cancelText="Нет"
+          >
+            <Button icon={<DeleteOutlined />} size="small" danger>
+              Удалить
+            </Button>
+          </Popconfirm>
+        </div>
+      ),
     },
   ];
 
@@ -248,7 +306,7 @@ const PortfolioDetailPage: React.FC = () => {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => setModalOpen(true)}
+            onClick={openAddModal}
           >
             Добавить позицию
           </Button>
@@ -314,12 +372,12 @@ const PortfolioDetailPage: React.FC = () => {
       </Layout>
 
       <Modal
-        title="Добавить позицию"
+        title={editingItem ? 'Редактировать позицию' : 'Добавить позицию'}
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); }}
+        onCancel={() => { setModalOpen(false); form.resetFields(); setEditingItem(null); }}
         footer={null}
       >
-        <Form form={form} layout="vertical" onFinish={handleAddItem}>
+        <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.Item
             label="Акция"
             name="stockId"
@@ -329,6 +387,7 @@ const PortfolioDetailPage: React.FC = () => {
               placeholder="Выберите акцию"
               showSearch
               optionFilterProp="children"
+              disabled={!!editingItem}
             >
               {stocks.map((stock) => (
                 <Select.Option key={stock.id} value={stock.id}>
@@ -363,8 +422,8 @@ const PortfolioDetailPage: React.FC = () => {
             />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit" loading={adding} block>
-              Добавить
+            <Button type="primary" htmlType="submit" loading={submitting} block>
+              {editingItem ? 'Сохранить' : 'Добавить'}
             </Button>
           </Form.Item>
         </Form>
