@@ -18,6 +18,8 @@ import {
   Popconfirm,
   Tooltip,
   message,
+  Input,
+  DatePicker,
 } from 'antd';
 import {
   DashboardOutlined,
@@ -30,6 +32,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   BellOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -44,9 +47,26 @@ import {
   createOrder,
   updateOrder,
   deleteOrder,
+  getBalance,
+  getTransactions,
+  createTransaction,
+  deleteTransaction,
+  getDividends,
+  createDividend,
+  deleteDividend,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import type { Portfolio, Stock, PortfolioItem, Order, OrderType, OrderStatus } from '../types';
+import type {
+  Portfolio,
+  Stock,
+  PortfolioItem,
+  Order,
+  OrderType,
+  OrderStatus,
+  Transaction,
+  Dividend,
+  PortfolioBalance,
+} from '../types';
 
 const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -63,6 +83,23 @@ const PortfolioDetailPage: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Finance state
+  const [balance, setBalance] = useState<PortfolioBalance | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [dividends, setDividends] = useState<Dividend[]>([]);
+  const [financeLoaded, setFinanceLoaded] = useState(false);
+
+  // Transaction modal
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [txType, setTxType] = useState<'Deposit' | 'Withdrawal'>('Deposit');
+  const [txSubmitting, setTxSubmitting] = useState(false);
+  const [txForm] = Form.useForm();
+
+  // Dividend modal
+  const [divModalOpen, setDivModalOpen] = useState(false);
+  const [divSubmitting, setDivSubmitting] = useState(false);
+  const [divForm] = Form.useForm();
 
   // Position modal
   const [posModalOpen, setPosModalOpen] = useState(false);
@@ -101,6 +138,23 @@ const PortfolioDetailPage: React.FC = () => {
   };
 
   useEffect(() => { fetchData(); }, [id]);
+
+  const fetchFinanceData = async () => {
+    if (!id) return;
+    try {
+      const [balanceRes, txRes, divRes] = await Promise.all([
+        getBalance(Number(id)),
+        getTransactions(Number(id)),
+        getDividends(Number(id)),
+      ]);
+      setBalance(balanceRes.data);
+      setTransactions(txRes.data);
+      setDividends(divRes.data);
+      setFinanceLoaded(true);
+    } catch {
+      message.error('Ошибка загрузки финансовых данных');
+    }
+  };
 
   // ── Positions ──────────────────────────────────────────────
   const openAddPosModal = () => { setEditingItem(null); posForm.resetFields(); setPosModalOpen(true); };
@@ -193,6 +247,42 @@ const PortfolioDetailPage: React.FC = () => {
     if (order.type === 'Buy' && currentPrice <= order.price) return `Цена ${currentPrice} <= лимит покупки ${order.price}`;
     if (order.type === 'Sell' && currentPrice >= order.price) return `Цена ${currentPrice} >= лимит продажи ${order.price}`;
     return null;
+  };
+
+  // ── Finance handlers ───────────────────────────────────────
+  const openDepositModal = () => { setTxType('Deposit'); txForm.resetFields(); setTxModalOpen(true); };
+  const openWithdrawModal = () => { setTxType('Withdrawal'); txForm.resetFields(); setTxModalOpen(true); };
+  const handleTxSubmit = async (values: { amount: number; description?: string }) => {
+    if (!id) return;
+    setTxSubmitting(true);
+    try {
+      await createTransaction(Number(id), { type: txType, amount: values.amount, description: values.description });
+      message.success(txType === 'Deposit' ? 'Пополнение добавлено' : 'Вывод добавлен');
+      setTxModalOpen(false); txForm.resetFields(); fetchFinanceData();
+    } catch { message.error('Ошибка сохранения транзакции'); }
+    finally { setTxSubmitting(false); }
+  };
+  const handleDeleteTx = async (txId: number) => {
+    if (!id) return;
+    try { await deleteTransaction(Number(id), txId); message.success('Транзакция удалена'); fetchFinanceData(); }
+    catch { message.error('Ошибка удаления транзакции'); }
+  };
+
+  const openAddDivModal = () => { divForm.resetFields(); setDivModalOpen(true); };
+  const handleDivSubmit = async (values: { stockId: number; amount: number; paidAt: dayjs.Dayjs }) => {
+    if (!id) return;
+    setDivSubmitting(true);
+    try {
+      await createDividend(Number(id), { stockId: values.stockId, amount: values.amount, paidAt: values.paidAt.toISOString() });
+      message.success('Дивиденд добавлен');
+      setDivModalOpen(false); divForm.resetFields(); fetchFinanceData();
+    } catch { message.error('Ошибка добавления дивиденда'); }
+    finally { setDivSubmitting(false); }
+  };
+  const handleDeleteDiv = async (divId: number) => {
+    if (!id) return;
+    try { await deleteDividend(Number(id), divId); message.success('Дивиденд удалён'); fetchFinanceData(); }
+    catch { message.error('Ошибка удаления дивиденда'); }
   };
 
   // ── Summary ────────────────────────────────────────────────
@@ -329,6 +419,7 @@ const PortfolioDetailPage: React.FC = () => {
 
               <Tabs
                 defaultActiveKey="positions"
+                onChange={(key) => { if (key === 'finance' && !financeLoaded) fetchFinanceData(); }}
                 items={[
                   {
                     key: 'positions',
@@ -359,6 +450,113 @@ const PortfolioDetailPage: React.FC = () => {
                         </div>
                         <Table dataSource={orders} columns={orderColumns} rowKey="id" scroll={{ x: true }} pagination={{ pageSize: 20 }} />
                       </>
+                    ),
+                  },
+                  {
+                    key: 'finance',
+                    label: <span><WalletOutlined style={{ marginRight: 4 }} />Финансы</span>,
+                    children: (
+                      <Tabs
+                        defaultActiveKey="balance"
+                        items={[
+                          {
+                            key: 'balance',
+                            label: 'Баланс',
+                            children: balance ? (
+                              <>
+                                <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                                  <Col xs={24} sm={12} lg={8}>
+                                    <Card><Text type="secondary">Денежный баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.cashBalance.toFixed(2)}</Title></Card>
+                                  </Col>
+                                  <Col xs={24} sm={12} lg={8}>
+                                    <Card><Text type="secondary">Кредит брокера</Text><Title level={4} style={{ margin: 0 }}>€{balance.brokerCredit.toFixed(2)}</Title></Card>
+                                  </Col>
+                                  <Col xs={24} sm={12} lg={8}>
+                                    <Card><Text type="secondary">Общий баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalBalance.toFixed(2)}</Title></Card>
+                                  </Col>
+                                  <Col xs={24} sm={12} lg={8}>
+                                    <Card><Text type="secondary">Стоимость акций</Text><Title level={4} style={{ margin: 0 }}>€{balance.stocksValue.toFixed(2)}</Title></Card>
+                                  </Col>
+                                  <Col xs={24} sm={12} lg={8}>
+                                    <Card><Text type="secondary">Итого портфель</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalPortfolioValue.toFixed(2)}</Title></Card>
+                                  </Col>
+                                </Row>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
+                                  <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
+                                </div>
+                              </>
+                            ) : (
+                              <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin /></div>
+                            ),
+                          },
+                          {
+                            key: 'transactions',
+                            label: 'Транзакции',
+                            children: (
+                              <>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+                                  <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
+                                  <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
+                                </div>
+                                <Table
+                                  dataSource={transactions}
+                                  rowKey="id"
+                                  scroll={{ x: true }}
+                                  pagination={{ pageSize: 20 }}
+                                  columns={[
+                                    { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs(v).format('DD.MM.YYYY HH:mm') },
+                                    {
+                                      title: 'Тип', dataIndex: 'type', key: 'type',
+                                      render: (v: string) => <Tag color={v === 'Deposit' ? 'green' : 'red'}>{v === 'Deposit' ? 'Пополнение' : 'Вывод'}</Tag>,
+                                    },
+                                    { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
+                                    { title: 'Описание', dataIndex: 'description', key: 'description', render: (v: string | null) => v ?? '—' },
+                                    {
+                                      title: 'Удалить', key: 'delete',
+                                      render: (_: unknown, r: Transaction) => (
+                                        <Popconfirm title="Удалить транзакцию?" onConfirm={() => handleDeleteTx(r.id)} okText="Да" cancelText="Нет">
+                                          <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+                                        </Popconfirm>
+                                      ),
+                                    },
+                                  ]}
+                                />
+                              </>
+                            ),
+                          },
+                          {
+                            key: 'dividends',
+                            label: 'Дивиденды',
+                            children: (
+                              <>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                                  <Button type="primary" icon={<PlusOutlined />} onClick={openAddDivModal}>Добавить дивиденд</Button>
+                                </div>
+                                <Table
+                                  dataSource={dividends}
+                                  rowKey="id"
+                                  scroll={{ x: true }}
+                                  pagination={{ pageSize: 20 }}
+                                  columns={[
+                                    { title: 'Дата выплаты', dataIndex: 'paidAt', key: 'paidAt', render: (v: string) => dayjs(v).format('DD.MM.YYYY') },
+                                    { title: 'Акция', key: 'ticker', render: (_: unknown, r: Dividend) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+                                    { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
+                                    {
+                                      title: 'Удалить', key: 'delete',
+                                      render: (_: unknown, r: Dividend) => (
+                                        <Popconfirm title="Удалить дивиденд?" onConfirm={() => handleDeleteDiv(r.id)} okText="Да" cancelText="Нет">
+                                          <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+                                        </Popconfirm>
+                                      ),
+                                    },
+                                  ]}
+                                />
+                              </>
+                            ),
+                          },
+                        ]}
+                      />
                     ),
                   },
                 ]}
@@ -456,6 +654,53 @@ const PortfolioDetailPage: React.FC = () => {
             <Button type="primary" htmlType="submit" loading={orderSubmitting} block>
               {editingOrder ? 'Сохранить' : 'Создать'}
             </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Transaction Modal */}
+      <Modal
+        title={txType === 'Deposit' ? 'Пополнить баланс' : 'Вывести средства'}
+        open={txModalOpen}
+        onCancel={() => { setTxModalOpen(false); txForm.resetFields(); }}
+        footer={null}
+      >
+        <Form form={txForm} layout="vertical" onFinish={handleTxSubmit}>
+          <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
+            <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} prefix="€" />
+          </Form.Item>
+          <Form.Item label="Описание" name="description">
+            <Input placeholder="Необязательно" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={txSubmitting} block>
+              {txType === 'Deposit' ? 'Пополнить' : 'Вывести'}
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Dividend Modal */}
+      <Modal
+        title="Добавить дивиденд"
+        open={divModalOpen}
+        onCancel={() => { setDivModalOpen(false); divForm.resetFields(); }}
+        footer={null}
+      >
+        <Form form={divForm} layout="vertical" onFinish={handleDivSubmit}>
+          <Form.Item label="Акция" name="stockId" rules={[{ required: true, message: 'Выберите акцию' }]}>
+            <Select placeholder="Выберите акцию" showSearch optionFilterProp="children">
+              {items.map((i) => <Select.Option key={i.stockId} value={i.stockId}>{i.stock.ticker} — {i.stock.name}</Select.Option>)}
+            </Select>
+          </Form.Item>
+          <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
+            <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} prefix="€" />
+          </Form.Item>
+          <Form.Item label="Дата выплаты" name="paidAt" rules={[{ required: true, message: 'Укажите дату выплаты' }]}>
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={divSubmitting} block>Добавить</Button>
           </Form.Item>
         </Form>
       </Modal>

@@ -12,4 +12,6 @@ public class AppDbContext : DbContext
     public DbSet<Portfolio> Portfolios { get; set; } = null!;
     public DbSet<PortfolioItem> PortfolioItems { get; set; } = null!;
     public DbSet<Order> Orders { get; set; } = null!;
+    public DbSet<Transaction> Transactions { get; set; } = null!;
+    public DbSet<Dividend> Dividends { get; set; } = null!;
 }
