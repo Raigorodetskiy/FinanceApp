@@ -51,7 +51,7 @@ public class StockPriceController : ControllerBase
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
             client.DefaultRequestHeaders.Add("Accept", "application/json");
 
-            var url = $"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d";
+            var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d";
             var response = await client.GetAsync(url);
 
             if (!response.IsSuccessStatusCode)
@@ -66,32 +66,9 @@ public class StockPriceController : ControllerBase
                 .GetProperty("result")[0]
                 .GetProperty("meta");
 
-            // marketState: PRE, REGULAR, POST, POSTPOST, CLOSED
-            var marketState = meta.TryGetProperty("marketState", out var ms) ? ms.GetString() : "CLOSED";
-
-            decimal regularMarketPrice = meta.TryGetProperty("regularMarketPrice", out var rmp)
+            decimal currentPrice = meta.TryGetProperty("regularMarketPrice", out var rmp)
                 ? rmp.GetDecimal()
                 : meta.TryGetProperty("previousClose", out var pc0) ? pc0.GetDecimal() : 0m;
-
-            decimal currentPrice = regularMarketPrice;
-            string priceType = "regular";
-
-            // Use pre-market price if market is in PRE state
-            if ((marketState == "PRE") &&
-                meta.TryGetProperty("preMarketPrice", out var prePrice) &&
-                prePrice.ValueKind == JsonValueKind.Number)
-            {
-                currentPrice = prePrice.GetDecimal();
-                priceType = "pre";
-            }
-            // Use post-market price if market is in POST/POSTPOST state
-            else if ((marketState == "POST" || marketState == "POSTPOST") &&
-                meta.TryGetProperty("postMarketPrice", out var postPrice) &&
-                postPrice.ValueKind == JsonValueKind.Number)
-            {
-                currentPrice = postPrice.GetDecimal();
-                priceType = "post";
-            }
 
             if (currentPrice == 0m)
                 return StatusCode(502, "Could not parse price from Yahoo Finance");
@@ -103,7 +80,41 @@ public class StockPriceController : ControllerBase
             var change = currentPrice - previousClose;
             var percentChange = previousClose != 0 ? (change / previousClose) * 100m : 0m;
 
-            return Ok(new { symbol, currentPrice, change, percentChange, marketState, priceType });
+            // Determine market state from trading periods
+            var marketState = "CLOSED";
+            if (meta.TryGetProperty("currentTradingPeriod", out var tradingPeriod))
+            {
+                var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                long preStart = 0, preEnd = 0, regStart = 0, regEnd = 0, postStart = 0, postEnd = 0;
+
+                if (tradingPeriod.TryGetProperty("pre", out var pre))
+                {
+                    preStart = pre.GetProperty("start").GetInt64();
+                    preEnd = pre.GetProperty("end").GetInt64();
+                }
+                if (tradingPeriod.TryGetProperty("regular", out var reg))
+                {
+                    regStart = reg.GetProperty("start").GetInt64();
+                    regEnd = reg.GetProperty("end").GetInt64();
+                }
+                if (tradingPeriod.TryGetProperty("post", out var post))
+                {
+                    postStart = post.GetProperty("start").GetInt64();
+                    postEnd = post.GetProperty("end").GetInt64();
+                }
+
+                if (nowUnix >= regStart && nowUnix < regEnd)
+                    marketState = "REGULAR";
+                else if (nowUnix >= preStart && nowUnix < preEnd)
+                    marketState = "PRE";
+                else if (nowUnix >= postStart && nowUnix < postEnd)
+                    marketState = "POST";
+                else
+                    marketState = "CLOSED";
+            }
+
+            return Ok(new { symbol, currentPrice, change, percentChange, marketState });
         }
         catch (Exception ex)
         {
