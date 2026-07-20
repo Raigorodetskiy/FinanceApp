@@ -39,6 +39,33 @@ public class StockPriceController : ControllerBase
         return Ok(new { eurUsd });
     }
 
+    // Temporary debug endpoint - remove after investigation
+    [HttpGet("debug/{symbol}")]
+    public async Task<IActionResult> DebugPrice(string symbol)
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+
+        var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d";
+        var response = await client.GetAsync(url);
+        var json = await response.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(json);
+        var meta = doc.RootElement
+            .GetProperty("chart")
+            .GetProperty("result")[0]
+            .GetProperty("meta");
+
+        var keys = new List<string>();
+        foreach (var prop in meta.EnumerateObject())
+            keys.Add(prop.Name);
+
+        bool hasCtp = meta.TryGetProperty("currentTradingPeriod", out var ctp);
+        string? ctpJson = hasCtp ? ctp.GetRawText() : null;
+
+        return Ok(new { keys, hasCtp, ctpJson });
+    }
+
     [HttpGet("{symbol}")]
     public async Task<IActionResult> GetPrice(string symbol)
     {
@@ -48,8 +75,8 @@ public class StockPriceController : ControllerBase
         try
         {
             var client = _httpClientFactory.CreateClient();
-            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
-            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
             var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d";
             var response = await client.GetAsync(url);
@@ -80,7 +107,6 @@ public class StockPriceController : ControllerBase
             var change = currentPrice - previousClose;
             var percentChange = previousClose != 0 ? (change / previousClose) * 100m : 0m;
 
-            // Determine market state from trading periods
             var marketState = "CLOSED";
             if (meta.TryGetProperty("currentTradingPeriod", out var tradingPeriod))
             {
