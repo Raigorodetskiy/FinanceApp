@@ -86,7 +86,7 @@ export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
 
 // Stock prices
 export const getStockPrice = (symbol: string) =>
-  api.get<{ symbol: string; currentPrice: number; change: number; percentChange: number }>(`/StockPrice/${symbol}`);
+  api.get<{ symbol: string; currentPrice: number; change: number; percentChange: number; marketState: string }>(`/StockPrice/${symbol}`);
 export const getEurUsdRate = () =>
   api.get<{ eurUsd: number }>('/StockPrice/rate/eurusd');
 
