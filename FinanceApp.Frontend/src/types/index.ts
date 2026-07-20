@@ -11,6 +11,7 @@ export interface Portfolio {
   name: string;
   userId: number;
   createdAt: string;
+  brokerCredit: number;
   items: PortfolioItem[];
   orders: Order[];
 }
@@ -50,6 +51,47 @@ export interface Order {
   stopMarket: number | null;
   createdAt: string;
   executedAt: string | null;
+}
+
+export type TransactionType = 'Deposit' | 'Withdrawal';
+
+export interface Transaction {
+  id: number;
+  portfolioId: number;
+  type: TransactionType;
+  amount: number;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface Dividend {
+  id: number;
+  portfolioId: number;
+  stockId: number;
+  stock: Stock;
+  amount: number;
+  paidAt: string;
+  createdAt: string;
+}
+
+export interface PortfolioBalance {
+  cashBalance: number;
+  brokerCredit: number;
+  totalBalance: number;
+  stocksValue: number;
+  totalPortfolioValue: number;
+}
+
+export interface CreateTransactionRequest {
+  type: TransactionType;
+  amount: number;
+  description?: string;
+}
+
+export interface CreateDividendRequest {
+  stockId: number;
+  amount: number;
+  paidAt: string;
 }
 
 export interface LoginRequest {
