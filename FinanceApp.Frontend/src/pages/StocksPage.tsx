@@ -93,12 +93,18 @@ const StocksPage: React.FC = () => {
     try {
       const currentStocks = stocksRef.current;
       const stocksWithTicker = currentStocks.filter((s) => s.ticker?.trim());
+
+      const eurUsdRes = await getEurUsdRate();
+      const eurUsd = eurUsdRes.data.eurUsd;
+
       const results = await Promise.allSettled(
         stocksWithTicker.map(async (stock) => {
           const priceRes = await getStockPrice(stock.ticker);
+          const priceUsd = priceRes.data.currentPrice;
+          const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
           await updateStock(stock.id, {
             ...stock,
-            currentPrice: priceRes.data.currentPrice,
+            currentPrice: Math.round(priceEur * 100) / 100,
             updatedAt: new Date().toISOString(),
           });
         })
