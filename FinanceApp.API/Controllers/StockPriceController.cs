@@ -66,12 +66,34 @@ public class StockPriceController : ControllerBase
                 .GetProperty("result")[0]
                 .GetProperty("meta");
 
-            decimal currentPrice;
-            if (meta.TryGetProperty("regularMarketPrice", out var rmp))
-                currentPrice = rmp.GetDecimal();
-            else if (meta.TryGetProperty("previousClose", out var pc))
-                currentPrice = pc.GetDecimal();
-            else
+            // marketState: PRE, REGULAR, POST, POSTPOST, CLOSED
+            var marketState = meta.TryGetProperty("marketState", out var ms) ? ms.GetString() : "CLOSED";
+
+            decimal regularMarketPrice = meta.TryGetProperty("regularMarketPrice", out var rmp)
+                ? rmp.GetDecimal()
+                : meta.TryGetProperty("previousClose", out var pc0) ? pc0.GetDecimal() : 0m;
+
+            decimal currentPrice = regularMarketPrice;
+            string priceType = "regular";
+
+            // Use pre-market price if market is in PRE state
+            if ((marketState == "PRE") &&
+                meta.TryGetProperty("preMarketPrice", out var prePrice) &&
+                prePrice.ValueKind == JsonValueKind.Number)
+            {
+                currentPrice = prePrice.GetDecimal();
+                priceType = "pre";
+            }
+            // Use post-market price if market is in POST/POSTPOST state
+            else if ((marketState == "POST" || marketState == "POSTPOST") &&
+                meta.TryGetProperty("postMarketPrice", out var postPrice) &&
+                postPrice.ValueKind == JsonValueKind.Number)
+            {
+                currentPrice = postPrice.GetDecimal();
+                priceType = "post";
+            }
+
+            if (currentPrice == 0m)
                 return StatusCode(502, "Could not parse price from Yahoo Finance");
 
             decimal previousClose = meta.TryGetProperty("chartPreviousClose", out var cpc)
@@ -81,7 +103,7 @@ public class StockPriceController : ControllerBase
             var change = currentPrice - previousClose;
             var percentChange = previousClose != 0 ? (change / previousClose) * 100m : 0m;
 
-            return Ok(new { symbol, currentPrice, change, percentChange });
+            return Ok(new { symbol, currentPrice, change, percentChange, marketState, priceType });
         }
         catch (Exception ex)
         {
