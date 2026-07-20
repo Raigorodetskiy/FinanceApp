@@ -12,6 +12,7 @@ import {
   Typography,
   Popconfirm,
   message,
+  Tag,
 } from 'antd';
 import {
   DashboardOutlined,
@@ -43,6 +44,13 @@ const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 
+const marketStateLabel: Record<string, { color: string; text: string }> = {
+  REGULAR: { color: 'green', text: 'Open' },
+  PRE:     { color: 'blue',  text: 'Pre-Market' },
+  POST:    { color: 'orange', text: 'After-Hours' },
+  CLOSED:  { color: 'default', text: 'Closed' },
+};
+
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -51,7 +59,7 @@ const StocksPage: React.FC = () => {
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean }>>({});
+  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean; marketState?: string }>>({});
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
@@ -197,10 +205,11 @@ const StocksPage: React.FC = () => {
       const priceUsd = priceRes.data.currentPrice;
       const eurUsd = eurUsdRes.data.eurUsd;
       const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
+      const marketState: string = priceRes.data.marketState ?? 'CLOSED';
 
       setLivePrices((prev) => ({
         ...prev,
-        [stock.id]: { price: priceUsd, priceEur, loading: false },
+        [stock.id]: { price: priceUsd, priceEur, loading: false, marketState },
       }));
 
       await updateStock(stock.id, {
@@ -246,8 +255,9 @@ const StocksPage: React.FC = () => {
       key: 'livePrice',
       render: (_: unknown, record: Stock) => {
         const live = livePrices[record.id];
+        const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>
               {live?.loading
                 ? '...'
@@ -255,6 +265,9 @@ const StocksPage: React.FC = () => {
                 ? `$${live.price.toFixed(2)} USD`
                 : '—'}
             </span>
+            {stateInfo && !live?.loading && (
+              <Tag color={stateInfo.color}>{stateInfo.text}</Tag>
+            )}
             <Button
               icon={<ReloadOutlined />}
               size="small"
