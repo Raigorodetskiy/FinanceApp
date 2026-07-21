@@ -38,7 +38,7 @@ public class StockHistoryService : IStockHistoryService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed syncing history for stock {StockId} ({Ticker})", stock.Id, stock.Ticker);
+                _logger.LogWarning(ex, "Failed syncing history for stock {StockId}", stock.Id);
             }
         }
     }
@@ -170,7 +170,7 @@ public class StockHistoryService : IStockHistoryService
         var response = await client.GetAsync(url, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("Yahoo history request failed for {Symbol} interval={Interval} range={Range}: {StatusCode}", symbol, interval, range, (int)response.StatusCode);
+            _logger.LogWarning("Yahoo history request failed for interval={Interval} range={Range}: {StatusCode}", interval, range, (int)response.StatusCode);
             return Array.Empty<CandleData>();
         }
 

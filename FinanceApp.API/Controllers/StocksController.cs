@@ -62,7 +62,7 @@ public class StocksController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "On-demand stock history sync failed for stock {StockId} ({Ticker})", stock.Id, stock.Ticker);
+                _logger.LogWarning(ex, "On-demand stock history sync failed for stock {StockId}", stock.Id);
             }
         }
 
@@ -91,7 +91,7 @@ public class StocksController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Stock created but history sync failed for stock {StockId} ({Ticker})", stock.Id, stock.Ticker);
+            _logger.LogWarning(ex, "Stock created but history sync failed for stock {StockId}", stock.Id);
         }
 
         return CreatedAtAction(nameof(GetById), new { id = stock.Id }, stock);
