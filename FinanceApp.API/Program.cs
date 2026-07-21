@@ -71,6 +71,10 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("JWT signing key is not configured.");
+var serverVersion = new MariaDbServerVersion(
+    string.IsNullOrWhiteSpace(builder.Configuration["Database:MariaDbVersion"])
+        ? new Version(10, 5, 23)
+        : Version.Parse(builder.Configuration["Database:MariaDbVersion"]!));
 
 var dbConnectionStringBuilder = new MySqlConnectionStringBuilder(connectionString);
 if (string.Equals(dbConnectionStringBuilder.Server, "localhost", StringComparison.OrdinalIgnoreCase))
@@ -81,7 +85,7 @@ if (string.Equals(dbConnectionStringBuilder.Server, "localhost", StringCompariso
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
         dbConnectionStringBuilder.ConnectionString,
-        new MariaDbServerVersion(new Version(10, 5, 23)),
+        serverVersion,
         mySqlOptions => mySqlOptions.EnableRetryOnFailure()));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -108,10 +112,12 @@ builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 var app = builder.Build();
 
 app.Logger.LogInformation(
-    "Configured MariaDB connection for server {Server} and database {Database} using content root {ContentRootPath}",
-    dbConnectionStringBuilder.Server,
-    dbConnectionStringBuilder.Database,
+    "Using application content root {ContentRootPath} for backend configuration.",
     app.Environment.ContentRootPath);
+app.Logger.LogDebug(
+    "Configured MariaDB connection for server {Server} and database {Database}.",
+    dbConnectionStringBuilder.Server,
+    dbConnectionStringBuilder.Database);
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>
