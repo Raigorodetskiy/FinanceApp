@@ -21,7 +21,7 @@ public class StockHistoryRefreshHostedService : BackgroundService
             await RefreshAllStocksAsync(stoppingToken);
 
             using var timer = new PeriodicTimer(RefreshInterval);
-            while (await timer.WaitForNextTickAsync(stoppingToken))
+            while (!stoppingToken.IsCancellationRequested && await timer.WaitForNextTickAsync(stoppingToken))
             {
                 await RefreshAllStocksAsync(stoppingToken);
             }
@@ -39,7 +39,11 @@ public class StockHistoryRefreshHostedService : BackgroundService
             var historyService = scope.ServiceProvider.GetRequiredService<IStockHistoryService>();
             await historyService.SyncHistoricalDataForAllStocksAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed automatic stock history refresh cycle");
         }
