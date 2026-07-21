@@ -324,6 +324,11 @@ const StocksPage: React.FC = () => {
       dataIndex: 'ticker',
       key: 'ticker',
       sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker),
+      render: (ticker: string, record: Stock) => (
+        <Button type="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => setSelectedStockId(record.id)}>
+          {ticker}
+        </Button>
+      ),
     },
     {
       title: 'Название',
