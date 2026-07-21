@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Layout,
   Menu,
@@ -49,6 +49,7 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
   REGULAR: { color: 'green', text: 'Open' },
@@ -70,6 +71,7 @@ const StocksPage: React.FC = () => {
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState<StockHistoryPoint[]>([]);
+  const [historyEurUsdRate, setHistoryEurUsdRate] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
@@ -120,8 +122,16 @@ const StocksPage: React.FC = () => {
       try {
         const res = await getStockHistory(selectedStockId, historyRange);
         setHistoryData(res.data);
+        try {
+          const eurUsdRes = await getEurUsdRate();
+          setHistoryEurUsdRate(eurUsdRes.data.eurUsd);
+        } catch {
+          setHistoryEurUsdRate(null);
+          message.warning('Не удалось получить курс EUR/USD. История отображается в USD.');
+        }
       } catch {
         setHistoryData([]);
+        setHistoryEurUsdRate(null);
         message.error('Ошибка загрузки исторических данных');
       } finally {
         setHistoryLoading(false);
@@ -413,6 +423,32 @@ const StocksPage: React.FC = () => {
     'today': 'HH:mm',
   };
 
+  const historyHasEurConversion = historyEurUsdRate != null && historyEurUsdRate > 0;
+  const historyCurrencyCode = historyHasEurConversion ? 'EUR' : 'USD';
+  const historyCurrencySymbol = historyHasEurConversion ? '€' : '$';
+  const convertedHistoryRate = historyHasEurConversion ? historyEurUsdRate : null;
+  const historyChartData = useMemo(
+    () => historyData.map((point) => ({ ...point, closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close })),
+    [historyData, convertedHistoryRate],
+  );
+
+  const selectedStock = useMemo(
+    () => stocks.find((stock) => stock.id === selectedStockId) ?? null,
+    [stocks, selectedStockId],
+  );
+
+  const selectedStockCurrentPriceEur = selectedStockId
+    ? (livePrices[selectedStockId]?.priceEur ?? selectedStock?.currentPrice ?? null)
+    : null;
+  const periodStartPriceEur = historyChartData.length > 0 && historyHasEurConversion ? historyChartData[0].closeChart : null;
+  const periodChangeEur = periodStartPriceEur != null && selectedStockCurrentPriceEur != null
+    ? selectedStockCurrentPriceEur - periodStartPriceEur
+    : null;
+  const periodChangePercent = periodChangeEur != null && periodStartPriceEur != null && periodStartPriceEur !== 0
+    ? (periodChangeEur / periodStartPriceEur) * 100
+    : null;
+  const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? '#389e0d' : '#cf1322');
+
   const menuItems = [
     {
       key: 'dashboard',
@@ -528,25 +564,39 @@ const StocksPage: React.FC = () => {
                 ) : historyData.length === 0 ? (
                   <Empty description="Нет данных для выбранного периода" />
                 ) : (
-                  <div style={{ width: '100%', height: 320 }}>
-                    <ResponsiveContainer>
-                      <LineChart data={historyData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          dataKey="timestamp"
-                          tickFormatter={(value: string) => dayjs(value).format(xAxisFormatByRange[historyRange])}
-                        />
-                        <YAxis
-                          domain={['auto', 'auto']}
-                          tickFormatter={(value: number) => `€${value.toFixed(2)}`}
-                        />
-                        <Tooltip
-                          labelFormatter={(value: string) => dayjs(value).format('DD.MM.YYYY HH:mm')}
-                          formatter={(value: number) => [`€${Number(value).toFixed(2)}`, 'Цена']}
-                        />
-                        <Line type="monotone" dataKey="close" name="Close" stroke="#1677ff" dot={false} strokeWidth={2} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 220, padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 8 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Изменение за период (к текущей цене)
+                        </Text>
+                        <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600, marginTop: 4 }}>
+                          {periodChangeEur == null
+                            ? '—'
+                            : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', height: 240 }}>
+                      <ResponsiveContainer>
+                        <LineChart data={historyChartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis
+                            dataKey="timestamp"
+                            tickFormatter={(value: string) => dayjs(value).format(xAxisFormatByRange[historyRange])}
+                          />
+                          <YAxis
+                            domain={['auto', 'auto']}
+                            tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
+                          />
+                          <Tooltip
+                            labelFormatter={(value: string) => dayjs(value).format('DD.MM.YYYY HH:mm')}
+                            formatter={(value: number) => [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']}
+                          />
+                          <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 )}
               </Card>
