@@ -94,19 +94,56 @@ const StocksPage: React.FC = () => {
       const currentStocks = stocksRef.current;
       const stocksWithTicker = currentStocks.filter((s) => s.ticker?.trim());
 
+      setLivePrices((prev) => {
+        const next = { ...prev };
+        stocksWithTicker.forEach((stock) => {
+          const current = prev[stock.id];
+          next[stock.id] = {
+            price: current?.price ?? null,
+            priceEur: current?.priceEur ?? null,
+            loading: true,
+            marketState: current?.marketState,
+          };
+        });
+        return next;
+      });
+
       const eurUsdRes = await getEurUsdRate();
       const eurUsd = eurUsdRes.data.eurUsd;
 
       const results = await Promise.allSettled(
         stocksWithTicker.map(async (stock) => {
-          const priceRes = await getStockPrice(stock.ticker);
-          const priceUsd = priceRes.data.currentPrice;
-          const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
-          await updateStock(stock.id, {
-            ...stock,
-            currentPrice: Math.round(priceEur * 100) / 100,
-            updatedAt: new Date().toISOString(),
-          });
+          try {
+            const priceRes = await getStockPrice(stock.ticker);
+            const priceUsd = priceRes.data.currentPrice;
+            const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
+            const marketState: string = priceRes.data.marketState ?? 'CLOSED';
+
+            setLivePrices((prev) => ({
+              ...prev,
+              [stock.id]: { price: priceUsd, priceEur, loading: false, marketState },
+            }));
+
+            await updateStock(stock.id, {
+              ...stock,
+              currentPrice: Math.round(priceEur * 100) / 100,
+              updatedAt: new Date().toISOString(),
+            });
+          } catch (error) {
+            setLivePrices((prev) => {
+              const current = prev[stock.id];
+              return {
+                ...prev,
+                [stock.id]: {
+                  price: current?.price ?? null,
+                  priceEur: current?.priceEur ?? null,
+                  loading: false,
+                  marketState: current?.marketState,
+                },
+              };
+            });
+            throw error;
+          }
         })
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
