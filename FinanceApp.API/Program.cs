@@ -2,12 +2,20 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MySqlConnector;
 using System.Text;
 using System.Text.Json.Serialization;
 using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
 
-var builder = WebApplication.CreateBuilder(args);
+const string DefaultConnectionName = "DefaultConnection";
+var defaultMariaDbVersion = new Version(10, 5, 23);
+
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory
+});
 
 builder.Services.AddCors(options =>
 {
@@ -62,9 +70,30 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString = builder.Configuration.GetConnectionString(DefaultConnectionName)
+    ?? throw new InvalidOperationException(
+        $"Connection string '{DefaultConnectionName}' is not configured. Define it in appsettings.json or via ConnectionStrings__{DefaultConnectionName}.");
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("JWT signing key is not configured. Define it in appsettings.json or via Jwt__Key.");
+
+var configuredMariaDbVersion = builder.Configuration["Database:MariaDbVersion"];
+Version? parsedMariaDbVersion = null;
+if (!string.IsNullOrWhiteSpace(configuredMariaDbVersion) &&
+    !Version.TryParse(configuredMariaDbVersion, out parsedMariaDbVersion))
+{
+    throw new InvalidOperationException("Database:MariaDbVersion must be a valid version string such as '10.5.23'.");
+}
+
+var serverVersion = new MariaDbServerVersion(parsedMariaDbVersion ?? defaultMariaDbVersion);
+
+var dbConnectionStringBuilder = new MySqlConnectionStringBuilder(connectionString);
+NormalizeMySqlServerHost(dbConnectionStringBuilder);
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    options.UseMySql(
+        dbConnectionStringBuilder.ConnectionString,
+        serverVersion,
+        mySqlOptions => mySqlOptions.EnableRetryOnFailure()));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -78,7 +107,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+                Encoding.UTF8.GetBytes(jwtKey))
         };
     });
 
@@ -88,6 +117,14 @@ builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();
+
+app.Logger.LogInformation(
+    "Using application content root {ContentRootPath} for backend configuration.",
+    app.Environment.ContentRootPath);
+app.Logger.LogDebug(
+    "Configured MariaDB connection for server {Server} and database {Database}.",
+    dbConnectionStringBuilder.Server,
+    dbConnectionStringBuilder.Database);
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>
@@ -130,3 +167,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+static void NormalizeMySqlServerHost(MySqlConnectionStringBuilder connectionStringBuilder)
+{
+    if (string.Equals(connectionStringBuilder.Server, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        connectionStringBuilder.Server = "127.0.0.1";
+    }
+}
