@@ -2,12 +2,17 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MySqlConnector;
 using System.Text;
 using System.Text.Json.Serialization;
 using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory
+});
 
 builder.Services.AddCors(options =>
 {
@@ -62,9 +67,22 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("JWT signing key is not configured.");
+
+var dbConnectionStringBuilder = new MySqlConnectionStringBuilder(connectionString);
+if (string.Equals(dbConnectionStringBuilder.Server, "localhost", StringComparison.OrdinalIgnoreCase))
+{
+    dbConnectionStringBuilder.Server = "127.0.0.1";
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    options.UseMySql(
+        dbConnectionStringBuilder.ConnectionString,
+        new MariaDbServerVersion(new Version(10, 5, 23)),
+        mySqlOptions => mySqlOptions.EnableRetryOnFailure()));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -78,7 +96,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+                Encoding.UTF8.GetBytes(jwtKey))
         };
     });
 
@@ -88,6 +106,12 @@ builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();
+
+app.Logger.LogInformation(
+    "Configured MariaDB connection for server {Server} and database {Database} using content root {ContentRootPath}",
+    dbConnectionStringBuilder.Server,
+    dbConnectionStringBuilder.Database,
+    app.Environment.ContentRootPath);
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>
