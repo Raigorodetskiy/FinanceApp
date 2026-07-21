@@ -8,6 +8,9 @@ using System.Text.Json.Serialization;
 using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
 
+const string DefaultConnectionName = "DefaultConnection";
+var defaultMariaDbVersion = new Version(10, 5, 23);
+
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,
@@ -67,20 +70,24 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+var connectionString = builder.Configuration.GetConnectionString(DefaultConnectionName)
+    ?? throw new InvalidOperationException(
+        $"Connection string '{DefaultConnectionName}' is not configured. Define it in appsettings.json or via ConnectionStrings__{DefaultConnectionName}.");
 var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? throw new InvalidOperationException("JWT signing key is not configured.");
-var serverVersion = new MariaDbServerVersion(
-    string.IsNullOrWhiteSpace(builder.Configuration["Database:MariaDbVersion"])
-        ? new Version(10, 5, 23)
-        : Version.Parse(builder.Configuration["Database:MariaDbVersion"]!));
+    ?? throw new InvalidOperationException("JWT signing key is not configured. Define it in appsettings.json or via Jwt__Key.");
+
+var configuredMariaDbVersion = builder.Configuration["Database:MariaDbVersion"];
+Version? parsedMariaDbVersion = null;
+if (!string.IsNullOrWhiteSpace(configuredMariaDbVersion) &&
+    !Version.TryParse(configuredMariaDbVersion, out parsedMariaDbVersion))
+{
+    throw new InvalidOperationException("Database:MariaDbVersion must be a valid version string such as '10.5.23'.");
+}
+
+var serverVersion = new MariaDbServerVersion(parsedMariaDbVersion ?? defaultMariaDbVersion);
 
 var dbConnectionStringBuilder = new MySqlConnectionStringBuilder(connectionString);
-if (string.Equals(dbConnectionStringBuilder.Server, "localhost", StringComparison.OrdinalIgnoreCase))
-{
-    dbConnectionStringBuilder.Server = "127.0.0.1";
-}
+NormalizeMySqlServerHost(dbConnectionStringBuilder);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
@@ -160,3 +167,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+static void NormalizeMySqlServerHost(MySqlConnectionStringBuilder connectionStringBuilder)
+{
+    if (string.Equals(connectionStringBuilder.Server, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        connectionStringBuilder.Server = "127.0.0.1";
+    }
+}
