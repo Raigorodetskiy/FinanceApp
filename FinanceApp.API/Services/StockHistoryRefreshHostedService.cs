@@ -28,7 +28,7 @@ public class StockHistoryRefreshHostedService : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Normal shutdown — cancellation during stop/restart is expected.
+            // Normal shutdown -- cancellation during stop/restart is expected.
         }
     }
 
