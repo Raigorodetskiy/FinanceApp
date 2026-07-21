@@ -49,6 +49,7 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
   REGULAR: { color: 'green', text: 'Open' },
@@ -126,6 +127,7 @@ const StocksPage: React.FC = () => {
           setHistoryEurUsdRate(eurUsdRes.data.eurUsd);
         } catch {
           setHistoryEurUsdRate(null);
+          message.warning('Не удалось получить курс EUR/USD. История отображается в USD.');
         }
       } catch {
         setHistoryData([]);
@@ -421,9 +423,13 @@ const StocksPage: React.FC = () => {
     'today': 'HH:mm',
   };
 
+  const historyHasEurConversion = historyEurUsdRate != null && historyEurUsdRate > 0;
+  const historyCurrencyCode = historyHasEurConversion ? 'EUR' : 'USD';
+  const historyCurrencySymbol = historyHasEurConversion ? '€' : '$';
+  const convertedHistoryRate = historyHasEurConversion ? historyEurUsdRate : null;
   const historyChartData = useMemo(
-    () => historyData.map((point) => ({ ...point, closeEur: historyEurUsdRate && historyEurUsdRate > 0 ? point.close / historyEurUsdRate : point.close })),
-    [historyData, historyEurUsdRate],
+    () => historyData.map((point) => ({ ...point, closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close })),
+    [historyData, convertedHistoryRate],
   );
 
   const selectedStock = useMemo(
@@ -434,7 +440,7 @@ const StocksPage: React.FC = () => {
   const selectedStockCurrentPriceEur = selectedStockId
     ? (livePrices[selectedStockId]?.priceEur ?? selectedStock?.currentPrice ?? null)
     : null;
-  const periodStartPriceEur = historyChartData.length > 0 ? historyChartData[0].closeEur : null;
+  const periodStartPriceEur = historyChartData.length > 0 && historyHasEurConversion ? historyChartData[0].closeChart : null;
   const periodChangeEur = periodStartPriceEur != null && selectedStockCurrentPriceEur != null
     ? selectedStockCurrentPriceEur - periodStartPriceEur
     : null;
@@ -442,7 +448,6 @@ const StocksPage: React.FC = () => {
     ? (periodChangeEur / periodStartPriceEur) * 100
     : null;
   const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? '#389e0d' : '#cf1322');
-  const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
   const menuItems = [
     {
@@ -568,7 +573,7 @@ const StocksPage: React.FC = () => {
                         <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600, marginTop: 4 }}>
                           {periodChangeEur == null
                             ? '—'
-                            : `${formatSigned(periodChangeEur)} € (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                            : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
                         </div>
                       </div>
                     </div>
@@ -582,13 +587,13 @@ const StocksPage: React.FC = () => {
                           />
                           <YAxis
                             domain={['auto', 'auto']}
-                            tickFormatter={(value: number) => `€${value.toFixed(2)}`}
+                            tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
                           />
                           <Tooltip
                             labelFormatter={(value: string) => dayjs(value).format('DD.MM.YYYY HH:mm')}
-                            formatter={(value: number) => [`€${Number(value).toFixed(2)}`, 'Цена']}
+                            formatter={(value: number) => [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']}
                           />
-                          <Line type="monotone" dataKey="closeEur" name="Close" stroke="#1677ff" dot={false} strokeWidth={2} />
+                          <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
