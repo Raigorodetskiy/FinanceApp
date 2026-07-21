@@ -74,6 +74,9 @@ public class StockHistoryService : IStockHistoryService
             "5y" => now.AddYears(-5),
             "3y" => now.AddYears(-3),
             "1y" => now.AddYears(-1),
+            "6m" => now.AddMonths(-6),
+            "3m" => now.AddMonths(-3),
+            "1m" => now.AddMonths(-1),
             "1w" => now.AddDays(-7),
             "24h" => now.AddHours(-24),
             "today" => now.Date,
@@ -83,7 +86,7 @@ public class StockHistoryService : IStockHistoryService
         var interval = normalizedRange switch
         {
             "5y" or "3y" => "1mo",
-            "1y" => "1wk",
+            "1y" or "6m" or "3m" or "1m" => "1wk",
             "1w" => "1h",
             "24h" or "today" => "10m",
             _ => "1mo"
@@ -104,6 +107,9 @@ public class StockHistoryService : IStockHistoryService
             "5y" => "5y",
             "3y" => "3y",
             "1y" => "1y",
+            "6m" => "6m",
+            "3m" => "3m",
+            "1m" => "1m",
             "1w" => "1w",
             "24h" => "24h",
             "today" => "today",
