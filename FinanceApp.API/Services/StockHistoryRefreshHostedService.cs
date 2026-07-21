@@ -19,9 +19,16 @@ public class StockHistoryRefreshHostedService : BackgroundService
         await RefreshAllStocksAsync(stoppingToken);
 
         using var timer = new PeriodicTimer(RefreshInterval);
-        while (!stoppingToken.IsCancellationRequested && await timer.WaitForNextTickAsync(stoppingToken))
+        try
         {
-            await RefreshAllStocksAsync(stoppingToken);
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                await RefreshAllStocksAsync(stoppingToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown -- cancellation during stop/restart is expected.
         }
     }
 
