@@ -1,0 +1,344 @@
+using System.Globalization;
+using System.Text.Json;
+using FinanceApp.Core.Models;
+using FinanceApp.Data.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace FinanceApp.API.Services;
+
+public class StockHistoryService : IStockHistoryService
+{
+    private readonly AppDbContext _dbContext;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<StockHistoryService> _logger;
+
+    public StockHistoryService(
+        AppDbContext dbContext,
+        IHttpClientFactory httpClientFactory,
+        ILogger<StockHistoryService> logger)
+    {
+        _dbContext = dbContext;
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+    }
+
+    public async Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default)
+    {
+        var stocks = await _dbContext.Stocks
+            .Where(s => s.Ticker != null && s.Ticker != string.Empty)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        foreach (var stock in stocks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await SyncHistoricalDataForStockAsync(stock, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed syncing history for stock {StockId} ({Ticker})", stock.Id, stock.Ticker);
+            }
+        }
+    }
+
+    public async Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(stock.Ticker))
+        {
+            return;
+        }
+
+        var monthly = await FetchCandlesAsync(stock.Ticker, "1mo", "5y", cancellationToken);
+        await UpsertCandlesAsync(stock.Id, "1mo", monthly, cancellationToken);
+
+        var weekly = await FetchCandlesAsync(stock.Ticker, "1wk", "1y", cancellationToken);
+        await UpsertCandlesAsync(stock.Id, "1wk", weekly, cancellationToken);
+
+        var hourly = await FetchCandlesAsync(stock.Ticker, "1h", "7d", cancellationToken);
+        await UpsertCandlesAsync(stock.Id, "1h", hourly, cancellationToken);
+
+        var fiveMinute = await FetchCandlesAsync(stock.Ticker, "5m", "1d", cancellationToken);
+        var tenMinute = AggregateToTenMinute(fiveMinute);
+        await UpsertCandlesAsync(stock.Id, "10m", tenMinute, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StockHistoricalPrice>> GetHistoryAsync(int stockId, string range, CancellationToken cancellationToken = default)
+    {
+        var normalizedRange = NormalizeRange(range);
+
+        var now = DateTime.UtcNow;
+        var from = normalizedRange switch
+        {
+            "5y" => now.AddYears(-5),
+            "3y" => now.AddYears(-3),
+            "1y" => now.AddYears(-1),
+            "1w" => now.AddDays(-7),
+            "24h" => now.AddHours(-24),
+            "today" => now.Date,
+            _ => now.AddYears(-5)
+        };
+
+        var interval = normalizedRange switch
+        {
+            "5y" or "3y" => "1mo",
+            "1y" => "1wk",
+            "1w" => "1h",
+            "24h" or "today" => "10m",
+            _ => "1mo"
+        };
+
+        return await _dbContext.StockHistoricalPrices
+            .AsNoTracking()
+            .Where(x => x.StockId == stockId && x.Interval == interval && x.Timestamp >= from)
+            .OrderBy(x => x.Timestamp)
+            .ToListAsync(cancellationToken);
+    }
+
+    private static string NormalizeRange(string range)
+    {
+        var value = (range ?? string.Empty).Trim().ToLowerInvariant();
+        return value switch
+        {
+            "5y" => "5y",
+            "3y" => "3y",
+            "1y" => "1y",
+            "1w" => "1w",
+            "24h" => "24h",
+            "today" => "today",
+            _ => "5y"
+        };
+    }
+
+    private async Task UpsertCandlesAsync(int stockId, string interval, IReadOnlyList<CandleData> candles, CancellationToken cancellationToken)
+    {
+        if (candles.Count == 0)
+        {
+            return;
+        }
+
+        var minTimestamp = candles.Min(x => x.Timestamp);
+        var maxTimestamp = candles.Max(x => x.Timestamp);
+
+        var existing = await _dbContext.StockHistoricalPrices
+            .Where(x =>
+                x.StockId == stockId &&
+                x.Interval == interval &&
+                x.Timestamp >= minTimestamp &&
+                x.Timestamp <= maxTimestamp)
+            .ToListAsync(cancellationToken);
+
+        var existingByTimestamp = existing.ToDictionary(x => x.Timestamp, x => x);
+
+        foreach (var candle in candles)
+        {
+            if (existingByTimestamp.TryGetValue(candle.Timestamp, out var row))
+            {
+                row.Open = candle.Open;
+                row.High = candle.High;
+                row.Low = candle.Low;
+                row.Close = candle.Close;
+                row.Volume = candle.Volume;
+            }
+            else
+            {
+                _dbContext.StockHistoricalPrices.Add(new StockHistoricalPrice
+                {
+                    StockId = stockId,
+                    Timestamp = candle.Timestamp,
+                    Interval = interval,
+                    Open = candle.Open,
+                    High = candle.High,
+                    Low = candle.Low,
+                    Close = candle.Close,
+                    Volume = candle.Volume
+                });
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<CandleData>> FetchCandlesAsync(string symbol, string interval, string range, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+
+        var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}?interval={interval}&range={range}";
+        var response = await client.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Yahoo history request failed for {Symbol} interval={Interval} range={Range}: {StatusCode}", symbol, interval, range, (int)response.StatusCode);
+            return Array.Empty<CandleData>();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("chart", out var chart) ||
+            !chart.TryGetProperty("result", out var resultArray) ||
+            resultArray.GetArrayLength() == 0)
+        {
+            return Array.Empty<CandleData>();
+        }
+
+        var result = resultArray[0];
+        if (!result.TryGetProperty("timestamp", out var timestamps) ||
+            !result.TryGetProperty("indicators", out var indicators) ||
+            !indicators.TryGetProperty("quote", out var quoteArray) ||
+            quoteArray.GetArrayLength() == 0)
+        {
+            return Array.Empty<CandleData>();
+        }
+
+        var quote = quoteArray[0];
+        if (!quote.TryGetProperty("close", out var closeArray))
+        {
+            return Array.Empty<CandleData>();
+        }
+
+        var openArray = quote.TryGetProperty("open", out var openElement) ? openElement : default;
+        var highArray = quote.TryGetProperty("high", out var highElement) ? highElement : default;
+        var lowArray = quote.TryGetProperty("low", out var lowElement) ? lowElement : default;
+        var volumeArray = quote.TryGetProperty("volume", out var volumeElement) ? volumeElement : default;
+
+        var candles = new List<CandleData>();
+        var pointsCount = timestamps.GetArrayLength();
+        for (var i = 0; i < pointsCount; i++)
+        {
+            if (!TryGetInt64(timestamps, i, out var unixTimestamp))
+            {
+                continue;
+            }
+
+            if (!TryGetDecimal(closeArray, i, out var close))
+            {
+                continue;
+            }
+
+            var open = TryGetDecimal(openArray, i, out var parsedOpen) ? parsedOpen : close;
+            var high = TryGetDecimal(highArray, i, out var parsedHigh) ? parsedHigh : close;
+            var low = TryGetDecimal(lowArray, i, out var parsedLow) ? parsedLow : close;
+            var volume = TryGetInt64(volumeArray, i, out var parsedVolume) ? parsedVolume : 0L;
+
+            candles.Add(new CandleData(
+                DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).UtcDateTime,
+                open,
+                high,
+                low,
+                close,
+                volume));
+        }
+
+        return candles
+            .OrderBy(x => x.Timestamp)
+            .ToList();
+    }
+
+    private static IReadOnlyList<CandleData> AggregateToTenMinute(IReadOnlyList<CandleData> fiveMinuteCandles)
+    {
+        return fiveMinuteCandles
+            .GroupBy(x => new DateTime(
+                x.Timestamp.Year,
+                x.Timestamp.Month,
+                x.Timestamp.Day,
+                x.Timestamp.Hour,
+                (x.Timestamp.Minute / 10) * 10,
+                0,
+                DateTimeKind.Utc))
+            .OrderBy(g => g.Key)
+            .Select(g =>
+            {
+                var ordered = g.OrderBy(x => x.Timestamp).ToList();
+                return new CandleData(
+                    g.Key,
+                    ordered.First().Open,
+                    ordered.Max(x => x.High),
+                    ordered.Min(x => x.Low),
+                    ordered.Last().Close,
+                    ordered.Sum(x => x.Volume));
+            })
+            .ToList();
+    }
+
+    private static bool TryGetDecimal(JsonElement arrayElement, int index, out decimal value)
+    {
+        value = 0m;
+        if (arrayElement.ValueKind != JsonValueKind.Array || index < 0 || index >= arrayElement.GetArrayLength())
+        {
+            return false;
+        }
+
+        var element = arrayElement[index];
+        if (element.ValueKind == JsonValueKind.Null)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (element.TryGetDecimal(out value))
+            {
+                return true;
+            }
+
+            if (element.ValueKind == JsonValueKind.Number)
+            {
+                value = Convert.ToDecimal(element.GetDouble(), CultureInfo.InvariantCulture);
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetInt64(JsonElement arrayElement, int index, out long value)
+    {
+        value = 0L;
+        if (arrayElement.ValueKind != JsonValueKind.Array || index < 0 || index >= arrayElement.GetArrayLength())
+        {
+            return false;
+        }
+
+        var element = arrayElement[index];
+        if (element.ValueKind == JsonValueKind.Null)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (element.TryGetInt64(out value))
+            {
+                return true;
+            }
+
+            if (element.ValueKind == JsonValueKind.Number)
+            {
+                value = Convert.ToInt64(element.GetDouble());
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private sealed record CandleData(
+        DateTime Timestamp,
+        decimal Open,
+        decimal High,
+        decimal Low,
+        decimal Close,
+        long Volume);
+}

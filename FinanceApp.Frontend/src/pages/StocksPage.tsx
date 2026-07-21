@@ -4,15 +4,19 @@ import {
   Menu,
   Table,
   Button,
+  Card,
   Modal,
   Form,
   Input,
   InputNumber,
+  Segmented,
   Spin,
   Typography,
   Popconfirm,
   message,
   Tag,
+  Select,
+  Empty,
 } from 'antd';
 import {
   DashboardOutlined,
@@ -35,9 +39,11 @@ import {
   getPortfolios,
   getStockPrice,
   getEurUsdRate,
+  getStockHistory,
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio } from '../types';
+import type { Stock, Portfolio, StockHistoryPoint, StockHistoryRange } from '../types';
+import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -60,6 +66,10 @@ const StocksPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean; marketState?: string }>>({});
+  const [selectedStockId, setSelectedStockId] = useState<number | null>(null);
+  const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyData, setHistoryData] = useState<StockHistoryPoint[]>([]);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
@@ -86,6 +96,40 @@ const StocksPage: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (stocks.length === 0)
+    {
+      setSelectedStockId(null);
+      return;
+    }
+
+    if (!selectedStockId || !stocks.some((stock) => stock.id === selectedStockId)) {
+      setSelectedStockId(stocks[0].id);
+    }
+  }, [stocks, selectedStockId]);
+
+  useEffect(() => {
+    if (!selectedStockId) {
+      setHistoryData([]);
+      return;
+    }
+
+    const fetchHistory = async () => {
+      setHistoryLoading(true);
+      try {
+        const res = await getStockHistory(selectedStockId, historyRange);
+        setHistoryData(res.data);
+      } catch {
+        setHistoryData([]);
+        message.error('Ошибка загрузки исторических данных');
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+
+    fetchHistory();
+  }, [selectedStockId, historyRange]);
 
   const handleRefreshPrices = useCallback(async (silent = false) => {
     if (refreshing) return;
@@ -355,6 +399,15 @@ const StocksPage: React.FC = () => {
     },
   ];
 
+  const xAxisFormatByRange: Record<StockHistoryRange, string> = {
+    '5y': 'MM.YYYY',
+    '3y': 'MM.YYYY',
+    '1y': 'DD.MM.YY',
+    '1w': 'DD.MM HH:mm',
+    '24h': 'HH:mm',
+    'today': 'HH:mm',
+  };
+
   const menuItems = [
     {
       key: 'dashboard',
@@ -436,13 +489,71 @@ const StocksPage: React.FC = () => {
               <Spin size="large" />
             </div>
           ) : (
-            <Table
-              dataSource={stocks}
-              columns={columns}
-              rowKey="id"
-              scroll={{ x: true }}
-              pagination={{ pageSize: 20 }}
-            />
+            <div style={{ display: 'grid', gap: 16 }}>
+              <Card
+                title="История цены"
+                extra={(
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <Select
+                      value={selectedStockId ?? undefined}
+                      style={{ minWidth: 220 }}
+                      placeholder="Выберите акцию"
+                      options={stocks.map((stock) => ({ value: stock.id, label: `${stock.ticker} — ${stock.name}` }))}
+                      onChange={(value) => setSelectedStockId(value)}
+                    />
+                    <Segmented
+                      value={historyRange}
+                      onChange={(value) => setHistoryRange(value as StockHistoryRange)}
+                      options={[
+                        { label: '5 лет', value: '5y' },
+                        { label: '3 года', value: '3y' },
+                        { label: '1 год', value: '1y' },
+                        { label: '1 неделя', value: '1w' },
+                        { label: '24 часа', value: '24h' },
+                        { label: 'Сегодня', value: 'today' },
+                      ]}
+                    />
+                  </div>
+                )}
+              >
+                {historyLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                    <Spin />
+                  </div>
+                ) : historyData.length === 0 ? (
+                  <Empty description="Нет данных для выбранного периода" />
+                ) : (
+                  <div style={{ width: '100%', height: 320 }}>
+                    <ResponsiveContainer>
+                      <LineChart data={historyData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="timestamp"
+                          tickFormatter={(value: string) => dayjs(value).format(xAxisFormatByRange[historyRange])}
+                        />
+                        <YAxis
+                          domain={['auto', 'auto']}
+                          tickFormatter={(value: number) => `€${value.toFixed(2)}`}
+                        />
+                        <Tooltip
+                          labelFormatter={(value: string) => dayjs(value).format('DD.MM.YYYY HH:mm')}
+                          formatter={(value: number) => [`€${Number(value).toFixed(2)}`, 'Цена']}
+                        />
+                        <Line type="monotone" dataKey="close" name="Close" stroke="#1677ff" dot={false} strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </Card>
+
+              <Table
+                dataSource={stocks}
+                columns={columns}
+                rowKey="id"
+                scroll={{ x: true }}
+                pagination={{ pageSize: 20 }}
+              />
+            </div>
           )}
         </Content>
       </Layout>

@@ -13,6 +13,8 @@ import type {
   AddPortfolioItemRequest,
   CreateStockRequest,
   UpdateStockRequest,
+  StockHistoryPoint,
+  StockHistoryRange,
   CreateOrderRequest,
   UpdateOrderRequest,
   CreateTransactionRequest,
@@ -83,6 +85,8 @@ export const getStock = (id: number) => api.get<Stock>(`/Stocks/${id}`);
 export const createStock = (data: CreateStockRequest) => api.post<Stock>('/Stocks', data);
 export const updateStock = (id: number, data: UpdateStockRequest) => api.put<Stock>(`/Stocks/${id}`, data);
 export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
+export const getStockHistory = (id: number, range: StockHistoryRange) =>
+  api.get<StockHistoryPoint[]>(`/Stocks/${id}/history`, { params: { range } });
 
 // Stock prices
 export const getStockPrice = (symbol: string) =>

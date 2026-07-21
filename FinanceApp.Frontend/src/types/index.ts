@@ -35,6 +35,18 @@ export interface Stock {
   updatedAt: string;
 }
 
+export type StockHistoryRange = '5y' | '3y' | '1y' | '1w' | '24h' | 'today';
+
+export interface StockHistoryPoint {
+  timestamp: string;
+  interval: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export type OrderType = 'Buy' | 'Sell';
 export type OrderStatus = 'Pending' | 'Executed' | 'Cancelled';
 

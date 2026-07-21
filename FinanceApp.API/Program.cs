@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json.Serialization;
+using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -83,6 +84,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 builder.Services.AddHttpClient();
+builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
+builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();
 

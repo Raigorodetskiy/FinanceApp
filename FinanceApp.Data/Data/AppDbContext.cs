@@ -14,4 +14,18 @@ public class AppDbContext : DbContext
     public DbSet<Order> Orders { get; set; } = null!;
     public DbSet<Transaction> Transactions { get; set; } = null!;
     public DbSet<Dividend> Dividends { get; set; } = null!;
+    public DbSet<StockHistoricalPrice> StockHistoricalPrices { get; set; } = null!;
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<StockHistoricalPrice>(entity =>
+        {
+            entity.HasIndex(x => new { x.StockId, x.Timestamp, x.Interval }).IsUnique();
+            entity.HasIndex(x => new { x.StockId, x.Timestamp });
+            entity.Property(x => x.Interval).HasMaxLength(10);
+            entity.Property(x => x.Volume).HasDefaultValue(0L);
+        });
+    }
 }
