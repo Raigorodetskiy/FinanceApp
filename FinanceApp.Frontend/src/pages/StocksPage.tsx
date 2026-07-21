@@ -325,7 +325,7 @@ const StocksPage: React.FC = () => {
       key: 'ticker',
       sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker),
       render: (ticker: string, record: Stock) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => setSelectedStockId(record.id)}>
+        <Button type="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => setSelectedStockId(record.id)} aria-label={`Выбрать ${ticker} для просмотра графика`}>
           {ticker}
         </Button>
       ),
