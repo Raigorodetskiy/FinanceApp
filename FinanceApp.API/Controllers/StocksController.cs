@@ -47,9 +47,9 @@ public class StocksController : ControllerBase
         }
 
         var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
-        if (normalizedRange is not ("5y" or "3y" or "1y" or "1w" or "24h" or "today"))
+        if (normalizedRange is not ("5y" or "3y" or "1y" or "6m" or "3m" or "1m" or "1w" or "24h" or "today"))
         {
-            return BadRequest("Invalid range. Allowed values: 5y, 3y, 1y, 1w, 24h, today");
+            return BadRequest("Invalid range. Allowed values: 5y, 3y, 1y, 6m, 3m, 1m, 1w, 24h, today");
         }
 
         var data = await _stockHistoryService.GetHistoryAsync(id, normalizedRange, cancellationToken);

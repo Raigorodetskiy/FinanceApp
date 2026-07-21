@@ -2894,11 +2894,12 @@
       "FinanceApp.Data >= 1.0.0",
       "Microsoft.AspNetCore.Authentication.JwtBearer >= 8.0.11",
       "Microsoft.EntityFrameworkCore.Design >= 8.0.11",
+      "Pomelo.EntityFrameworkCore.MySql >= 8.0.2",
       "Swashbuckle.AspNetCore >= 6.9.0"
     ]
   },
   "packageFolders": {
-    "/home/runner/.nuget/packages/": {}
+    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages": {}
   },
   "project": {
     "version": "1.0.0",
@@ -2906,7 +2907,7 @@
       "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/FinanceApp.API.csproj",
       "projectName": "FinanceApp.API",
       "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/FinanceApp.API.csproj",
-      "packagesPath": "/home/runner/.nuget/packages/",
+      "packagesPath": "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages",
       "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
@@ -2957,6 +2958,10 @@
             "target": "Package",
             "version": "[8.0.11, )"
           },
+          "Pomelo.EntityFrameworkCore.MySql": {
+            "target": "Package",
+            "version": "[8.0.2, )"
+          },
           "Swashbuckle.AspNetCore": {
             "target": "Package",
             "version": "[6.9.0, )"
@@ -2973,6 +2978,20 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[8.0.28, 8.0.28]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Host.linux-x64",
+            "version": "[8.0.28, 8.0.28]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[8.0.28, 8.0.28]"
+          }
+        ],
         "frameworkReferences": {
           "Microsoft.AspNetCore.App": {
             "privateAssets": "none"

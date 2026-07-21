@@ -35,7 +35,7 @@ export interface Stock {
   updatedAt: string;
 }
 
-export type StockHistoryRange = '5y' | '3y' | '1y' | '1w' | '24h' | 'today';
+export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
 
 export interface StockHistoryPoint {
   timestamp: string;
