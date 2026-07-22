@@ -49,6 +49,11 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
+  '1w': 6 * 60 * 60 * 1000,
+  '24h': 2 * 60 * 60 * 1000,
+  today: 2 * 60 * 60 * 1000,
+};
 const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
@@ -430,15 +435,47 @@ const StocksPage: React.FC = () => {
   const historyCurrencyCode = historyHasEurConversion ? 'EUR' : 'USD';
   const historyCurrencySymbol = historyHasEurConversion ? '€' : '$';
   const convertedHistoryRate = historyHasEurConversion ? historyEurUsdRate : null;
+  type HistoryChartPoint = {
+    timestamp: string;
+    timestampMs: number;
+    closeChart: number | null;
+  };
   const historyChartData = useMemo(
-    () => historyData
-      .map((point) => ({
-        ...point,
-        timestampMs: dayjs(point.timestamp).valueOf(),
-        closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close,
-      }))
-      .sort((left, right) => left.timestampMs - right.timestampMs),
-    [historyData, convertedHistoryRate],
+    () => {
+      const sortedPoints: HistoryChartPoint[] = historyData
+        .map((point) => ({
+          timestamp: point.timestamp,
+          timestampMs: dayjs(point.timestamp).valueOf(),
+          closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close,
+        }))
+        .sort((left, right) => left.timestampMs - right.timestampMs);
+
+      const gapThresholdMs = historyGapThresholdMsByRange[historyRange];
+      if (!gapThresholdMs || sortedPoints.length < 2) {
+        return sortedPoints;
+      }
+
+      const pointsWithGaps: HistoryChartPoint[] = [sortedPoints[0]];
+      for (let i = 1; i < sortedPoints.length; i += 1) {
+        const previousPoint = sortedPoints[i - 1];
+        const currentPoint = sortedPoints[i];
+        const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
+
+        if (gapMs > gapThresholdMs) {
+          const gapTimestampMs = Math.round(previousPoint.timestampMs + (gapMs / 2));
+          pointsWithGaps.push({
+            timestamp: dayjs(gapTimestampMs).toISOString(),
+            timestampMs: gapTimestampMs,
+            closeChart: null,
+          });
+        }
+
+        pointsWithGaps.push(currentPoint);
+      }
+
+      return pointsWithGaps;
+    },
+    [historyData, convertedHistoryRate, historyRange],
   );
 
   const selectedStock = useMemo(
@@ -449,7 +486,9 @@ const StocksPage: React.FC = () => {
   const selectedStockCurrentPriceEur = selectedStockId
     ? (livePrices[selectedStockId]?.priceEur ?? selectedStock?.currentPrice ?? null)
     : null;
-  const periodStartPriceEur = historyChartData.length > 0 && historyHasEurConversion ? historyChartData[0].closeChart : null;
+  const periodStartPriceEur = historyHasEurConversion
+    ? (historyChartData.find((point) => point.closeChart != null)?.closeChart ?? null)
+    : null;
   const periodChangeEur = periodStartPriceEur != null && selectedStockCurrentPriceEur != null
     ? selectedStockCurrentPriceEur - periodStartPriceEur
     : null;
@@ -606,9 +645,13 @@ const StocksPage: React.FC = () => {
                           />
                           <Tooltip
                             labelFormatter={(value: number) => dayjs(value).format('DD.MM.YYYY HH:mm')}
-                            formatter={(value: number) => [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']}
+                            formatter={(value) => (
+                              value == null
+                                ? ['—', 'Цена']
+                                : [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']
+                            )}
                           />
-                          <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} />
+                          <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} connectNulls={false} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
