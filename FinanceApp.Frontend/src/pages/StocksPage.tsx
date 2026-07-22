@@ -399,7 +399,7 @@ const StocksPage: React.FC = () => {
       title: 'Обновлено',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      render: (v: string) => dayjs(v).format('DD.MM.YYYY HH:mm'),
+      render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm'),
     },
     {
       title: 'Действия',
