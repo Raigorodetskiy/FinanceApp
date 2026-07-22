@@ -50,6 +50,7 @@ const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+const GAP_MARKER_OFFSET_MS = 1;
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
   '1w': 6 * 60 * 60 * 1000,
   '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
@@ -463,7 +464,7 @@ const StocksPage: React.FC = () => {
         const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
 
         if (gapMs > gapThresholdMs) {
-          const gapTimestampMs = previousPoint.timestampMs + 1;
+          const gapTimestampMs = previousPoint.timestampMs + GAP_MARKER_OFFSET_MS;
           pointsWithGaps.push({
             timestamp: dayjs(gapTimestampMs).toISOString(),
             timestampMs: gapTimestampMs,
@@ -487,9 +488,19 @@ const StocksPage: React.FC = () => {
   const selectedStockCurrentPriceEur = selectedStockId
     ? (livePrices[selectedStockId]?.priceEur ?? selectedStock?.currentPrice ?? null)
     : null;
-  const periodStartPriceEur = historyHasEurConversion
-    ? (historyChartData.find((point) => point.closeChart != null)?.closeChart ?? null)
-    : null;
+  const periodStartPriceEur = useMemo(() => {
+    if (!historyHasEurConversion) {
+      return null;
+    }
+
+    for (const point of historyChartData) {
+      if (point.closeChart != null) {
+        return point.closeChart;
+      }
+    }
+
+    return null;
+  }, [historyChartData, historyHasEurConversion]);
   const periodChangeEur = periodStartPriceEur != null && selectedStockCurrentPriceEur != null
     ? selectedStockCurrentPriceEur - periodStartPriceEur
     : null;
