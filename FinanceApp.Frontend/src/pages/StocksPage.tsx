@@ -51,7 +51,7 @@ const { Title, Text } = Typography;
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 const WEEK_GAP_THRESHOLD_MS = 6 * 60 * 60 * 1000;
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-const GAP_MARKER_OFFSET_MS = 1;
+const MIN_GAP_MARKER_OFFSET_MS = 1;
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
   '1w': WEEK_GAP_THRESHOLD_MS,
   '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
@@ -459,14 +459,14 @@ const StocksPage: React.FC = () => {
       }
 
       const pointsWithGaps: HistoryChartPoint[] = [sortedPoints[0]];
+      let previousPoint = sortedPoints[0];
       for (let i = 1; i < sortedPoints.length; i += 1) {
-        const previousPoint = sortedPoints[i - 1];
         const currentPoint = sortedPoints[i];
         const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
 
         if (gapMs > gapThresholdMs) {
           // Keep marker just after the last real point so Recharts renders a visible break on the timeline.
-          const gapTimestampMs = previousPoint.timestampMs + GAP_MARKER_OFFSET_MS;
+          const gapTimestampMs = previousPoint.timestampMs + MIN_GAP_MARKER_OFFSET_MS;
           pointsWithGaps.push({
             timestamp: dayjs(gapTimestampMs).toISOString(),
             timestampMs: gapTimestampMs,
@@ -475,6 +475,7 @@ const StocksPage: React.FC = () => {
         }
 
         pointsWithGaps.push(currentPoint);
+        previousPoint = currentPoint;
       }
 
       return pointsWithGaps;
