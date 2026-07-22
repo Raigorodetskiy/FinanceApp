@@ -49,8 +49,11 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+// For 1w history we still show overnight breaks, but ignore shorter intraday irregularities.
 const WEEK_GAP_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+// For 24h/today views treat large market-closure gaps as line breaks.
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+// Minimal positive offset so Recharts treats the inserted null point as a distinct timestamp.
 const MIN_GAP_MARKER_OFFSET_MS = 1;
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
   '1w': WEEK_GAP_THRESHOLD_MS,
@@ -465,7 +468,7 @@ const StocksPage: React.FC = () => {
         const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
 
         if (gapMs > gapThresholdMs) {
-          // Keep marker just after the last real point so Recharts renders a visible break on the timeline.
+          // Keep marker just after the last real point so Recharts registers a distinct null marker and breaks the line.
           const gapTimestampMs = previousPoint.timestampMs + MIN_GAP_MARKER_OFFSET_MS;
           pointsWithGaps.push({
             timestamp: dayjs(gapTimestampMs).toISOString(),
@@ -662,7 +665,7 @@ const StocksPage: React.FC = () => {
                             labelFormatter={(value: number) => dayjs(value).format('DD.MM.YYYY HH:mm')}
                             formatter={(value) => (
                               value === null
-                                ? ['—', 'Цена']
+                                ? ['Нет данных', 'Цена']
                                 : [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']
                             )}
                           />
