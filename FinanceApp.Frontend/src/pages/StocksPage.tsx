@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   getStocks,
   createStock,
@@ -44,6 +45,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockHistoryPoint, StockHistoryRange } from '../types';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+
+dayjs.extend(utc);
 
 const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -451,7 +454,7 @@ const StocksPage: React.FC = () => {
       const sortedPoints: HistoryChartPoint[] = historyData
         .map((point) => ({
           timestamp: point.timestamp,
-          timestampMs: dayjs(point.timestamp).valueOf(),
+          timestampMs: dayjs.utc(point.timestamp).valueOf(),
           closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close,
         }))
         .sort((left, right) => left.timestampMs - right.timestampMs);
@@ -655,14 +658,14 @@ const StocksPage: React.FC = () => {
                             dataKey="timestampMs"
                             scale="time"
                             domain={['dataMin', 'dataMax']}
-                            tickFormatter={(value: number) => dayjs(value).format(xAxisFormatByRange[historyRange])}
+                            tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])}
                           />
                           <YAxis
                             domain={['auto', 'auto']}
                             tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
                           />
                           <Tooltip
-                            labelFormatter={(value: number) => dayjs(value).format('DD.MM.YYYY HH:mm')}
+                            labelFormatter={(value: number) => dayjs.utc(value).local().format('DD.MM.YYYY HH:mm')}
                             formatter={(value) => (
                               value === null
                                 ? ['Нет данных', 'Цена']
