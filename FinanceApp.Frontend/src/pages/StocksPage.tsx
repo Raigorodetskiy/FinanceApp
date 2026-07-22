@@ -49,10 +49,11 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+const WEEK_GAP_THRESHOLD_MS = 6 * 60 * 60 * 1000;
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
 const GAP_MARKER_OFFSET_MS = 1;
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
-  '1w': 6 * 60 * 60 * 1000,
+  '1w': WEEK_GAP_THRESHOLD_MS,
   '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
   today: SHORT_INTRADAY_GAP_THRESHOLD_MS,
 };
@@ -464,6 +465,7 @@ const StocksPage: React.FC = () => {
         const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
 
         if (gapMs > gapThresholdMs) {
+          // Keep marker just after the last real point so Recharts renders a visible break on the timeline.
           const gapTimestampMs = previousPoint.timestampMs + GAP_MARKER_OFFSET_MS;
           pointsWithGaps.push({
             timestamp: dayjs(gapTimestampMs).toISOString(),
