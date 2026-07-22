@@ -658,7 +658,7 @@ const StocksPage: React.FC = () => {
                           <Tooltip
                             labelFormatter={(value: number) => dayjs(value).format('DD.MM.YYYY HH:mm')}
                             formatter={(value) => (
-                              value == null
+                              value === null
                                 ? ['—', 'Цена']
                                 : [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']
                             )}
