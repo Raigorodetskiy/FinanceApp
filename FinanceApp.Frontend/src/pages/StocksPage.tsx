@@ -49,10 +49,11 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
   '1w': 6 * 60 * 60 * 1000,
-  '24h': 2 * 60 * 60 * 1000,
-  today: 2 * 60 * 60 * 1000,
+  '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
+  today: SHORT_INTRADAY_GAP_THRESHOLD_MS,
 };
 const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
@@ -462,7 +463,7 @@ const StocksPage: React.FC = () => {
         const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
 
         if (gapMs > gapThresholdMs) {
-          const gapTimestampMs = Math.round(previousPoint.timestampMs + (gapMs / 2));
+          const gapTimestampMs = previousPoint.timestampMs + 1;
           pointsWithGaps.push({
             timestamp: dayjs(gapTimestampMs).toISOString(),
             timestampMs: gapTimestampMs,
