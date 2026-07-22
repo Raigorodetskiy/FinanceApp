@@ -13,7 +13,7 @@ import StocksPage from './pages/StocksPage';
 const App: React.FC = () => {
   return (
     <ConfigProvider locale={ruRU}>
-      <BrowserRouter>
+      <BrowserRouter basename="/financeapp">
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
