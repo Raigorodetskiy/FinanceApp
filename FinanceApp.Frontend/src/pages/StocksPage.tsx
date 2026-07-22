@@ -49,8 +49,8 @@ const { Sider, Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
-// For 1w history we still show overnight breaks, but ignore shorter intraday irregularities.
-const WEEK_GAP_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+// For 1w history only break on long weekend-like gaps (≥40 h); overnight pauses stay connected.
+const WEEK_GAP_THRESHOLD_MS = 40 * 60 * 60 * 1000;
 // For 24h/today views treat large market-closure gaps as line breaks.
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
 // Minimal positive offset so Recharts treats the inserted null point as a distinct timestamp.
