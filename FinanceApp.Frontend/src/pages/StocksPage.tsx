@@ -431,7 +431,13 @@ const StocksPage: React.FC = () => {
   const historyCurrencySymbol = historyHasEurConversion ? '€' : '$';
   const convertedHistoryRate = historyHasEurConversion ? historyEurUsdRate : null;
   const historyChartData = useMemo(
-    () => historyData.map((point) => ({ ...point, closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close })),
+    () => historyData
+      .map((point) => ({
+        ...point,
+        timestampMs: dayjs(point.timestamp).valueOf(),
+        closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close,
+      }))
+      .sort((left, right) => left.timestampMs - right.timestampMs),
     [historyData, convertedHistoryRate],
   );
 
@@ -588,15 +594,18 @@ const StocksPage: React.FC = () => {
                         <LineChart data={historyChartData}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis
-                            dataKey="timestamp"
-                            tickFormatter={(value: string) => dayjs(value).format(xAxisFormatByRange[historyRange])}
+                            type="number"
+                            dataKey="timestampMs"
+                            scale="time"
+                            domain={['dataMin', 'dataMax']}
+                            tickFormatter={(value: number) => dayjs(value).format(xAxisFormatByRange[historyRange])}
                           />
                           <YAxis
                             domain={['auto', 'auto']}
                             tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
                           />
                           <Tooltip
-                            labelFormatter={(value: string) => dayjs(value).format('DD.MM.YYYY HH:mm')}
+                            labelFormatter={(value: number) => dayjs(value).format('DD.MM.YYYY HH:mm')}
                             formatter={(value: number) => [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']}
                           />
                           <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} />
