@@ -75,8 +75,24 @@ const formatPercent24h = (pct: number): string => {
 };
 
 const getPercent24hColor = (pct: number | null | undefined): string | undefined => {
-  if (pct == null || pct === 0) return undefined;
+  if (pct === null || pct === undefined || pct === 0) return undefined;
   return pct > 0 ? COLOR_POSITIVE : COLOR_NEGATIVE;
+};
+
+const getPercent24hText = (live: LivePriceEntry | undefined): string | null => {
+  if (!live) {
+    return null;
+  }
+
+  if (live.loading) {
+    return '...';
+  }
+
+  if (live.percentChange24h === null || live.percentChange24h === undefined) {
+    return '—';
+  }
+
+  return formatPercent24h(live.percentChange24h);
 };
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
@@ -433,17 +449,14 @@ const StocksPage: React.FC = () => {
         const pct = live?.percentChange24h;
         const pctColor = getPercent24hColor(pct);
         const displayPrice = live?.priceEur ?? v;
+        const percentText = getPercent24hText(live);
 
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ whiteSpace: 'nowrap' }}>€{displayPrice.toFixed(2)}</span>
-            {live && (
+            {percentText && (
               <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {live.loading
-                  ? '...'
-                  : pct != null
-                  ? formatPercent24h(pct)
-                  : '—'}
+                {percentText}
               </span>
             )}
           </div>
