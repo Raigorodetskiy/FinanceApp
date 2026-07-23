@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
@@ -8,6 +10,13 @@ namespace FinanceApp.API.Services;
 
 public class StockHistoryService : IStockHistoryService
 {
+    private const int MaxYahooRequestAttempts = 5;
+    private static readonly TimeSpan YahooRequestThrottleDelay = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan YahooRetryBaseDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan YahooRetryMaxDelay = TimeSpan.FromSeconds(20);
+    private static readonly SemaphoreSlim YahooRequestGate = new(1, 1);
+    private static DateTime _nextYahooRequestUtc = DateTime.MinValue;
+
     private readonly AppDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<StockHistoryService> _logger;
@@ -56,6 +65,9 @@ public class StockHistoryService : IStockHistoryService
         var weekly = await FetchCandlesAsync(stock.Ticker, "1wk", "1y", cancellationToken);
         await UpsertCandlesAsync(stock.Id, "1wk", weekly, cancellationToken);
 
+        var daily = await FetchCandlesAsync(stock.Ticker, "1d", "1y", cancellationToken);
+        await UpsertCandlesAsync(stock.Id, "1d", daily, cancellationToken);
+
         var hourly = await FetchCandlesAsync(stock.Ticker, "1h", "7d", cancellationToken);
         await UpsertCandlesAsync(stock.Id, "1h", hourly, cancellationToken);
 
@@ -86,7 +98,8 @@ public class StockHistoryService : IStockHistoryService
         var interval = normalizedRange switch
         {
             "5y" or "3y" => "1mo",
-            "1y" or "6m" or "3m" or "1m" => "1wk",
+            "1y" => "1wk",
+            "6m" or "3m" or "1m" => "1d",
             "1w" => "1h",
             "24h" or "today" => "10m",
             _ => "1mo"
@@ -173,17 +186,82 @@ public class StockHistoryService : IStockHistoryService
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
         var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}?interval={interval}&range={range}";
-        var response = await client.GetAsync(url, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        for (var attempt = 1; attempt <= MaxYahooRequestAttempts; attempt++)
         {
-            _logger.LogWarning("Yahoo history request failed for interval={Interval} range={Range}: {StatusCode}", interval, range, (int)response.StatusCode);
-            return Array.Empty<CandleData>();
+            try
+            {
+                using var response = await SendYahooRequestAsync(client, url, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                    return ParseCandles(doc.RootElement);
+                }
+
+                if (IsTransientStatusCode(response.StatusCode) && attempt < MaxYahooRequestAttempts)
+                {
+                    var delay = GetRetryDelay(attempt, response.Headers.RetryAfter);
+                    _logger.LogWarning(
+                        "Yahoo history request transient failure for symbol={Symbol} interval={Interval} range={Range} status={StatusCode}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                        symbol,
+                        interval,
+                        range,
+                        (int)response.StatusCode,
+                        attempt,
+                        MaxYahooRequestAttempts,
+                        (int)delay.TotalMilliseconds);
+                    await Task.Delay(delay, cancellationToken);
+                    continue;
+                }
+
+                _logger.LogWarning(
+                    "Yahoo history request failed for symbol={Symbol} interval={Interval} range={Range}: {StatusCode}",
+                    symbol,
+                    interval,
+                    range,
+                    (int)response.StatusCode);
+                return Array.Empty<CandleData>();
+            }
+            catch (HttpRequestException ex) when (attempt < MaxYahooRequestAttempts)
+            {
+                var delay = GetRetryDelay(attempt, null);
+                _logger.LogWarning(
+                    ex,
+                    "Yahoo history request network error for symbol={Symbol} interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                    symbol,
+                    interval,
+                    range,
+                    attempt,
+                    MaxYahooRequestAttempts,
+                    (int)delay.TotalMilliseconds);
+                await Task.Delay(delay, cancellationToken);
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt < MaxYahooRequestAttempts)
+            {
+                var delay = GetRetryDelay(attempt, null);
+                _logger.LogWarning(
+                    ex,
+                    "Yahoo history request timed out for symbol={Symbol} interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                    symbol,
+                    interval,
+                    range,
+                    attempt,
+                    MaxYahooRequestAttempts,
+                    (int)delay.TotalMilliseconds);
+                await Task.Delay(delay, cancellationToken);
+            }
         }
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-        var root = doc.RootElement;
+        _logger.LogWarning(
+            "Yahoo history request failed after retries for symbol={Symbol} interval={Interval} range={Range}",
+            symbol,
+            interval,
+            range);
+        return Array.Empty<CandleData>();
+    }
 
+    private static IReadOnlyList<CandleData> ParseCandles(JsonElement root)
+    {
         if (!root.TryGetProperty("chart", out var chart) ||
             !chart.TryGetProperty("result", out var resultArray) ||
             resultArray.GetArrayLength() == 0)
@@ -242,6 +320,64 @@ public class StockHistoryService : IStockHistoryService
         return candles
             .OrderBy(x => x.Timestamp)
             .ToList();
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode) =>
+        statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
+
+    private static TimeSpan GetRetryDelay(int attempt, RetryConditionHeaderValue? retryAfter)
+    {
+        var retryAfterDelay = GetRetryAfterDelay(retryAfter);
+        if (retryAfterDelay.HasValue)
+        {
+            return retryAfterDelay.Value;
+        }
+
+        var exponentialMs = Math.Min(
+            YahooRetryBaseDelay.TotalMilliseconds * Math.Pow(2, Math.Max(attempt - 1, 0)),
+            YahooRetryMaxDelay.TotalMilliseconds);
+        var jitterMs = Random.Shared.Next(0, 250);
+        return TimeSpan.FromMilliseconds(exponentialMs + jitterMs);
+    }
+
+    private static TimeSpan? GetRetryAfterDelay(RetryConditionHeaderValue? retryAfter)
+    {
+        if (retryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            return delta > YahooRetryMaxDelay ? YahooRetryMaxDelay : delta;
+        }
+
+        if (retryAfter?.Date is { } date)
+        {
+            var delay = date - DateTimeOffset.UtcNow;
+            if (delay > TimeSpan.Zero)
+            {
+                return delay > YahooRetryMaxDelay ? YahooRetryMaxDelay : delay;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<HttpResponseMessage> SendYahooRequestAsync(HttpClient client, string url, CancellationToken cancellationToken)
+    {
+        await YahooRequestGate.WaitAsync(cancellationToken);
+        try
+        {
+            var now = DateTime.UtcNow;
+            if (_nextYahooRequestUtc > now)
+            {
+                await Task.Delay(_nextYahooRequestUtc - now, cancellationToken);
+            }
+
+            var response = await client.GetAsync(url, cancellationToken);
+            _nextYahooRequestUtc = DateTime.UtcNow.Add(YahooRequestThrottleDelay);
+            return response;
+        }
+        finally
+        {
+            YahooRequestGate.Release();
+        }
     }
 
     private static IReadOnlyList<CandleData> AggregateToTenMinute(IReadOnlyList<CandleData> fiveMinuteCandles)
