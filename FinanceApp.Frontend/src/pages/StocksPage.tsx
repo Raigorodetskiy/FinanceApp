@@ -67,10 +67,33 @@ const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${
 
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
+const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
+const STOCK_TEXT_LOCALE = 'ru-RU';
 
 const formatPercent24h = (pct: number): string => {
-  const formatted = pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const formatted = pct.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return pct > 0 ? `+${formatted} %` : `${formatted} %`;
+};
+
+const getPercent24hColor = (pct: number | null | undefined): string | undefined => {
+  if (pct === null || pct === undefined || pct === 0) return undefined;
+  return pct > 0 ? COLOR_POSITIVE : COLOR_NEGATIVE;
+};
+
+const getPercent24hText = (live: LivePriceEntry | undefined): string | null => {
+  if (!live) {
+    return null;
+  }
+
+  if (live.loading) {
+    return '...';
+  }
+
+  if (live.percentChange24h === null || live.percentChange24h === undefined) {
+    return '—';
+  }
+
+  return formatPercent24h(live.percentChange24h);
 };
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
@@ -115,6 +138,43 @@ const StocksPage: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const stocksRef = useRef<Stock[]>([]);
+  const portfolioStockIds = useMemo(() => {
+    const ids = new Set<number>();
+    portfolios.forEach((portfolio) => {
+      portfolio.items?.forEach((item) => {
+        if ((item.stockId ?? 0) > 0) {
+          ids.add(item.stockId);
+        }
+      });
+    });
+    return ids;
+  }, [portfolios]);
+  const sortedStocks = useMemo(() => {
+    const compareAlphabetically = (left: Stock, right: Stock) => {
+      const tickerCompare = left.ticker.localeCompare(right.ticker, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
+      if (tickerCompare !== 0) {
+        return tickerCompare;
+      }
+
+      const nameCompare = left.name.localeCompare(right.name, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
+      if (nameCompare !== 0) {
+        return nameCompare;
+      }
+
+      return left.id - right.id;
+    };
+
+    return [...stocks].sort((left, right) => {
+      const leftInPortfolio = portfolioStockIds.has(left.id);
+      const rightInPortfolio = portfolioStockIds.has(right.id);
+
+      if (leftInPortfolio !== rightInPortfolio) {
+        return leftInPortfolio ? -1 : 1;
+      }
+
+      return compareAlphabetically(left, right);
+    });
+  }, [portfolioStockIds, stocks]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -138,16 +198,16 @@ const StocksPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (stocks.length === 0)
+    if (sortedStocks.length === 0)
     {
       setSelectedStockId(null);
       return;
     }
 
-    if (!selectedStockId || !stocks.some((stock) => stock.id === selectedStockId)) {
-      setSelectedStockId(stocks[0].id);
+    if (!selectedStockId || !sortedStocks.some((stock) => stock.id === selectedStockId)) {
+      setSelectedStockId(sortedStocks[0].id);
     }
-  }, [stocks, selectedStockId]);
+  }, [sortedStocks, selectedStockId]);
 
   useEffect(() => {
     if (!selectedStockId) {
@@ -359,7 +419,7 @@ const StocksPage: React.FC = () => {
       title: 'Тикер',
       dataIndex: 'ticker',
       key: 'ticker',
-      sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker),
+      sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker, STOCK_TEXT_LOCALE, { sensitivity: 'base' }),
       render: (ticker: string, record: Stock) => (
         <Button type="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => setSelectedStockId(record.id)} aria-label={`Выбрать ${ticker} для просмотра графика`}>
           {ticker}
@@ -370,12 +430,39 @@ const StocksPage: React.FC = () => {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
+      render: (name: string, record: Stock) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>{name}</span>
+          {portfolioStockIds.has(record.id) && (
+            <Tag color="green">
+              В портфеле
+            </Tag>
+          )}
+        </div>
+      ),
     },
     {
       title: 'Текущая цена (€)',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
-      render: (v: number) => `€${v.toFixed(2)}`,
+      render: (v: number, record: Stock) => {
+        const live = livePrices[record.id];
+        const pct = live?.percentChange24h;
+        const pctColor = getPercent24hColor(pct);
+        const displayPrice = live?.priceEur ?? v;
+        const percentText = getPercent24hText(live);
+
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ whiteSpace: 'nowrap' }}>€{displayPrice.toFixed(2)}</span>
+            {percentText && (
+              <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {percentText}
+              </span>
+            )}
+          </div>
+        );
+      },
       sorter: (a: Stock, b: Stock) => a.currentPrice - b.currentPrice,
     },
     {
@@ -384,13 +471,6 @@ const StocksPage: React.FC = () => {
       render: (_: unknown, record: Stock) => {
         const live = livePrices[record.id];
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
-        const pct = live?.percentChange24h;
-        let pctColor: string | undefined;
-        if (pct != null) {
-          if (pct > 0) pctColor = COLOR_POSITIVE;
-          else if (pct < 0) pctColor = COLOR_NEGATIVE;
-          // zero: leave pctColor undefined for neutral/default styling
-        }
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>
@@ -400,11 +480,6 @@ const StocksPage: React.FC = () => {
                 ? `$${live.price.toFixed(2)} USD`
                 : '—'}
             </span>
-            {!live?.loading && pct != null && (
-              <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {formatPercent24h(pct)}
-              </span>
-            )}
             {stateInfo && !live?.loading && (
               <Tag color={stateInfo.color}>{stateInfo.text}</Tag>
             )}
@@ -632,7 +707,7 @@ const StocksPage: React.FC = () => {
                       value={selectedStockId ?? undefined}
                       style={{ minWidth: 220 }}
                       placeholder="Выберите акцию"
-                      options={stocks.map((stock) => ({ value: stock.id, label: `${stock.ticker} — ${stock.name}` }))}
+                      options={sortedStocks.map((stock) => ({ value: stock.id, label: `${stock.ticker} — ${stock.name}` }))}
                       onChange={(value) => setSelectedStockId(value)}
                     />
                     <Segmented
@@ -705,11 +780,12 @@ const StocksPage: React.FC = () => {
               </Card>
 
               <Table
-                dataSource={stocks}
+                dataSource={sortedStocks}
                 columns={columns}
                 rowKey="id"
                 scroll={{ x: true }}
                 pagination={{ pageSize: 20 }}
+                rowClassName={(record) => (portfolioStockIds.has(record.id) ? PORTFOLIO_ROW_CLASS : '')}
               />
             </div>
           )}
