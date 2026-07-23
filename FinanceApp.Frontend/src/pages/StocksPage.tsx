@@ -435,10 +435,7 @@ const StocksPage: React.FC = () => {
         const displayPrice = live?.priceEur ?? v;
 
         return (
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
-            title={portfolioStockIds.has(record.id) ? 'Акция входит в портфель' : undefined}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ whiteSpace: 'nowrap' }}>€{displayPrice.toFixed(2)}</span>
             {live && (
               <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
