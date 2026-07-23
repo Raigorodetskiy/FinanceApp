@@ -198,7 +198,7 @@ const StocksPage: React.FC = () => {
             const priceUsd = priceRes.data.currentPrice;
             const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
             const marketState: string = priceRes.data.marketState ?? 'CLOSED';
-            const percentChange24h: number = priceRes.data.percentChange;
+            const percentChange24h: number | null = priceRes.data.percentChange ?? null;
 
             setLivePrices((prev) => ({
               ...prev,
@@ -334,7 +334,7 @@ const StocksPage: React.FC = () => {
       const eurUsd = eurUsdRes.data.eurUsd;
       const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
       const marketState: string = priceRes.data.marketState ?? 'CLOSED';
-      const percentChange24h: number = priceRes.data.percentChange;
+      const percentChange24h: number | null = priceRes.data.percentChange ?? null;
 
       setLivePrices((prev) => ({
         ...prev,
