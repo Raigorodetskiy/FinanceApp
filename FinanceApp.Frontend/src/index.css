@@ -17,10 +17,10 @@ body {
 }
 
 .ant-table-wrapper .ant-table-tbody > tr.portfolio-stock-row > td {
-  background: #f6ffed;
+  background: #f0f7ff;
 }
 
 .ant-table-wrapper .ant-table-tbody > tr.portfolio-stock-row:hover > td,
 .ant-table-wrapper .ant-table-tbody > tr.portfolio-stock-row.ant-table-row:hover > td {
-  background: #eaffd6;
+  background: #ddeeff;
 }
