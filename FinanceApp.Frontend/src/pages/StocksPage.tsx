@@ -68,6 +68,7 @@ const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
+const STOCK_SORT_LOCALE = 'ru';
 
 const formatPercent24h = (pct: number): string => {
   const formatted = pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -150,12 +151,12 @@ const StocksPage: React.FC = () => {
   }, [portfolios]);
   const sortedStocks = useMemo(() => {
     const compareAlphabetically = (left: Stock, right: Stock) => {
-      const tickerCompare = left.ticker.localeCompare(right.ticker, 'ru', { sensitivity: 'base' });
+      const tickerCompare = left.ticker.localeCompare(right.ticker, STOCK_SORT_LOCALE, { sensitivity: 'base' });
       if (tickerCompare !== 0) {
         return tickerCompare;
       }
 
-      const nameCompare = left.name.localeCompare(right.name, 'ru', { sensitivity: 'base' });
+      const nameCompare = left.name.localeCompare(right.name, STOCK_SORT_LOCALE, { sensitivity: 'base' });
       if (nameCompare !== 0) {
         return nameCompare;
       }
@@ -418,7 +419,7 @@ const StocksPage: React.FC = () => {
       title: 'Тикер',
       dataIndex: 'ticker',
       key: 'ticker',
-      sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker),
+      sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker, STOCK_SORT_LOCALE, { sensitivity: 'base' }),
       render: (ticker: string, record: Stock) => (
         <Button type="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => setSelectedStockId(record.id)} aria-label={`Выбрать ${ticker} для просмотра графика`}>
           {ticker}
