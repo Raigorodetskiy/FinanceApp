@@ -386,9 +386,10 @@ const StocksPage: React.FC = () => {
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
         const pct = live?.percentChange24h;
         let pctColor: string | undefined;
-        if (pct !== null && pct !== undefined) {
+        if (pct != null) {
           if (pct > 0) pctColor = COLOR_POSITIVE;
           else if (pct < 0) pctColor = COLOR_NEGATIVE;
+          // zero: leave pctColor undefined for neutral/default styling
         }
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -399,7 +400,7 @@ const StocksPage: React.FC = () => {
                 ? `$${live.price.toFixed(2)} USD`
                 : '—'}
             </span>
-            {!live?.loading && pct !== null && pct !== undefined && (
+            {!live?.loading && pct != null && (
               <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
                 {formatPercent24h(pct)}
               </span>
