@@ -68,10 +68,11 @@ const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
-const STOCK_SORT_LOCALE = 'ru';
+const STOCK_TEXT_LOCALE = 'ru-RU';
+const STOCK_SORT_LOCALE = STOCK_TEXT_LOCALE;
 
 const formatPercent24h = (pct: number): string => {
-  const formatted = pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const formatted = pct.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return pct > 0 ? `+${formatted} %` : `${formatted} %`;
 };
 
@@ -142,7 +143,7 @@ const StocksPage: React.FC = () => {
     const ids = new Set<number>();
     portfolios.forEach((portfolio) => {
       portfolio.items?.forEach((item) => {
-        if (item.stockId > 0) {
+        if (item.stockId !== null && item.stockId !== undefined && item.stockId > 0) {
           ids.add(item.stockId);
         }
       });
