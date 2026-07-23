@@ -20,3 +20,4 @@
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/refint/FinanceApp.Core.dll
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.pdb
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/ref/FinanceApp.Core.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/Debug/net8.0/FinanceApp.Core.sourcelink.json

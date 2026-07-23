@@ -32,3 +32,4 @@
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/Debug/net8.0/FinanceApp.Data.pdb
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/Debug/net8.0/FinanceApp.Data.genruntimeconfig.cache
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/Debug/net8.0/ref/FinanceApp.Data.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/Debug/net8.0/FinanceApp.Data.sourcelink.json
