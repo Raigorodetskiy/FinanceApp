@@ -65,9 +65,15 @@ const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> =
 };
 const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
+const COLOR_POSITIVE = '#389e0d';
+const COLOR_NEGATIVE = '#cf1322';
+
 const formatPercent24h = (pct: number): string => {
-  const sign = pct > 0 ? '+' : '';
-  return `${sign}${pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+  const abs = Math.abs(pct);
+  const formatted = abs.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (pct > 0) return `+${formatted} %`;
+  if (pct < 0) return `-${formatted} %`;
+  return `${formatted} %`;
 };
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
@@ -388,7 +394,7 @@ const StocksPage: React.FC = () => {
         const live = livePrices[record.id];
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
         const pct = live?.percentChange24h;
-        const pctColor = pct == null ? undefined : pct > 0 ? '#389e0d' : pct < 0 ? '#cf1322' : undefined;
+        const pctColor = pct == null ? undefined : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : undefined;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>
@@ -538,7 +544,7 @@ const StocksPage: React.FC = () => {
   const periodChangePercent = periodChangeEur != null && periodStartPriceEur != null && periodStartPriceEur !== 0
     ? (periodChangeEur / periodStartPriceEur) * 100
     : null;
-  const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? '#389e0d' : '#cf1322');
+  const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? COLOR_POSITIVE : COLOR_NEGATIVE);
 
   const menuItems = [
     {
