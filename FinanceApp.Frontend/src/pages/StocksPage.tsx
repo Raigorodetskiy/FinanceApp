@@ -80,6 +80,22 @@ const marketStateLabel: Record<string, { color: string; text: string }> = {
   CLOSED:  { color: 'default', text: 'Closed' },
 };
 
+type LivePriceEntry = {
+  price: number | null;
+  priceEur: number | null;
+  loading: boolean;
+  marketState?: string;
+  percentChange24h?: number | null;
+};
+
+const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): LivePriceEntry => ({
+  price: current?.price ?? null,
+  priceEur: current?.priceEur ?? null,
+  loading,
+  marketState: current?.marketState,
+  percentChange24h: current?.percentChange24h ?? null,
+});
+
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -88,7 +104,7 @@ const StocksPage: React.FC = () => {
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean; marketState?: string; percentChange24h?: number | null }>>({});
+  const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [selectedStockId, setSelectedStockId] = useState<number | null>(null);
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -173,14 +189,7 @@ const StocksPage: React.FC = () => {
       setLivePrices((prev) => {
         const next = { ...prev };
         stocksWithTicker.forEach((stock) => {
-          const current = prev[stock.id];
-          next[stock.id] = {
-            price: current?.price ?? null,
-            priceEur: current?.priceEur ?? null,
-            loading: true,
-            marketState: current?.marketState,
-            percentChange24h: current?.percentChange24h ?? null,
-          };
+          next[stock.id] = preserveEntry(prev[stock.id], true);
         });
         return next;
       });
@@ -208,19 +217,10 @@ const StocksPage: React.FC = () => {
               updatedAt: new Date().toISOString(),
             });
           } catch (error) {
-            setLivePrices((prev) => {
-              const current = prev[stock.id];
-              return {
-                ...prev,
-                [stock.id]: {
-                  price: current?.price ?? null,
-                  priceEur: current?.priceEur ?? null,
-                  loading: false,
-                  marketState: current?.marketState,
-                  percentChange24h: current?.percentChange24h ?? null,
-                },
-              };
-            });
+            setLivePrices((prev) => ({
+              ...prev,
+              [stock.id]: preserveEntry(prev[stock.id], false),
+            }));
             throw error;
           }
         })
@@ -318,10 +318,7 @@ const StocksPage: React.FC = () => {
 
   const handleFetchLivePrice = async (stock: Stock) => {
     if (!stock.ticker?.trim()) return;
-    setLivePrices((prev) => {
-      const current = prev[stock.id];
-      return { ...prev, [stock.id]: { price: current?.price ?? null, priceEur: current?.priceEur ?? null, loading: true, marketState: current?.marketState, percentChange24h: current?.percentChange24h ?? null } };
-    });
+    setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], true) }));
     try {
       const [priceRes, eurUsdRes] = await Promise.all([
         getStockPrice(stock.ticker),
@@ -352,10 +349,7 @@ const StocksPage: React.FC = () => {
         )
       );
     } catch {
-      setLivePrices((prev) => {
-        const current = prev[stock.id];
-        return { ...prev, [stock.id]: { price: current?.price ?? null, priceEur: current?.priceEur ?? null, loading: false, marketState: current?.marketState, percentChange24h: current?.percentChange24h ?? null } };
-      });
+      setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], false) }));
       message.error(`Ошибка получения цены для ${stock.ticker}`);
     }
   };
@@ -391,7 +385,11 @@ const StocksPage: React.FC = () => {
         const live = livePrices[record.id];
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
         const pct = live?.percentChange24h;
-        const pctColor = (pct === null || pct === undefined) ? undefined : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : undefined;
+        let pctColor: string | undefined;
+        if (pct !== null && pct !== undefined) {
+          if (pct > 0) pctColor = COLOR_POSITIVE;
+          else if (pct < 0) pctColor = COLOR_NEGATIVE;
+        }
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>
