@@ -15,7 +15,7 @@ public class StockHistoryService : IStockHistoryService
     private static readonly TimeSpan YahooRetryBaseDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan YahooRetryMaxDelay = TimeSpan.FromSeconds(20);
     private static readonly SemaphoreSlim YahooRequestGate = new(1, 1);
-    private static DateTime _nextYahooRequestUtc = DateTime.MinValue;
+    private static DateTimeOffset _nextYahooRequestUtc = DateTimeOffset.MinValue;
 
     private readonly AppDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -202,8 +202,7 @@ public class StockHistoryService : IStockHistoryService
                 {
                     var delay = GetRetryDelay(attempt, response.Headers.RetryAfter);
                     _logger.LogWarning(
-                        "Yahoo history request transient failure for symbol={Symbol} interval={Interval} range={Range} status={StatusCode}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                        symbol,
+                        "Yahoo history request transient failure for interval={Interval} range={Range} status={StatusCode}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
                         interval,
                         range,
                         (int)response.StatusCode,
@@ -215,8 +214,7 @@ public class StockHistoryService : IStockHistoryService
                 }
 
                 _logger.LogWarning(
-                    "Yahoo history request failed for symbol={Symbol} interval={Interval} range={Range}: {StatusCode}",
-                    symbol,
+                    "Yahoo history request failed for interval={Interval} range={Range}: {StatusCode}",
                     interval,
                     range,
                     (int)response.StatusCode);
@@ -227,8 +225,7 @@ public class StockHistoryService : IStockHistoryService
                 var delay = GetRetryDelay(attempt, null);
                 _logger.LogWarning(
                     ex,
-                    "Yahoo history request network error for symbol={Symbol} interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                    symbol,
+                    "Yahoo history request network error for interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
                     interval,
                     range,
                     attempt,
@@ -241,8 +238,7 @@ public class StockHistoryService : IStockHistoryService
                 var delay = GetRetryDelay(attempt, null);
                 _logger.LogWarning(
                     ex,
-                    "Yahoo history request timed out for symbol={Symbol} interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                    symbol,
+                    "Yahoo history request timed out for interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
                     interval,
                     range,
                     attempt,
@@ -253,8 +249,7 @@ public class StockHistoryService : IStockHistoryService
         }
 
         _logger.LogWarning(
-            "Yahoo history request failed after retries for symbol={Symbol} interval={Interval} range={Range}",
-            symbol,
+            "Yahoo history request failed after retries for interval={Interval} range={Range}",
             interval,
             range);
         return Array.Empty<CandleData>();
@@ -334,7 +329,7 @@ public class StockHistoryService : IStockHistoryService
         }
 
         var exponentialMs = Math.Min(
-            YahooRetryBaseDelay.TotalMilliseconds * Math.Pow(2, Math.Max(attempt - 1, 0)),
+            YahooRetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt - 1),
             YahooRetryMaxDelay.TotalMilliseconds);
         var jitterMs = Random.Shared.Next(0, 250);
         return TimeSpan.FromMilliseconds(exponentialMs + jitterMs);
@@ -364,14 +359,14 @@ public class StockHistoryService : IStockHistoryService
         await YahooRequestGate.WaitAsync(cancellationToken);
         try
         {
-            var now = DateTime.UtcNow;
+            var now = DateTimeOffset.UtcNow;
             if (_nextYahooRequestUtc > now)
             {
                 await Task.Delay(_nextYahooRequestUtc - now, cancellationToken);
             }
 
             var response = await client.GetAsync(url, cancellationToken);
-            _nextYahooRequestUtc = DateTime.UtcNow.Add(YahooRequestThrottleDelay);
+            _nextYahooRequestUtc = DateTimeOffset.UtcNow.Add(YahooRequestThrottleDelay);
             return response;
         }
         finally
