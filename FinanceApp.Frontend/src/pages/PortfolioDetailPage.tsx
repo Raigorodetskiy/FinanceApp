@@ -243,7 +243,6 @@ const PortfolioDetailPage: React.FC = () => {
       if (order.type === 'Buy' && currentPrice >= order.stopMarket) return `Цена ${currentPrice} достигла Stop Market ${order.stopMarket}`;
       if (order.type === 'Sell' && currentPrice >= order.stopMarket) return `Цена ${currentPrice} достигла Stop Market ${order.stopMarket}`;
     }
-    // Limit check
     if (order.type === 'Buy' && currentPrice <= order.price) return `Цена ${currentPrice} <= лимит покупки ${order.price}`;
     if (order.type === 'Sell' && currentPrice >= order.price) return `Цена ${currentPrice} >= лимит продажи ${order.price}`;
     return null;
@@ -297,6 +296,11 @@ const PortfolioDetailPage: React.FC = () => {
   const items = portfolio?.items ?? [];
   const summary = computeSummary(items);
 
+  // ── Derived order lists ───────────────────────────���────────
+  const pendingOrders = orders.filter((o) => o.status === 'Pending');
+  const executedOrders = orders.filter((o) => o.status === 'Executed' || o.status === 'Cancelled');
+  const triggeredCount = pendingOrders.filter((o) => isTriggered(o)).length;
+
   // ── Columns ────────────────────────────────────────────────
   const positionColumns = [
     { title: 'Тикер', dataIndex: ['stock', 'ticker'], key: 'ticker', render: (t: string) => <Tag color="blue">{t}</Tag> },
@@ -332,7 +336,8 @@ const PortfolioDetailPage: React.FC = () => {
     },
   ];
 
-  const orderColumns = [
+  // Pending orders — full details + alerts
+  const pendingOrderColumns = [
     {
       title: '', key: 'alert', width: 32,
       render: (_: unknown, r: Order) => {
@@ -340,16 +345,15 @@ const PortfolioDetailPage: React.FC = () => {
         return msg ? <Tooltip title={msg}><BellOutlined style={{ color: '#faad14', fontSize: 16 }} /></Tooltip> : null;
       },
     },
-    { title: 'Тикер', dataIndex: ['stock', 'ticker'], key: 'ticker', render: (t: string) => <Tag color="blue">{t}</Tag> },
+    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+    { title: 'Название', key: 'name', render: (_: unknown, r: Order) => r.stock?.name ?? '—' },
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
-    { title: 'Статус', dataIndex: 'status', key: 'status', render: (v: OrderStatus) => <Tag color={ORDER_STATUS_COLORS[v]}>{ORDER_STATUS_LABELS[v]}</Tag> },
     { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
     { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => `€${v.toFixed(2)}` },
     { title: 'Stop Loss', dataIndex: 'stopLoss', key: 'stopLoss', render: (v: number | null) => v != null ? `€${v.toFixed(2)}` : '—' },
     { title: 'Stop Market', dataIndex: 'stopMarket', key: 'stopMarket', render: (v: number | null) => v != null ? `€${v.toFixed(2)}` : '—' },
     { title: 'Тек. цена', key: 'currentPrice', render: (_: unknown, r: Order) => `€${r.stock?.currentPrice?.toFixed(2) ?? '—'}` },
-    { title: 'Создан', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs(v).format('DD.MM.YYYY HH:mm') },
-    { title: 'Исполнен', dataIndex: 'executedAt', key: 'executedAt', render: (v: string | null) => v ? dayjs(v).format('DD.MM.YYYY HH:mm') : '—' },
+    { title: 'Создан', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
     {
       title: 'Действия', key: 'actions',
       render: (_: unknown, r: Order) => (
@@ -359,6 +363,26 @@ const PortfolioDetailPage: React.FC = () => {
             <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
           </Popconfirm>
         </div>
+      ),
+    },
+  ];
+
+  // Executed/Cancelled orders — compact view
+  const executedOrderColumns = [
+    { title: 'Дата исполнения', dataIndex: 'executedAt', key: 'executedAt', render: (v: string | null) => v ? dayjs.utc(v).local().format('DD.MM.YYYY') : '—' },
+    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+    { title: 'Название', key: 'name', render: (_: unknown, r: Order) => r.stock?.name ?? '—' },
+    { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
+    { title: 'Статус', dataIndex: 'status', key: 'status', render: (v: OrderStatus) => <Tag color={ORDER_STATUS_COLORS[v]}>{ORDER_STATUS_LABELS[v]}</Tag> },
+    { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
+    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => `€${v.toFixed(2)}` },
+    { title: 'Итого', key: 'total', render: (_: unknown, r: Order) => `€${(r.price * r.quantity).toFixed(2)}` },
+    {
+      title: 'Удалить', key: 'delete',
+      render: (_: unknown, r: Order) => (
+        <Popconfirm title="Удалить ордер?" onConfirm={() => handleDeleteOrder(r.id)} okText="Да" cancelText="Нет">
+          <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+        </Popconfirm>
       ),
     },
   ];
@@ -438,8 +462,8 @@ const PortfolioDetailPage: React.FC = () => {
                     label: (
                       <span>
                         Ордера
-                        {orders.filter(o => isTriggered(o)).length > 0 && (
-                          <Tag color="orange" style={{ marginLeft: 6 }}>{orders.filter(o => isTriggered(o)).length}</Tag>
+                        {triggeredCount > 0 && (
+                          <Tag color="orange" style={{ marginLeft: 6 }}>{triggeredCount}</Tag>
                         )}
                       </span>
                     ),
@@ -448,7 +472,53 @@ const PortfolioDetailPage: React.FC = () => {
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
                           <Button type="primary" icon={<PlusOutlined />} onClick={openAddOrderModal}>Создать ордер</Button>
                         </div>
-                        <Table dataSource={orders} columns={orderColumns} rowKey="id" scroll={{ x: true }} pagination={{ pageSize: 20 }} />
+                        <Tabs
+                          defaultActiveKey="pending"
+                          items={[
+                            {
+                              key: 'pending',
+                              label: (
+                                <span>
+                                  Ожидающие
+                                  {pendingOrders.length > 0 && (
+                                    <Tag color="gold" style={{ marginLeft: 6 }}>{pendingOrders.length}</Tag>
+                                  )}
+                                </span>
+                              ),
+                              children: (
+                                <Table
+                                  dataSource={pendingOrders}
+                                  columns={pendingOrderColumns}
+                                  rowKey="id"
+                                  scroll={{ x: true }}
+                                  pagination={{ pageSize: 20 }}
+                                  locale={{ emptyText: 'Нет ожидающих ордеров' }}
+                                />
+                              ),
+                            },
+                            {
+                              key: 'executed',
+                              label: (
+                                <span>
+                                  Выполненные
+                                  {executedOrders.length > 0 && (
+                                    <Tag color="green" style={{ marginLeft: 6 }}>{executedOrders.length}</Tag>
+                                  )}
+                                </span>
+                              ),
+                              children: (
+                                <Table
+                                  dataSource={executedOrders}
+                                  columns={executedOrderColumns}
+                                  rowKey="id"
+                                  scroll={{ x: true }}
+                                  pagination={{ pageSize: 20 }}
+                                  locale={{ emptyText: 'Нет выполненных ордеров' }}
+                                />
+                              ),
+                            },
+                          ]}
+                        />
                       </>
                     ),
                   },
@@ -505,7 +575,7 @@ const PortfolioDetailPage: React.FC = () => {
                                   scroll={{ x: true }}
                                   pagination={{ pageSize: 20 }}
                                   columns={[
-                                    { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs(v).format('DD.MM.YYYY HH:mm') },
+                                    { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
                                     {
                                       title: 'Тип', dataIndex: 'type', key: 'type',
                                       render: (v: string) => <Tag color={v === 'Deposit' ? 'green' : 'red'}>{v === 'Deposit' ? 'Пополнение' : 'Вывод'}</Tag>,
@@ -539,8 +609,9 @@ const PortfolioDetailPage: React.FC = () => {
                                   scroll={{ x: true }}
                                   pagination={{ pageSize: 20 }}
                                   columns={[
-                                    { title: 'Дата выплаты', dataIndex: 'paidAt', key: 'paidAt', render: (v: string) => dayjs(v).format('DD.MM.YYYY') },
-                                    { title: 'Акция', key: 'ticker', render: (_: unknown, r: Dividend) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+                                    { title: 'Дата выплаты', dataIndex: 'paidAt', key: 'paidAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY') },
+                                    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Dividend) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+                                    { title: 'Название', key: 'name', render: (_: unknown, r: Dividend) => r.stock?.name ?? '—' },
                                     { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
                                     {
                                       title: 'Удалить', key: 'delete',
@@ -690,7 +761,7 @@ const PortfolioDetailPage: React.FC = () => {
         <Form form={divForm} layout="vertical" onFinish={handleDivSubmit}>
           <Form.Item label="Акция" name="stockId" rules={[{ required: true, message: 'Выберите акцию' }]}>
             <Select placeholder="Выберите акцию" showSearch optionFilterProp="children">
-              {items.map((i) => <Select.Option key={i.stockId} value={i.stockId}>{i.stock.ticker} — {i.stock.name}</Select.Option>)}
+              {stocks.map((s) => <Select.Option key={s.id} value={s.id}>{s.ticker} — {s.name}</Select.Option>)}
             </Select>
           </Form.Item>
           <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
