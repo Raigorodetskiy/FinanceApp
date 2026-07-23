@@ -434,7 +434,7 @@ const StocksPage: React.FC = () => {
     '1y': 'DD.MM.YY',
     '6m': 'DD.MM.YY',
     '3m': 'DD.MM.YY',
-    '1m': 'DD.MM.YY',
+    '1m': 'DD',
     '1w': 'DD.MM HH:mm',
     '24h': 'HH:mm',
     'today': 'HH:mm',
