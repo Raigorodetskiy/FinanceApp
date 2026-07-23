@@ -69,11 +69,8 @@ const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 
 const formatPercent24h = (pct: number): string => {
-  const abs = Math.abs(pct);
-  const formatted = abs.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  if (pct > 0) return `+${formatted} %`;
-  if (pct < 0) return `-${formatted} %`;
-  return `${formatted} %`;
+  const formatted = pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return pct > 0 ? `+${formatted} %` : `${formatted} %`;
 };
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
@@ -394,7 +391,7 @@ const StocksPage: React.FC = () => {
         const live = livePrices[record.id];
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
         const pct = live?.percentChange24h;
-        const pctColor = pct == null ? undefined : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : undefined;
+        const pctColor = (pct === null || pct === undefined) ? undefined : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : undefined;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>
@@ -404,7 +401,7 @@ const StocksPage: React.FC = () => {
                 ? `$${live.price.toFixed(2)} USD`
                 : '—'}
             </span>
-            {!live?.loading && pct != null && (
+            {!live?.loading && pct !== null && pct !== undefined && (
               <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
                 {formatPercent24h(pct)}
               </span>
