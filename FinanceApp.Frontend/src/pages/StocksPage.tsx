@@ -65,6 +65,11 @@ const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> =
 };
 const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
+const formatPercent24h = (pct: number): string => {
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+};
+
 const marketStateLabel: Record<string, { color: string; text: string }> = {
   REGULAR: { color: 'green', text: 'Open' },
   PRE:     { color: 'blue',  text: 'Pre-Market' },
@@ -80,7 +85,7 @@ const StocksPage: React.FC = () => {
   const [editingStock, setEditingStock] = useState<Stock | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean; marketState?: string }>>({});
+  const [livePrices, setLivePrices] = useState<Record<number, { price: number | null; priceEur: number | null; loading: boolean; marketState?: string; percentChange24h?: number | null }>>({});
   const [selectedStockId, setSelectedStockId] = useState<number | null>(null);
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -171,6 +176,7 @@ const StocksPage: React.FC = () => {
             priceEur: current?.priceEur ?? null,
             loading: true,
             marketState: current?.marketState,
+            percentChange24h: current?.percentChange24h ?? null,
           };
         });
         return next;
@@ -186,10 +192,11 @@ const StocksPage: React.FC = () => {
             const priceUsd = priceRes.data.currentPrice;
             const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
             const marketState: string = priceRes.data.marketState ?? 'CLOSED';
+            const percentChange24h: number = priceRes.data.percentChange;
 
             setLivePrices((prev) => ({
               ...prev,
-              [stock.id]: { price: priceUsd, priceEur, loading: false, marketState },
+              [stock.id]: { price: priceUsd, priceEur, loading: false, marketState, percentChange24h },
             }));
 
             await updateStock(stock.id, {
@@ -207,6 +214,7 @@ const StocksPage: React.FC = () => {
                   priceEur: current?.priceEur ?? null,
                   loading: false,
                   marketState: current?.marketState,
+                  percentChange24h: current?.percentChange24h ?? null,
                 },
               };
             });
@@ -307,7 +315,10 @@ const StocksPage: React.FC = () => {
 
   const handleFetchLivePrice = async (stock: Stock) => {
     if (!stock.ticker?.trim()) return;
-    setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, priceEur: null, loading: true } }));
+    setLivePrices((prev) => {
+      const current = prev[stock.id];
+      return { ...prev, [stock.id]: { price: current?.price ?? null, priceEur: current?.priceEur ?? null, loading: true, marketState: current?.marketState, percentChange24h: current?.percentChange24h ?? null } };
+    });
     try {
       const [priceRes, eurUsdRes] = await Promise.all([
         getStockPrice(stock.ticker),
@@ -317,10 +328,11 @@ const StocksPage: React.FC = () => {
       const eurUsd = eurUsdRes.data.eurUsd;
       const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
       const marketState: string = priceRes.data.marketState ?? 'CLOSED';
+      const percentChange24h: number = priceRes.data.percentChange;
 
       setLivePrices((prev) => ({
         ...prev,
-        [stock.id]: { price: priceUsd, priceEur, loading: false, marketState },
+        [stock.id]: { price: priceUsd, priceEur, loading: false, marketState, percentChange24h },
       }));
 
       await updateStock(stock.id, {
@@ -337,7 +349,10 @@ const StocksPage: React.FC = () => {
         )
       );
     } catch {
-      setLivePrices((prev) => ({ ...prev, [stock.id]: { price: null, priceEur: null, loading: false } }));
+      setLivePrices((prev) => {
+        const current = prev[stock.id];
+        return { ...prev, [stock.id]: { price: current?.price ?? null, priceEur: current?.priceEur ?? null, loading: false, marketState: current?.marketState, percentChange24h: current?.percentChange24h ?? null } };
+      });
       message.error(`Ошибка получения цены для ${stock.ticker}`);
     }
   };
@@ -372,6 +387,8 @@ const StocksPage: React.FC = () => {
       render: (_: unknown, record: Stock) => {
         const live = livePrices[record.id];
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
+        const pct = live?.percentChange24h;
+        const pctColor = pct == null ? undefined : pct > 0 ? '#389e0d' : pct < 0 ? '#cf1322' : undefined;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>
@@ -381,6 +398,11 @@ const StocksPage: React.FC = () => {
                 ? `$${live.price.toFixed(2)} USD`
                 : '—'}
             </span>
+            {!live?.loading && pct != null && (
+              <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                {formatPercent24h(pct)}
+              </span>
+            )}
             {stateInfo && !live?.loading && (
               <Tag color={stateInfo.color}>{stateInfo.text}</Tag>
             )}
