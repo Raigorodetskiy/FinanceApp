@@ -14,7 +14,7 @@ import {
   Popconfirm,
   message,
   Tag,
-  Pagination,
+  Tooltip,
   Empty,
 } from 'antd';
 import type { SorterResult } from 'antd/es/table/interface';
@@ -45,7 +45,7 @@ import {
 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockHistoryPoint, StockHistoryRange } from '../types';
-import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 dayjs.extend(utc);
 
@@ -115,8 +115,6 @@ type LivePriceEntry = {
 type ChartRow = { _isChartRow: true; _stockId: number };
 type TableRow = Stock | ChartRow;
 
-const PAGE_SIZE = 20;
-
 const isChartRow = (record: TableRow): record is ChartRow => !!(record as ChartRow)._isChartRow;
 
 const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): LivePriceEntry => ({
@@ -137,7 +135,6 @@ const StocksPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ columnKey: React.Key | null; order: 'ascend' | 'descend' | null }>({ columnKey: null, order: null });
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -498,10 +495,10 @@ const StocksPage: React.FC = () => {
                             domain={['auto', 'auto']}
                             tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
                           />
-                          <Tooltip
+                          <RechartsTooltip
                             labelFormatter={(value: number) => dayjs.utc(value).local().format('DD.MM.YYYY HH:mm')}
-                            formatter={(value) => (
-                              value === null
+                            formatter={(value: unknown) => (
+                              value == null
                                 ? ['Нет данных', 'Цена']
                                 : [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']
                             )}
@@ -647,22 +644,23 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         return (
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              icon={<EditOutlined />}
-              size="small"
-              onClick={() => openEditModal(stock)}
-            >
-              Изменить
-            </Button>
+            <Tooltip title="Изменить">
+              <Button
+                icon={<EditOutlined />}
+                size="small"
+                aria-label="Изменить"
+                onClick={() => openEditModal(stock)}
+              />
+            </Tooltip>
             <Popconfirm
               title="Удалить акцию?"
               onConfirm={() => handleDelete(stock.id)}
               okText="Да"
               cancelText="Нет"
             >
-              <Button icon={<DeleteOutlined />} size="small" danger>
-                Удалить
-              </Button>
+              <Tooltip title="Удалить">
+                <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+              </Tooltip>
             </Popconfirm>
           </div>
         );
@@ -761,7 +759,7 @@ const StocksPage: React.FC = () => {
     : null;
   const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? COLOR_POSITIVE : COLOR_NEGATIVE);
 
-  // --- Manual pagination + sort ---
+  // --- Manual sort ---
   const displayStocks = useMemo(() => {
     if (!sortConfig.columnKey || !sortConfig.order) return sortedStocks;
     return [...sortedStocks].sort((a, b) => {
@@ -779,21 +777,16 @@ const StocksPage: React.FC = () => {
     });
   }, [sortedStocks, sortConfig]);
 
-  const pagedStocks = useMemo(
-    () => displayStocks.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [displayStocks, currentPage],
-  );
-
   const tableData: TableRow[] = useMemo(() => {
     const rows: TableRow[] = [];
-    for (const stock of pagedStocks) {
+    for (const stock of displayStocks) {
       if (expandedStockId === stock.id) {
         rows.push({ _isChartRow: true, _stockId: stock.id });
       }
       rows.push(stock);
     }
     return rows;
-  }, [pagedStocks, expandedStockId]);
+  }, [displayStocks, expandedStockId]);
 
   const handleTickerClick = (stockId: number) => {
     setExpandedStockId((prev) => (prev === stockId ? null : stockId));
@@ -807,12 +800,6 @@ const StocksPage: React.FC = () => {
   ) => {
     const s = Array.isArray(sorter) ? sorter[0] : sorter;
     setSortConfig({ columnKey: s.columnKey ?? null, order: s.order ?? null });
-    setCurrentPage(1);
-    setExpandedStockId(null);
-  };
-
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
     setExpandedStockId(null);
   };
 
@@ -897,32 +884,19 @@ const StocksPage: React.FC = () => {
               <Spin size="large" />
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: 16 }}>
-              <Table
-                dataSource={tableData}
-                columns={columns}
-                rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
-                scroll={{ x: true }}
-                pagination={false}
-                onChange={handleTableChange}
-                rowClassName={(record: TableRow) => {
-                  if (isChartRow(record)) return 'chart-panel-row';
-                  return portfolioStockIds.has((record as Stock).id) ? PORTFOLIO_ROW_CLASS : '';
-                }}
-              />
-              {displayStocks.length > PAGE_SIZE && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8 }}>
-                  <Pagination
-                    current={currentPage}
-                    pageSize={PAGE_SIZE}
-                    total={displayStocks.length}
-                    onChange={handlePageChange}
-                    showSizeChanger={false}
-                    showTotal={(total, range) => `${range[0]}–${range[1]} из ${total}`}
-                  />
-                </div>
-              )}
-            </div>
+            <Table
+              className="stocks-table"
+              dataSource={tableData}
+              columns={columns}
+              rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
+              scroll={{ x: true }}
+              pagination={false}
+              onChange={handleTableChange}
+              rowClassName={(record: TableRow) => {
+                if (isChartRow(record)) return 'chart-panel-row';
+                return portfolioStockIds.has((record as Stock).id) ? PORTFOLIO_ROW_CLASS : '';
+              }}
+            />
           )}
         </Content>
       </Layout>
