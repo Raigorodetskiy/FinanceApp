@@ -31,11 +31,14 @@ public class Transaction
 
 public static class TransactionDirection
 {
+    public static bool HasStoredSignedAmount(decimal amount, decimal? signedAmount) =>
+        signedAmount.HasValue && (signedAmount.Value != 0m || amount == 0m);
+
     public static decimal ResolveSignedAmount(TransactionType type, decimal amount, decimal? signedAmount = null)
     {
-        if (signedAmount.HasValue && (signedAmount.Value != 0m || amount == 0m))
+        if (HasStoredSignedAmount(amount, signedAmount))
         {
-            return signedAmount.Value;
+            return signedAmount!.Value;
         }
 
         var normalizedAmount = decimal.Abs(amount);

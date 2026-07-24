@@ -76,8 +76,16 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = { Pending: 'Ожида�
 const ORDER_STATUS_COLORS: Record<OrderStatus, string> = { Pending: 'gold', Executed: 'green', Cancelled: 'red' };
 const ORDER_TYPE_COLORS: Record<OrderType, string> = { Buy: 'blue', Sell: 'volcano' };
 
+const hasStoredSignedAmount = (transaction: Transaction) =>
+  transaction.signedAmount !== 0 || transaction.amount === 0;
+
+const getEffectiveSignedAmount = (transaction: Transaction) =>
+  hasStoredSignedAmount(transaction)
+    ? transaction.signedAmount
+    : (transaction.type === 'Deposit' ? transaction.amount : -transaction.amount);
+
 const isIncomingTransaction = (transaction: Transaction) =>
-  transaction.signedAmount > 0 || (transaction.signedAmount === 0 && transaction.type === 'Deposit');
+  getEffectiveSignedAmount(transaction) >= 0;
 
 const getTransactionLabel = (transaction: Transaction) =>
   isIncomingTransaction(transaction) ? 'Пополнение' : 'Вывод';
@@ -86,7 +94,7 @@ const getTransactionTagColor = (transaction: Transaction) =>
   isIncomingTransaction(transaction) ? 'green' : 'red';
 
 const getTransactionDisplayAmount = (transaction: Transaction) =>
-  Math.abs(transaction.signedAmount === 0 ? transaction.amount : transaction.signedAmount);
+  Math.abs(getEffectiveSignedAmount(transaction));
 
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
