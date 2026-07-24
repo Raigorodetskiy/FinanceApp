@@ -57,8 +57,8 @@
   white-space: nowrap;
 }
 
-.app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected {
-  background: rgba(77, 122, 189, 0.22) !important;
+.app-sidebar .app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected {
+  background: rgba(77, 122, 189, 0.22);
 }
 
 .app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected::after {

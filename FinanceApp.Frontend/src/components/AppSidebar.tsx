@@ -49,7 +49,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
             {portfolio.name}
           </span>
         ),
-        title: portfolio.name,
         onClick: () => navigate(`/portfolios/${portfolio.id}`),
       })),
     },
