@@ -34,3 +34,15 @@ body {
 .ant-table-wrapper .ant-table-tbody > tr.chart-panel-row:hover > td {
   background: transparent !important;
 }
+
+/* Stocks table: compact rows and thin gray separators */
+.ant-table-wrapper.stocks-table .ant-table-tbody > tr:not(.chart-panel-row) > td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+/* Keep separators visible on portfolio-highlighted rows */
+.ant-table-wrapper.stocks-table .ant-table-tbody > tr.portfolio-stock-row:not(.chart-panel-row) > td {
+  border-bottom: 1px solid #d0d9e6;
+}
