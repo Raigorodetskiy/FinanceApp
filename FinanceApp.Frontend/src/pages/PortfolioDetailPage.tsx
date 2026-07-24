@@ -76,6 +76,26 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = { Pending: 'Ожида�
 const ORDER_STATUS_COLORS: Record<OrderStatus, string> = { Pending: 'gold', Executed: 'green', Cancelled: 'red' };
 const ORDER_TYPE_COLORS: Record<OrderType, string> = { Buy: 'blue', Sell: 'volcano' };
 
+const hasStoredSignedAmount = (transaction: Transaction) =>
+  transaction.signedAmount !== 0 || transaction.amount === 0;
+
+const getEffectiveSignedAmount = (transaction: Transaction) =>
+  hasStoredSignedAmount(transaction)
+    ? transaction.signedAmount
+    : (transaction.type === 'Deposit' ? transaction.amount : -transaction.amount);
+
+const isIncomingTransaction = (transaction: Transaction) =>
+  getEffectiveSignedAmount(transaction) >= 0;
+
+const getTransactionLabel = (transaction: Transaction) =>
+  isIncomingTransaction(transaction) ? 'Пополнение' : 'Вывод';
+
+const getTransactionTagColor = (transaction: Transaction) =>
+  isIncomingTransaction(transaction) ? 'green' : 'red';
+
+const getTransactionDisplayAmount = (transaction: Transaction) =>
+  Math.abs(getEffectiveSignedAmount(transaction));
+
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -255,7 +275,13 @@ const PortfolioDetailPage: React.FC = () => {
     if (!id) return;
     setTxSubmitting(true);
     try {
-      await createTransaction(Number(id), { type: txType, amount: values.amount, description: values.description });
+      const normalizedAmount = Math.abs(values.amount);
+      await createTransaction(Number(id), {
+        type: txType,
+        amount: normalizedAmount,
+        signedAmount: txType === 'Deposit' ? normalizedAmount : -normalizedAmount,
+        description: values.description,
+      });
       message.success(txType === 'Deposit' ? 'Пополнение добавлено' : 'Вывод добавлен');
       setTxModalOpen(false); txForm.resetFields(); fetchFinanceData();
     } catch { message.error('Ошибка сохранения транзакции'); }
@@ -578,9 +604,14 @@ const PortfolioDetailPage: React.FC = () => {
                                     { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
                                     {
                                       title: 'Тип', dataIndex: 'type', key: 'type',
-                                      render: (v: string) => <Tag color={v === 'Deposit' ? 'green' : 'red'}>{v === 'Deposit' ? 'Пополнение' : 'Вывод'}</Tag>,
+                                      render: (_: string, transaction: Transaction) => (
+                                        <Tag color={getTransactionTagColor(transaction)}>{getTransactionLabel(transaction)}</Tag>
+                                      ),
                                     },
-                                    { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
+                                    {
+                                      title: 'Сумма', dataIndex: 'amount', key: 'amount',
+                                      render: (_: number, transaction: Transaction) => `€${getTransactionDisplayAmount(transaction).toFixed(2)}`,
+                                    },
                                     { title: 'Описание', dataIndex: 'description', key: 'description', render: (v: string | null) => v ?? '—' },
                                     {
                                       title: 'Удалить', key: 'delete',
