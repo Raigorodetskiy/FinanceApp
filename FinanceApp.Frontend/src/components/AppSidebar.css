@@ -5,6 +5,8 @@
   overflow-x: hidden;
 }
 
+/* ── Level 1: "Мои портфели" root submenu ─────────────────────────── */
+
 /* Ant Design 5 renders the root submenu toggle in `.ant-menu-submenu-title`; extend the tree line below it. */
 .app-sidebar-menu .portfolio-tree-root--populated.ant-menu-submenu-open > .ant-menu-submenu-title::after {
   content: '';
@@ -32,6 +34,8 @@
   background: rgba(154, 172, 194, 0.32);
   pointer-events: none;
 }
+
+/* ── Level 2: portfolio nodes ─────────────────────────────────────── */
 
 .app-sidebar-menu .portfolio-tree-node {
   position: relative;
@@ -65,5 +69,114 @@
 }
 
 .app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected::after {
+  border-inline-end-color: var(--portfolio-tree-selected-border);
+}
+
+/* Vertical connector for the expanded active portfolio submenu */
+.app-sidebar-menu .portfolio-tree-node--expanded.ant-menu-submenu-open > .ant-menu-submenu-title::after {
+  content: '';
+  position: absolute;
+  left: 46px;
+  bottom: -6px;
+  width: 1px;
+  height: 6px;
+  background: rgba(154, 172, 194, 0.40);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-tree-node--expanded > .ant-menu-sub {
+  position: relative;
+  background: transparent;
+}
+
+.app-sidebar-menu .portfolio-tree-node--expanded.ant-menu-submenu-open > .ant-menu-sub::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 12px;
+  left: 46px;
+  width: 1px;
+  background: rgba(154, 172, 194, 0.28);
+  pointer-events: none;
+}
+
+/* ── Level 3: section nodes (Позиции, Ордера, Финансы) ────────────── */
+
+.app-sidebar-menu .portfolio-section-node {
+  position: relative;
+}
+
+.app-sidebar-menu .portfolio-section-node.ant-menu-item::before,
+.app-sidebar-menu .portfolio-section-node.ant-menu-submenu > .ant-menu-submenu-title::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 46px;
+  width: 12px;
+  height: 1px;
+  background: rgba(154, 172, 194, 0.40);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-section-node.ant-menu-item-selected {
+  background: var(--portfolio-tree-selected-bg);
+}
+
+.app-sidebar-menu .portfolio-section-node.ant-menu-item-selected::after {
+  border-inline-end-color: var(--portfolio-tree-selected-border);
+}
+
+/* Vertical connector for the Финансы submenu */
+.app-sidebar-menu .portfolio-section-node--submenu.ant-menu-submenu-open > .ant-menu-submenu-title::after {
+  content: '';
+  position: absolute;
+  left: 62px;
+  bottom: -6px;
+  width: 1px;
+  height: 6px;
+  background: rgba(154, 172, 194, 0.35);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-section-node--submenu > .ant-menu-sub {
+  position: relative;
+  background: transparent;
+}
+
+.app-sidebar-menu .portfolio-section-node--submenu.ant-menu-submenu-open > .ant-menu-sub::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 12px;
+  left: 62px;
+  width: 1px;
+  background: rgba(154, 172, 194, 0.25);
+  pointer-events: none;
+}
+
+/* ── Level 4: finance child nodes (Баланс, Транзакции, Дивиденды) ─── */
+
+.app-sidebar-menu .portfolio-finance-node {
+  position: relative;
+}
+
+.app-sidebar-menu .portfolio-finance-node::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 62px;
+  width: 12px;
+  height: 1px;
+  background: rgba(154, 172, 194, 0.35);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-finance-node.ant-menu-item-selected {
+  background: var(--portfolio-tree-selected-bg);
+}
+
+.app-sidebar-menu .portfolio-finance-node.ant-menu-item-selected::after {
   border-inline-end-color: var(--portfolio-tree-selected-border);
 }
