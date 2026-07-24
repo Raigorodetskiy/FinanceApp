@@ -7,6 +7,7 @@ import type { Portfolio } from '../types';
 import './AppSidebar.css';
 
 const { Sider } = Layout;
+const PORTFOLIO_KEY_PREFIX = 'portfolio-';
 
 interface AppSidebarProps {
   portfolios: Portfolio[];
@@ -26,7 +27,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
   const navigate = useNavigate();
   const hasPortfolios = portfolios.length > 0;
   const resolvedDefaultOpenKeys = defaultOpenKeys ?? (
-    selectedKeys.some((key) => key.startsWith('portfolio-')) ? ['portfolios'] : []
+    selectedKeys.some((key) => key.startsWith(PORTFOLIO_KEY_PREFIX)) ? ['portfolios'] : []
   );
 
   const menuItems: MenuProps['items'] = [
@@ -42,7 +43,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       label: 'Мои портфели',
       className: hasPortfolios ? 'portfolio-tree-root portfolio-tree-root--populated' : 'portfolio-tree-root',
       children: portfolios.map((portfolio) => ({
-        key: `portfolio-${portfolio.id}`,
+        key: `${PORTFOLIO_KEY_PREFIX}${portfolio.id}`,
         className: 'portfolio-tree-node',
         label: (
           <span className="portfolio-tree-node-label" title={portfolio.name}>

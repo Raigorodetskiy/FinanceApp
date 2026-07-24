@@ -1,4 +1,6 @@
 .app-sidebar-menu {
+  --portfolio-tree-selected-bg: rgba(77, 122, 189, 0.22);
+  --portfolio-tree-selected-border: #6ea8ff;
   border-inline-end: 0 !important;
   overflow-x: hidden;
 }
@@ -58,9 +60,9 @@
 }
 
 .app-sidebar .app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected {
-  background: rgba(77, 122, 189, 0.22);
+  background: var(--portfolio-tree-selected-bg);
 }
 
 .app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected::after {
-  border-inline-end-color: #6ea8ff;
+  border-inline-end-color: var(--portfolio-tree-selected-border);
 }
