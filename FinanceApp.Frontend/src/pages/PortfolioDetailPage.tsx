@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Layout,
   Table,
@@ -26,9 +26,8 @@ import {
   EditOutlined,
   DeleteOutlined,
   BellOutlined,
-  WalletOutlined,
 } from '@ant-design/icons';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
   getPortfolio,
@@ -93,6 +92,10 @@ const getTransactionDisplayAmount = (transaction: Transaction) =>
 
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  // Supported sections: positions | orders | balance | transactions | dividends
+  const section = searchParams.get('section') ?? 'positions';
+
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -152,9 +155,9 @@ const PortfolioDetailPage: React.FC = () => {
     }
   };
 
-  useEffect(() => { fetchData(); }, [id]);
+  useEffect(() => { fetchData(); setFinanceLoaded(false); }, [id]);
 
-  const fetchFinanceData = async () => {
+  const fetchFinanceData = useCallback(async () => {
     if (!id) return;
     try {
       const [balanceRes, txRes, divRes] = await Promise.all([
@@ -169,7 +172,15 @@ const PortfolioDetailPage: React.FC = () => {
     } catch {
       message.error('Ошибка загрузки финансовых данных');
     }
-  };
+  }, [id]);
+
+  // Load finance data when navigating to a finance section
+  useEffect(() => {
+    const isFinanceSection = section === 'balance' || section === 'transactions' || section === 'dividends';
+    if (isFinanceSection && !financeLoaded) {
+      fetchFinanceData();
+    }
+  }, [section, id, financeLoaded, fetchFinanceData]);
 
   // ── Positions ──────────────────────────────────────────────
   const openAddPosModal = () => { setEditingItem(null); posForm.resetFields(); setPosModalOpen(true); };
@@ -317,10 +328,9 @@ const PortfolioDetailPage: React.FC = () => {
   const items = portfolio?.items ?? [];
   const summary = computeSummary(items);
 
-  // ── Derived order lists ───────────────────────────���────────
+  // ── Derived order lists ───────────────────────────────────────────────
   const pendingOrders = orders.filter((o) => o.status === 'Pending');
   const executedOrders = orders.filter((o) => o.status === 'Executed' || o.status === 'Cancelled');
-  const triggeredCount = pendingOrders.filter((o) => isTriggered(o)).length;
 
   // ── Columns ────────────────────────────────────────────────
   const positionColumns = [
@@ -408,14 +418,24 @@ const PortfolioDetailPage: React.FC = () => {
     },
   ];
 
+  // Derive selectedKey and sidebarOpenKeys from current section
+  const sectionKey = `portfolio-${id}-${section}`;
+  const isFinanceSection = section === 'balance' || section === 'transactions' || section === 'dividends';
+  const sidebarOpenKeys = [
+    'portfolios',
+    `portfolio-${id}`,
+    ...(isFinanceSection ? [`portfolio-${id}-finance`] : []),
+  ];
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppSidebar
         portfolios={portfolios}
-        selectedKeys={[`portfolio-${id}`]}
+        selectedKeys={[sectionKey]}
         userName={user?.username}
         onLogout={logout}
-        defaultOpenKeys={['portfolios']}
+        defaultOpenKeys={sidebarOpenKeys}
+        activePortfolioId={id}
       />
       <Layout>
         <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -429,6 +449,7 @@ const PortfolioDetailPage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin size="large" /></div>
           ) : (
             <>
+              {/* Summary cards — shown on all sections */}
               <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                 <Col xs={24} sm={12} lg={6}>
                   <Card><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>€{summary.totalValue.toFixed(2)}</Title></Card>
@@ -454,202 +475,169 @@ const PortfolioDetailPage: React.FC = () => {
                 </Col>
               </Row>
 
-              <Tabs
-                defaultActiveKey="positions"
-                onChange={(key) => { if (key === 'finance' && !financeLoaded) fetchFinanceData(); }}
-                items={[
-                  {
-                    key: 'positions',
-                    label: 'Позиции',
-                    children: (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                          <Button type="primary" icon={<PlusOutlined />} onClick={openAddPosModal}>Добавить позицию</Button>
-                        </div>
-                        <Table dataSource={items} columns={positionColumns} rowKey="id" scroll={{ x: true }} pagination={{ pageSize: 20 }} />
-                      </>
-                    ),
-                  },
-                  {
-                    key: 'orders',
-                    label: (
-                      <span>
-                        Ордера
-                        {triggeredCount > 0 && (
-                          <Tag color="orange" style={{ marginLeft: 6 }}>{triggeredCount}</Tag>
-                        )}
-                      </span>
-                    ),
-                    children: (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                          <Button type="primary" icon={<PlusOutlined />} onClick={openAddOrderModal}>Создать ордер</Button>
-                        </div>
-                        <Tabs
-                          defaultActiveKey="pending"
-                          items={[
-                            {
-                              key: 'pending',
-                              label: (
-                                <span>
-                                  Ожидающие
-                                  {pendingOrders.length > 0 && (
-                                    <Tag color="gold" style={{ marginLeft: 6 }}>{pendingOrders.length}</Tag>
-                                  )}
-                                </span>
-                              ),
-                              children: (
-                                <Table
-                                  dataSource={pendingOrders}
-                                  columns={pendingOrderColumns}
-                                  rowKey="id"
-                                  scroll={{ x: true }}
-                                  pagination={{ pageSize: 20 }}
-                                  locale={{ emptyText: 'Нет ожидающих ордеров' }}
-                                />
-                              ),
-                            },
-                            {
-                              key: 'executed',
-                              label: (
-                                <span>
-                                  Выполненные
-                                  {executedOrders.length > 0 && (
-                                    <Tag color="green" style={{ marginLeft: 6 }}>{executedOrders.length}</Tag>
-                                  )}
-                                </span>
-                              ),
-                              children: (
-                                <Table
-                                  dataSource={executedOrders}
-                                  columns={executedOrderColumns}
-                                  rowKey="id"
-                                  scroll={{ x: true }}
-                                  pagination={{ pageSize: 20 }}
-                                  locale={{ emptyText: 'Нет выполненных ордеров' }}
-                                />
-                              ),
-                            },
-                          ]}
-                        />
-                      </>
-                    ),
-                  },
-                  {
-                    key: 'finance',
-                    label: <span><WalletOutlined style={{ marginRight: 4 }} />Финансы</span>,
-                    children: (
-                      <Tabs
-                        defaultActiveKey="balance"
-                        items={[
-                          {
-                            key: 'balance',
-                            label: 'Баланс',
-                            children: balance ? (
-                              <>
-                                <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                                  <Col xs={24} sm={12} lg={8}>
-                                    <Card><Text type="secondary">Денежный баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.cashBalance.toFixed(2)}</Title></Card>
-                                  </Col>
-                                  <Col xs={24} sm={12} lg={8}>
-                                    <Card><Text type="secondary">Кредит брокера</Text><Title level={4} style={{ margin: 0 }}>€{balance.brokerCredit.toFixed(2)}</Title></Card>
-                                  </Col>
-                                  <Col xs={24} sm={12} lg={8}>
-                                    <Card><Text type="secondary">Общий баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalBalance.toFixed(2)}</Title></Card>
-                                  </Col>
-                                  <Col xs={24} sm={12} lg={8}>
-                                    <Card><Text type="secondary">Стоимость акций</Text><Title level={4} style={{ margin: 0 }}>€{balance.stocksValue.toFixed(2)}</Title></Card>
-                                  </Col>
-                                  <Col xs={24} sm={12} lg={8}>
-                                    <Card><Text type="secondary">Итого портфель</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalPortfolioValue.toFixed(2)}</Title></Card>
-                                  </Col>
-                                </Row>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                  <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
-                                  <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
-                                </div>
-                              </>
-                            ) : (
-                              <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin /></div>
-                            ),
-                          },
-                          {
-                            key: 'transactions',
-                            label: 'Транзакции',
-                            children: (
-                              <>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
-                                  <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
-                                  <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
-                                </div>
-                                <Table
-                                  dataSource={transactions}
-                                  rowKey="id"
-                                  scroll={{ x: true }}
-                                  pagination={{ pageSize: 20 }}
-                                  columns={[
-                                    { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
-                                    {
-                                      title: 'Тип', dataIndex: 'type', key: 'type',
-                                      render: (_: string, transaction: Transaction) => (
-                                        <Tag color={getTransactionTagColor(transaction)}>{getTransactionLabel(transaction)}</Tag>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Сумма', dataIndex: 'amount', key: 'amount',
-                                      render: (_: number, transaction: Transaction) => `€${getTransactionDisplayAmount(transaction).toFixed(2)}`,
-                                    },
-                                    { title: 'Описание', dataIndex: 'description', key: 'description', render: (v: string | null) => v ?? '—' },
-                                    {
-                                      title: 'Удалить', key: 'delete',
-                                      render: (_: unknown, r: Transaction) => (
-                                        <Popconfirm title="Удалить транзакцию?" onConfirm={() => handleDeleteTx(r.id)} okText="Да" cancelText="Нет">
-                                          <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
-                                        </Popconfirm>
-                                      ),
-                                    },
-                                  ]}
-                                />
-                              </>
-                            ),
-                          },
-                          {
-                            key: 'dividends',
-                            label: 'Дивиденды',
-                            children: (
-                              <>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                                  <Button type="primary" icon={<PlusOutlined />} onClick={openAddDivModal}>Добавить дивиденд</Button>
-                                </div>
-                                <Table
-                                  dataSource={dividends}
-                                  rowKey="id"
-                                  scroll={{ x: true }}
-                                  pagination={{ pageSize: 20 }}
-                                  columns={[
-                                    { title: 'Дата выплаты', dataIndex: 'paidAt', key: 'paidAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY') },
-                                    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Dividend) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
-                                    { title: 'Название', key: 'name', render: (_: unknown, r: Dividend) => r.stock?.name ?? '—' },
-                                    { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
-                                    {
-                                      title: 'Удалить', key: 'delete',
-                                      render: (_: unknown, r: Dividend) => (
-                                        <Popconfirm title="Удалить дивиденд?" onConfirm={() => handleDeleteDiv(r.id)} okText="Да" cancelText="Нет">
-                                          <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
-                                        </Popconfirm>
-                                      ),
-                                    },
-                                  ]}
-                                />
-                              </>
-                            ),
-                          },
-                        ]}
-                      />
-                    ),
-                  },
-                ]}
-              />
+              {/* ── Positions ─────────────────────────────────────── */}
+              {section === 'positions' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openAddPosModal}>Добавить позицию</Button>
+                  </div>
+                  <Table dataSource={items} columns={positionColumns} rowKey="id" scroll={{ x: true }} pagination={{ pageSize: 20 }} />
+                </>
+              )}
+
+              {/* ── Orders ────────────────────────────────────────── */}
+              {section === 'orders' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openAddOrderModal}>Создать ордер</Button>
+                  </div>
+                  <Tabs
+                    defaultActiveKey="pending"
+                    items={[
+                      {
+                        key: 'pending',
+                        label: (
+                          <span>
+                            Ожидающие
+                            {pendingOrders.length > 0 && (
+                              <Tag color="gold" style={{ marginLeft: 6 }}>{pendingOrders.length}</Tag>
+                            )}
+                          </span>
+                        ),
+                        children: (
+                          <Table
+                            dataSource={pendingOrders}
+                            columns={pendingOrderColumns}
+                            rowKey="id"
+                            scroll={{ x: true }}
+                            pagination={{ pageSize: 20 }}
+                            locale={{ emptyText: 'Нет ожидающих ордеров' }}
+                          />
+                        ),
+                      },
+                      {
+                        key: 'executed',
+                        label: (
+                          <span>
+                            Выполненные
+                            {executedOrders.length > 0 && (
+                              <Tag color="green" style={{ marginLeft: 6 }}>{executedOrders.length}</Tag>
+                            )}
+                          </span>
+                        ),
+                        children: (
+                          <Table
+                            dataSource={executedOrders}
+                            columns={executedOrderColumns}
+                            rowKey="id"
+                            scroll={{ x: true }}
+                            pagination={{ pageSize: 20 }}
+                            locale={{ emptyText: 'Нет выполненных ордеров' }}
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                </>
+              )}
+
+              {/* ── Balance ───────────────────────────────────────── */}
+              {section === 'balance' && (
+                financeLoaded && balance ? (
+                  <>
+                    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                      <Col xs={24} sm={12} lg={8}>
+                        <Card><Text type="secondary">Денежный баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.cashBalance.toFixed(2)}</Title></Card>
+                      </Col>
+                      <Col xs={24} sm={12} lg={8}>
+                        <Card><Text type="secondary">Кредит брокера</Text><Title level={4} style={{ margin: 0 }}>€{balance.brokerCredit.toFixed(2)}</Title></Card>
+                      </Col>
+                      <Col xs={24} sm={12} lg={8}>
+                        <Card><Text type="secondary">Общий баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalBalance.toFixed(2)}</Title></Card>
+                      </Col>
+                      <Col xs={24} sm={12} lg={8}>
+                        <Card><Text type="secondary">Стоимость акций</Text><Title level={4} style={{ margin: 0 }}>€{balance.stocksValue.toFixed(2)}</Title></Card>
+                      </Col>
+                      <Col xs={24} sm={12} lg={8}>
+                        <Card><Text type="secondary">Итого портфель</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalPortfolioValue.toFixed(2)}</Title></Card>
+                      </Col>
+                    </Row>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
+                      <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin /></div>
+                )
+              )}
+
+              {/* ── Transactions ──────────────────────────────────── */}
+              {section === 'transactions' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
+                    <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
+                  </div>
+                  <Table
+                    dataSource={transactions}
+                    rowKey="id"
+                    scroll={{ x: true }}
+                    pagination={{ pageSize: 20 }}
+                    columns={[
+                      { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
+                      {
+                        title: 'Тип', dataIndex: 'type', key: 'type',
+                        render: (_: string, transaction: Transaction) => (
+                          <Tag color={getTransactionTagColor(transaction)}>{getTransactionLabel(transaction)}</Tag>
+                        ),
+                      },
+                      {
+                        title: 'Сумма', dataIndex: 'amount', key: 'amount',
+                        render: (_: number, transaction: Transaction) => `€${getTransactionDisplayAmount(transaction).toFixed(2)}`,
+                      },
+                      { title: 'Описание', dataIndex: 'description', key: 'description', render: (v: string | null) => v ?? '—' },
+                      {
+                        title: 'Удалить', key: 'delete',
+                        render: (_: unknown, r: Transaction) => (
+                          <Popconfirm title="Удалить транзакцию?" onConfirm={() => handleDeleteTx(r.id)} okText="Да" cancelText="Нет">
+                            <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+                          </Popconfirm>
+                        ),
+                      },
+                    ]}
+                  />
+                </>
+              )}
+
+              {/* ── Dividends ─────────────────────────────────────── */}
+              {section === 'dividends' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openAddDivModal}>Добавить дивиденд</Button>
+                  </div>
+                  <Table
+                    dataSource={dividends}
+                    rowKey="id"
+                    scroll={{ x: true }}
+                    pagination={{ pageSize: 20 }}
+                    columns={[
+                      { title: 'Дата выплаты', dataIndex: 'paidAt', key: 'paidAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY') },
+                      { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Dividend) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+                      { title: 'Название', key: 'name', render: (_: unknown, r: Dividend) => r.stock?.name ?? '—' },
+                      { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
+                      {
+                        title: 'Удалить', key: 'delete',
+                        render: (_: unknown, r: Dividend) => (
+                          <Popconfirm title="Удалить дивиденд?" onConfirm={() => handleDeleteDiv(r.id)} okText="Да" cancelText="Нет">
+                            <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+                          </Popconfirm>
+                        ),
+                      },
+                    ]}
+                  />
+                </>
+              )}
             </>
           )}
         </Content>
