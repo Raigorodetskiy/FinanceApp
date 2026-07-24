@@ -5,6 +5,7 @@
   overflow-x: hidden;
 }
 
+/* Extend the root connector slightly below the submenu title so the tree line visually starts at the parent node. */
 .app-sidebar-menu .portfolio-tree-root--populated.ant-menu-submenu-open > .ant-menu-submenu-title::after {
   content: '';
   position: absolute;
@@ -59,7 +60,7 @@
   white-space: nowrap;
 }
 
-.app-sidebar .app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected {
+.app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected {
   background: var(--portfolio-tree-selected-bg);
 }
 

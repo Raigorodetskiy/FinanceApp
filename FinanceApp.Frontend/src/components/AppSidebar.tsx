@@ -26,6 +26,9 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
 }) => {
   const navigate = useNavigate();
   const hasPortfolios = portfolios.length > 0;
+  const portfolioRootClassName = hasPortfolios
+    ? 'portfolio-tree-root portfolio-tree-root--populated'
+    : 'portfolio-tree-root';
   const resolvedDefaultOpenKeys = defaultOpenKeys ?? (
     selectedKeys.some((key) => key.startsWith(PORTFOLIO_KEY_PREFIX)) ? ['portfolios'] : []
   );
@@ -41,7 +44,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       key: 'portfolios',
       icon: <FolderOutlined />,
       label: 'Мои портфели',
-      className: hasPortfolios ? 'portfolio-tree-root portfolio-tree-root--populated' : 'portfolio-tree-root',
+      className: portfolioRootClassName,
       children: portfolios.map((portfolio) => ({
         key: `${PORTFOLIO_KEY_PREFIX}${portfolio.id}`,
         className: 'portfolio-tree-node',
