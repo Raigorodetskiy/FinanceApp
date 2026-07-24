@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+﻿using FinanceApp.Core.Models;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -10,6 +11,9 @@ namespace FinanceApp.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            const int depositType = (int)TransactionType.Deposit;
+            const int withdrawalType = (int)TransactionType.Withdrawal;
+
             migrationBuilder.AddColumn<decimal>(
                 name: "SignedAmount",
                 table: "Transactions",
@@ -17,25 +21,27 @@ namespace FinanceApp.Data.Migrations
                 nullable: false,
                 defaultValue: 0m);
 
-            migrationBuilder.Sql("""
+            migrationBuilder.Sql($"""
+                -- TransactionType.Deposit = {depositType}, TransactionType.Withdrawal = {withdrawalType}
                 UPDATE `Transactions`
                 SET `SignedAmount` = CASE
                         WHEN `Amount` < 0 THEN `Amount`
-                        WHEN `Type` = 0 THEN ABS(`Amount`)
+                        WHEN `Type` = {depositType} THEN ABS(`Amount`)
                         ELSE -ABS(`Amount`)
                     END,
                     `Amount` = ABS(`Amount`),
                     `Type` = CASE
-                        WHEN `Amount` < 0 THEN 1
+                        WHEN `Amount` < 0 THEN {withdrawalType}
                         ELSE `Type`
                     END;
                 """);
 
-            migrationBuilder.Sql("""
+            migrationBuilder.Sql($"""
+                -- TransactionType.Deposit = {depositType}, TransactionType.Withdrawal = {withdrawalType}
                 UPDATE `Transactions`
-                SET `Type` = 0,
+                SET `Type` = {depositType},
                     `SignedAmount` = ABS(`Amount`)
-                WHERE `Type` = 1
+                WHERE `Type` = {withdrawalType}
                   AND `Description` LIKE 'Kundennummer % - ______';
                 """);
         }
