@@ -4,7 +4,6 @@ import {
   Menu,
   Table,
   Button,
-  Card,
   Modal,
   Form,
   Input,
@@ -15,9 +14,10 @@ import {
   Popconfirm,
   message,
   Tag,
-  Select,
+  Pagination,
   Empty,
 } from 'antd';
+import type { SorterResult } from 'antd/es/table/interface';
 import {
   DashboardOutlined,
   FolderOutlined,
@@ -28,6 +28,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   ReloadOutlined,
+  CaretRightFilled,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -111,6 +112,13 @@ type LivePriceEntry = {
   percentChange24h?: number | null;
 };
 
+type ChartRow = { _isChartRow: true; _stockId: number };
+type TableRow = Stock | ChartRow;
+
+const PAGE_SIZE = 20;
+
+const isChartRow = (record: TableRow): record is ChartRow => !!(record as ChartRow)._isChartRow;
+
 const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): LivePriceEntry => ({
   price: current?.price ?? null,
   priceEur: current?.priceEur ?? null,
@@ -128,7 +136,9 @@ const StocksPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
-  const [selectedStockId, setSelectedStockId] = useState<number | null>(null);
+  const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<{ columnKey: React.Key | null; order: 'ascend' | 'descend' | null }>({ columnKey: null, order: null });
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyData, setHistoryData] = useState<StockHistoryPoint[]>([]);
@@ -198,19 +208,7 @@ const StocksPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (sortedStocks.length === 0)
-    {
-      setSelectedStockId(null);
-      return;
-    }
-
-    if (!selectedStockId || !sortedStocks.some((stock) => stock.id === selectedStockId)) {
-      setSelectedStockId(sortedStocks[0].id);
-    }
-  }, [sortedStocks, selectedStockId]);
-
-  useEffect(() => {
-    if (!selectedStockId) {
+    if (!expandedStockId) {
       setHistoryData([]);
       return;
     }
@@ -218,7 +216,7 @@ const StocksPage: React.FC = () => {
     const fetchHistory = async () => {
       setHistoryLoading(true);
       try {
-        const res = await getStockHistory(selectedStockId, historyRange);
+        const res = await getStockHistory(expandedStockId, historyRange);
         setHistoryData(res.data);
         try {
           const eurUsdRes = await getEurUsdRate();
@@ -237,7 +235,7 @@ const StocksPage: React.FC = () => {
     };
 
     fetchHistory();
-  }, [selectedStockId, historyRange]);
+  }, [expandedStockId, historyRange]);
 
   const handleRefreshPrices = useCallback(async (silent = false) => {
     if (refreshing) return;
@@ -414,44 +412,179 @@ const StocksPage: React.FC = () => {
     }
   };
 
+  const TOTAL_COLS = 6;
+
   const columns = [
     {
       title: 'Тикер',
       dataIndex: 'ticker',
       key: 'ticker',
-      sorter: (a: Stock, b: Stock) => a.ticker.localeCompare(b.ticker, STOCK_TEXT_LOCALE, { sensitivity: 'base' }),
-      render: (ticker: string, record: Stock) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 600 }} onClick={() => setSelectedStockId(record.id)} aria-label={`Выбрать ${ticker} для просмотра графика`}>
-          {ticker}
-        </Button>
-      ),
+      sorter: true, // sort handled externally via handleTableChange
+      sortOrder: sortConfig.columnKey === 'ticker' ? sortConfig.order : null,
+      render: (_ticker: string, record: TableRow) => {
+        if (isChartRow(record)) {
+          const chartPanelId = `chart-panel-${record._stockId}`;
+          return {
+            children: (
+              <div
+                id={chartPanelId}
+                style={{
+                  padding: '16px 20px',
+                  background: '#f0f7ff',
+                  borderBottom: '3px solid #1677ff',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 12,
+                    flexWrap: 'wrap',
+                    gap: 8,
+                  }}
+                >
+                  <Text strong style={{ fontSize: 15 }}>
+                    История цены: {selectedStock?.ticker} — {selectedStock?.name}
+                  </Text>
+                  <Segmented
+                    value={historyRange}
+                    onChange={(value) => setHistoryRange(value as StockHistoryRange)}
+                    options={[
+                      { label: '5 лет', value: '5y' },
+                      { label: '3 года', value: '3y' },
+                      { label: '1 год', value: '1y' },
+                      { label: '6 мес.', value: '6m' },
+                      { label: '3 мес.', value: '3m' },
+                      { label: '1 мес.', value: '1m' },
+                      { label: '1 нед.', value: '1w' },
+                      { label: '24 ч.', value: '24h' },
+                      { label: 'Сегодня', value: 'today' },
+                    ]}
+                  />
+                </div>
+                {historyLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                    <Spin />
+                  </div>
+                ) : historyData.length === 0 ? (
+                  <Empty description="Нет данных для выбранного периода" />
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 220, padding: '8px 12px', border: '1px solid #d0e8ff', borderRadius: 8, background: '#fff' }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Изменение за период (к текущей цене)
+                        </Text>
+                        <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600, marginTop: 4 }}>
+                          {periodChangeEur == null
+                            ? '—'
+                            : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', height: 240 }}>
+                      <ResponsiveContainer>
+                        <LineChart data={historyChartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis
+                            type="number"
+                            dataKey="timestampMs"
+                            scale="time"
+                            domain={['dataMin', 'dataMax']}
+                            tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])}
+                          />
+                          <YAxis
+                            domain={['auto', 'auto']}
+                            tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
+                          />
+                          <Tooltip
+                            labelFormatter={(value: number) => dayjs.utc(value).local().format('DD.MM.YYYY HH:mm')}
+                            formatter={(value) => (
+                              value === null
+                                ? ['Нет данных', 'Цена']
+                                : [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']
+                            )}
+                          />
+                          <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} connectNulls={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ),
+            props: { colSpan: TOTAL_COLS },
+          };
+        }
+        const stock = record as Stock;
+        const isExpanded = expandedStockId === stock.id;
+        return (
+          <button
+            type="button"
+            onClick={() => handleTickerClick(stock.id)}
+            aria-expanded={isExpanded}
+            aria-controls={`chart-panel-${stock.id}`}
+            style={{
+              padding: 0,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              color: isExpanded ? '#1677ff' : 'inherit',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <CaretRightFilled
+              style={{
+                fontSize: 10,
+                transition: 'transform 0.2s',
+                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                color: '#1677ff',
+              }}
+            />
+            {stock.ticker}
+          </button>
+        );
+      },
     },
     {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, record: Stock) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span>{name}</span>
-          {portfolioStockIds.has(record.id) && (
-            <Tag color="green">
-              В портфеле
-            </Tag>
-          )}
-        </div>
-      ),
+      sorter: true, // sort handled externally via handleTableChange
+      sortOrder: sortConfig.columnKey === 'name' ? sortConfig.order : null,
+      render: (name: string, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>{name}</span>
+            {portfolioStockIds.has(stock.id) && (
+              <Tag color="green">
+                В портфеле
+              </Tag>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Текущая цена (€)',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
-      render: (v: number, record: Stock) => {
-        const live = livePrices[record.id];
+      sorter: true, // sort handled externally via handleTableChange
+      sortOrder: sortConfig.columnKey === 'currentPrice' ? sortConfig.order : null,
+      render: (v: number, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const live = livePrices[stock.id];
         const pct = live?.percentChange24h;
         const pctColor = getPercent24hColor(pct);
         const displayPrice = live?.priceEur ?? v;
         const percentText = getPercent24hText(live);
-
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ whiteSpace: 'nowrap' }}>€{displayPrice.toFixed(2)}</span>
@@ -463,13 +596,14 @@ const StocksPage: React.FC = () => {
           </div>
         );
       },
-      sorter: (a: Stock, b: Stock) => a.currentPrice - b.currentPrice,
     },
     {
       title: 'Живая цена',
       key: 'livePrice',
-      render: (_: unknown, record: Stock) => {
-        const live = livePrices[record.id];
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const live = livePrices[stock.id];
         const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -487,8 +621,8 @@ const StocksPage: React.FC = () => {
               icon={<ReloadOutlined />}
               size="small"
               loading={live?.loading}
-              disabled={!record.ticker?.trim()}
-              onClick={() => handleFetchLivePrice(record)}
+              disabled={!stock.ticker?.trim()}
+              onClick={() => handleFetchLivePrice(stock)}
             />
           </div>
         );
@@ -498,34 +632,44 @@ const StocksPage: React.FC = () => {
       title: 'Обновлено',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm'),
+      sorter: true, // sort handled externally via handleTableChange
+      sortOrder: sortConfig.columnKey === 'updatedAt' ? sortConfig.order : null,
+      render: (v: string, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        return dayjs.utc(v).local().format('DD.MM.YYYY HH:mm');
+      },
     },
     {
       title: 'Действия',
       key: 'actions',
-      render: (_: unknown, record: Stock) => (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button
-            icon={<EditOutlined />}
-            size="small"
-            onClick={() => openEditModal(record)}
-          >
-            Изменить
-          </Button>
-          <Popconfirm
-            title="Удалить акцию?"
-            onConfirm={() => handleDelete(record.id)}
-            okText="Да"
-            cancelText="Нет"
-          >
-            <Button icon={<DeleteOutlined />} size="small" danger>
-              Удалить
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        return (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button
+              icon={<EditOutlined />}
+              size="small"
+              onClick={() => openEditModal(stock)}
+            >
+              Изменить
             </Button>
-          </Popconfirm>
-        </div>
-      ),
+            <Popconfirm
+              title="Удалить акцию?"
+              onConfirm={() => handleDelete(stock.id)}
+              okText="Да"
+              cancelText="Нет"
+            >
+              <Button icon={<DeleteOutlined />} size="small" danger>
+                Удалить
+              </Button>
+            </Popconfirm>
+          </div>
+        );
+      },
     },
   ];
+
 
   const xAxisFormatByRange: Record<StockHistoryRange, string> = {
     '5y': 'MM.YYYY',
@@ -589,12 +733,12 @@ const StocksPage: React.FC = () => {
   );
 
   const selectedStock = useMemo(
-    () => stocks.find((stock) => stock.id === selectedStockId) ?? null,
-    [stocks, selectedStockId],
+    () => stocks.find((stock) => stock.id === expandedStockId) ?? null,
+    [stocks, expandedStockId],
   );
 
-  const selectedStockCurrentPriceEur = selectedStockId
-    ? (livePrices[selectedStockId]?.priceEur ?? selectedStock?.currentPrice ?? null)
+  const selectedStockCurrentPriceEur = expandedStockId
+    ? (livePrices[expandedStockId]?.priceEur ?? selectedStock?.currentPrice ?? null)
     : null;
   const periodStartPriceEur = useMemo(() => {
     if (!historyHasEurConversion) {
@@ -616,6 +760,61 @@ const StocksPage: React.FC = () => {
     ? (periodChangeEur / periodStartPriceEur) * 100
     : null;
   const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? COLOR_POSITIVE : COLOR_NEGATIVE);
+
+  // --- Manual pagination + sort ---
+  const displayStocks = useMemo(() => {
+    if (!sortConfig.columnKey || !sortConfig.order) return sortedStocks;
+    return [...sortedStocks].sort((a, b) => {
+      let cmp = 0;
+      if (sortConfig.columnKey === 'ticker') {
+        cmp = a.ticker.localeCompare(b.ticker, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
+      } else if (sortConfig.columnKey === 'name') {
+        cmp = a.name.localeCompare(b.name, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
+      } else if (sortConfig.columnKey === 'currentPrice') {
+        cmp = a.currentPrice - b.currentPrice;
+      } else if (sortConfig.columnKey === 'updatedAt') {
+        cmp = dayjs.utc(a.updatedAt).valueOf() - dayjs.utc(b.updatedAt).valueOf();
+      }
+      return sortConfig.order === 'ascend' ? cmp : -cmp;
+    });
+  }, [sortedStocks, sortConfig]);
+
+  const pagedStocks = useMemo(
+    () => displayStocks.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [displayStocks, currentPage],
+  );
+
+  const tableData: TableRow[] = useMemo(() => {
+    const rows: TableRow[] = [];
+    for (const stock of pagedStocks) {
+      if (expandedStockId === stock.id) {
+        rows.push({ _isChartRow: true, _stockId: stock.id });
+      }
+      rows.push(stock);
+    }
+    return rows;
+  }, [pagedStocks, expandedStockId]);
+
+  const handleTickerClick = (stockId: number) => {
+    setExpandedStockId((prev) => (prev === stockId ? null : stockId));
+  };
+
+  const handleTableChange = (
+    _pagination: unknown,
+    _filters: unknown,
+    sorter: SorterResult<TableRow> | SorterResult<TableRow>[],
+    _extra: unknown,
+  ) => {
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    setSortConfig({ columnKey: s.columnKey ?? null, order: s.order ?? null });
+    setCurrentPage(1);
+    setExpandedStockId(null);
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    setExpandedStockId(null);
+  };
 
   const menuItems = [
     {
@@ -699,94 +898,30 @@ const StocksPage: React.FC = () => {
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 16 }}>
-              <Card
-                title="История цены"
-                extra={(
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <Select
-                      value={selectedStockId ?? undefined}
-                      style={{ minWidth: 220 }}
-                      placeholder="Выберите акцию"
-                      options={sortedStocks.map((stock) => ({ value: stock.id, label: `${stock.ticker} — ${stock.name}` }))}
-                      onChange={(value) => setSelectedStockId(value)}
-                    />
-                    <Segmented
-                      value={historyRange}
-                      onChange={(value) => setHistoryRange(value as StockHistoryRange)}
-                      options={[
-                        { label: '5 лет', value: '5y' },
-                        { label: '3 года', value: '3y' },
-                        { label: '1 год', value: '1y' },
-                        { label: '6 месяцев', value: '6m' },
-                        { label: '3 месяца', value: '3m' },
-                        { label: '1 месяц', value: '1m' },
-                        { label: '1 неделя', value: '1w' },
-                        { label: '24 часа', value: '24h' },
-                        { label: 'Сегодня', value: 'today' },
-                      ]}
-                    />
-                  </div>
-                )}
-              >
-                {historyLoading ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-                    <Spin />
-                  </div>
-                ) : historyData.length === 0 ? (
-                  <Empty description="Нет данных для выбранного периода" />
-                ) : (
-                  <div style={{ display: 'grid', gap: 12 }}>
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                      <div style={{ minWidth: 220, padding: '8px 12px', border: '1px solid #f0f0f0', borderRadius: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          Изменение за период (к текущей цене)
-                        </Text>
-                        <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600, marginTop: 4 }}>
-                          {periodChangeEur == null
-                            ? '—'
-                            : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ width: '100%', height: 240 }}>
-                      <ResponsiveContainer>
-                        <LineChart data={historyChartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis
-                            type="number"
-                            dataKey="timestampMs"
-                            scale="time"
-                            domain={['dataMin', 'dataMax']}
-                            tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])}
-                          />
-                          <YAxis
-                            domain={['auto', 'auto']}
-                            tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
-                          />
-                          <Tooltip
-                            labelFormatter={(value: number) => dayjs.utc(value).local().format('DD.MM.YYYY HH:mm')}
-                            formatter={(value) => (
-                              value === null
-                                ? ['Нет данных', 'Цена']
-                                : [`${historyCurrencySymbol}${Number(value).toFixed(2)}`, 'Цена']
-                            )}
-                          />
-                          <Line type="monotone" dataKey="closeChart" name={`Close (${historyCurrencyCode})`} stroke="#1677ff" dot={false} strokeWidth={2} connectNulls={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
-              </Card>
-
               <Table
-                dataSource={sortedStocks}
+                dataSource={tableData}
                 columns={columns}
-                rowKey="id"
+                rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
                 scroll={{ x: true }}
-                pagination={{ pageSize: 20 }}
-                rowClassName={(record) => (portfolioStockIds.has(record.id) ? PORTFOLIO_ROW_CLASS : '')}
+                pagination={false}
+                onChange={handleTableChange}
+                rowClassName={(record: TableRow) => {
+                  if (isChartRow(record)) return 'chart-panel-row';
+                  return portfolioStockIds.has((record as Stock).id) ? PORTFOLIO_ROW_CLASS : '';
+                }}
               />
+              {displayStocks.length > PAGE_SIZE && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8 }}>
+                  <Pagination
+                    current={currentPage}
+                    pageSize={PAGE_SIZE}
+                    total={displayStocks.length}
+                    onChange={handlePageChange}
+                    showSizeChanger={false}
+                    showTotal={(total, range) => `${range[0]}–${range[1]} из ${total}`}
+                  />
+                </div>
+              )}
             </div>
           )}
         </Content>

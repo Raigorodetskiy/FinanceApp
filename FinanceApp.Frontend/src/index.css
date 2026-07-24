@@ -24,3 +24,13 @@ body {
 .ant-table-wrapper .ant-table-tbody > tr.portfolio-stock-row.ant-table-row:hover > td {
   background: #ddeeff;
 }
+
+/* Chart panel row: remove Ant Design cell padding so the inline panel fills edge-to-edge */
+.ant-table-wrapper .ant-table-tbody > tr.chart-panel-row > td {
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr.chart-panel-row:hover > td {
+  background: transparent !important;
+}
