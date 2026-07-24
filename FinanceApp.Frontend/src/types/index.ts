@@ -72,6 +72,7 @@ export interface Transaction {
   portfolioId: number;
   type: TransactionType;
   amount: number;
+  signedAmount: number;
   description: string | null;
   createdAt: string;
 }
@@ -97,6 +98,7 @@ export interface PortfolioBalance {
 export interface CreateTransactionRequest {
   type: TransactionType;
   amount: number;
+  signedAmount?: number;
   description?: string;
 }
 

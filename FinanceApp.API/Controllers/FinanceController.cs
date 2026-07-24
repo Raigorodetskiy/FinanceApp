@@ -37,7 +37,7 @@ public class FinanceController : ControllerBase
             .ToListAsync();
 
         var cashBalance = transactions
-            .Sum(t => t.Type == TransactionType.Deposit ? t.Amount : -t.Amount);
+            .Sum(t => t.GetEffectiveSignedAmount());
 
         var stocksValue = portfolio.Items
             .Sum(i => i.Stock.CurrentPrice * i.Quantity);
@@ -69,14 +69,14 @@ public class FinanceController : ControllerBase
     {
         if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
 
+        var signedAmount = TransactionDirection.ResolveSignedAmount(dto.Type, dto.Amount, dto.SignedAmount);
         var transaction = new Transaction
         {
             PortfolioId = portfolioId,
-            Type = dto.Type,
-            Amount = dto.Amount,
             Description = dto.Description,
             CreatedAt = DateTime.UtcNow,
         };
+        transaction.ApplySignedAmount(signedAmount, dto.Type);
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync();
         return Ok(transaction);
@@ -144,6 +144,7 @@ public class CreateTransactionDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TransactionType Type { get; set; }
     public decimal Amount { get; set; }
+    public decimal? SignedAmount { get; set; }
     public string? Description { get; set; }
 }
 

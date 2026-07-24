@@ -258,6 +258,9 @@ namespace FinanceApp.Data.Migrations
                     b.Property<int>("PortfolioId")
                         .HasColumnType("int");
 
+                    b.Property<decimal>("SignedAmount")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<int>("Type")
                         .HasColumnType("int");
 
