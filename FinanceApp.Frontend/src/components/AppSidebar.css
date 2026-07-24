@@ -5,7 +5,7 @@
   overflow-x: hidden;
 }
 
-/* Extend the root connector slightly below the submenu title so the tree line visually starts at the parent node. */
+/* Ant Design 5 renders the root submenu toggle in `.ant-menu-submenu-title`; extend the tree line below it. */
 .app-sidebar-menu .portfolio-tree-root--populated.ant-menu-submenu-open > .ant-menu-submenu-title::after {
   content: '';
   position: absolute;
