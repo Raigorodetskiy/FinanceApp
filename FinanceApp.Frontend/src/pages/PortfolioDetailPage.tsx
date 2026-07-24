@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Layout,
-  Menu,
   Table,
   Button,
   Modal,
@@ -22,11 +21,6 @@ import {
   DatePicker,
 } from 'antd';
 import {
-  DashboardOutlined,
-  FolderOutlined,
-  StockOutlined,
-  UserOutlined,
-  LogoutOutlined,
   PlusOutlined,
   ArrowLeftOutlined,
   EditOutlined,
@@ -55,6 +49,7 @@ import {
   createDividend,
   deleteDividend,
 } from '../services/api';
+import AppSidebar from '../components/AppSidebar';
 import { useAuth } from '../contexts/AuthContext';
 import type {
   Portfolio,
@@ -68,7 +63,7 @@ import type {
   PortfolioBalance,
 } from '../types';
 
-const { Sider, Header, Content } = Layout;
+const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = { Buy: 'Покупка', Sell: 'Продажа' };
@@ -413,23 +408,15 @@ const PortfolioDetailPage: React.FC = () => {
     },
   ];
 
-  const menuItems = [
-    { key: 'dashboard', icon: <DashboardOutlined />, label: 'Dashboard', onClick: () => navigate('/') },
-    {
-      key: 'portfolios', icon: <FolderOutlined />, label: 'Мои портфели',
-      children: portfolios.map((p) => ({ key: `portfolio-${p.id}`, label: p.name, onClick: () => navigate(`/portfolios/${p.id}`) })),
-    },
-    { key: 'stocks', icon: <StockOutlined />, label: 'Акции', onClick: () => navigate('/stocks') },
-    { key: 'profile', icon: <UserOutlined />, label: user?.username ?? 'Профиль' },
-    { key: 'logout', icon: <LogoutOutlined />, label: 'Выйти', onClick: logout, danger: true },
-  ];
-
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible breakpoint="lg" collapsedWidth="0">
-        <div style={{ color: '#fff', padding: '16px', fontSize: 18, fontWeight: 700 }}>💹 FinanceApp</div>
-        <Menu theme="dark" mode="inline" defaultOpenKeys={['portfolios']} selectedKeys={[`portfolio-${id}`]} items={menuItems} />
-      </Sider>
+      <AppSidebar
+        portfolios={portfolios}
+        selectedKeys={[`portfolio-${id}`]}
+        userName={user?.username}
+        onLogout={logout}
+        defaultOpenKeys={['portfolios']}
+      />
       <Layout>
         <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

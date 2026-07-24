@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Layout,
-  Menu,
   Table,
   Button,
   Modal,
@@ -19,18 +18,12 @@ import {
 } from 'antd';
 import type { SorterResult } from 'antd/es/table/interface';
 import {
-  DashboardOutlined,
-  FolderOutlined,
-  StockOutlined,
-  UserOutlined,
-  LogoutOutlined,
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   ReloadOutlined,
   CaretRightFilled,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
@@ -43,13 +36,14 @@ import {
   getEurUsdRate,
   getStockHistory,
 } from '../services/api';
+import AppSidebar from '../components/AppSidebar';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockHistoryPoint, StockHistoryRange } from '../types';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 dayjs.extend(utc);
 
-const { Sider, Header, Content } = Layout;
+const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
@@ -143,7 +137,6 @@ const StocksPage: React.FC = () => {
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const stocksRef = useRef<Stock[]>([]);
   const portfolioStockIds = useMemo(() => {
     const ids = new Set<number>();
@@ -803,56 +796,14 @@ const StocksPage: React.FC = () => {
     setExpandedStockId(null);
   };
 
-  const menuItems = [
-    {
-      key: 'dashboard',
-      icon: <DashboardOutlined />,
-      label: 'Dashboard',
-      onClick: () => navigate('/'),
-    },
-    {
-      key: 'portfolios',
-      icon: <FolderOutlined />,
-      label: 'Мои портфели',
-      children: portfolios.map((p) => ({
-        key: `portfolio-${p.id}`,
-        label: p.name,
-        onClick: () => navigate(`/portfolios/${p.id}`),
-      })),
-    },
-    {
-      key: 'stocks',
-      icon: <StockOutlined />,
-      label: 'Акции',
-      onClick: () => navigate('/stocks'),
-    },
-    {
-      key: 'profile',
-      icon: <UserOutlined />,
-      label: user?.username ?? 'Профиль',
-    },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: 'Выйти',
-      onClick: logout,
-      danger: true,
-    },
-  ];
-
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible breakpoint="lg" collapsedWidth="0">
-        <div style={{ color: '#fff', padding: '16px', fontSize: 18, fontWeight: 700 }}>
-          💹 FinanceApp
-        </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          defaultSelectedKeys={['stocks']}
-          items={menuItems}
-        />
-      </Sider>
+      <AppSidebar
+        portfolios={portfolios}
+        selectedKeys={['stocks']}
+        userName={user?.username}
+        onLogout={logout}
+      />
       <Layout>
         <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Title level={4} style={{ margin: 0 }}>
