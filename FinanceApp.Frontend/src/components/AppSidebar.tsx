@@ -17,7 +17,7 @@ interface AppSidebarProps {
   defaultOpenKeys?: string[];
 }
 
-const getDefaultOpenKeys = (selectedKeys: string[], defaultOpenKeys?: string[]) => (
+const resolveDefaultOpenKeys = (selectedKeys: string[], defaultOpenKeys?: string[]) => (
   defaultOpenKeys ?? (
     selectedKeys.some((key) => key.startsWith(PORTFOLIO_KEY_PREFIX)) ? ['portfolios'] : []
   )
@@ -35,7 +35,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
   const portfolioRootClassName = hasPortfolios
     ? 'portfolio-tree-root portfolio-tree-root--populated'
     : 'portfolio-tree-root';
-  const resolvedDefaultOpenKeys = getDefaultOpenKeys(selectedKeys, defaultOpenKeys);
+  const resolvedDefaultOpenKeys = resolveDefaultOpenKeys(selectedKeys, defaultOpenKeys);
 
   const menuItems: MenuProps['items'] = [
     {
