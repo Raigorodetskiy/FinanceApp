@@ -419,7 +419,7 @@ const StocksPage: React.FC = () => {
       title: 'Тикер',
       dataIndex: 'ticker',
       key: 'ticker',
-      sorter: () => 0,
+      sorter: true, // sort handled externally via handleTableChange
       sortOrder: sortConfig.columnKey === 'ticker' ? sortConfig.order : null,
       render: (_ticker: string, record: TableRow) => {
         if (isChartRow(record)) {
@@ -554,7 +554,7 @@ const StocksPage: React.FC = () => {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
-      sorter: () => 0,
+      sorter: true, // sort handled externally via handleTableChange
       sortOrder: sortConfig.columnKey === 'name' ? sortConfig.order : null,
       render: (name: string, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
@@ -575,7 +575,7 @@ const StocksPage: React.FC = () => {
       title: 'Текущая цена (€)',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
-      sorter: () => 0,
+      sorter: true, // sort handled externally via handleTableChange
       sortOrder: sortConfig.columnKey === 'currentPrice' ? sortConfig.order : null,
       render: (v: number, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
@@ -632,7 +632,7 @@ const StocksPage: React.FC = () => {
       title: 'Обновлено',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      sorter: () => 0,
+      sorter: true, // sort handled externally via handleTableChange
       sortOrder: sortConfig.columnKey === 'updatedAt' ? sortConfig.order : null,
       render: (v: string, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
@@ -802,7 +802,8 @@ const StocksPage: React.FC = () => {
   const handleTableChange = (
     _pagination: unknown,
     _filters: unknown,
-    sorter: SorterResult<Stock> | SorterResult<Stock>[],
+    sorter: SorterResult<TableRow> | SorterResult<TableRow>[],
+    _extra: unknown,
   ) => {
     const s = Array.isArray(sorter) ? sorter[0] : sorter;
     setSortConfig({ columnKey: s.columnKey ?? null, order: s.order ?? null });
@@ -903,7 +904,7 @@ const StocksPage: React.FC = () => {
                 rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
                 scroll={{ x: true }}
                 pagination={false}
-                onChange={handleTableChange as (p: unknown, f: unknown, s: unknown) => void}
+                onChange={handleTableChange}
                 rowClassName={(record: TableRow) => {
                   if (isChartRow(record)) return 'chart-panel-row';
                   return portfolioStockIds.has((record as Stock).id) ? PORTFOLIO_ROW_CLASS : '';
