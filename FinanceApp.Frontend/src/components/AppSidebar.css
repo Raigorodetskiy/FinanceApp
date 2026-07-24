@@ -1,0 +1,69 @@
+.app-sidebar-menu {
+  --portfolio-tree-selected-bg: rgba(77, 122, 189, 0.22);
+  --portfolio-tree-selected-border: #6ea8ff;
+  border-inline-end: 0 !important;
+  overflow-x: hidden;
+}
+
+/* Ant Design 5 renders the root submenu toggle in `.ant-menu-submenu-title`; extend the tree line below it. */
+.app-sidebar-menu .portfolio-tree-root--populated.ant-menu-submenu-open > .ant-menu-submenu-title::after {
+  content: '';
+  position: absolute;
+  left: 30px;
+  bottom: -6px;
+  width: 1px;
+  height: 6px;
+  background: rgba(154, 172, 194, 0.45);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-tree-root > .ant-menu-sub {
+  position: relative;
+  background: transparent;
+}
+
+.app-sidebar-menu .portfolio-tree-root--populated > .ant-menu-sub::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 12px;
+  left: 30px;
+  width: 1px;
+  background: rgba(154, 172, 194, 0.32);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-tree-node {
+  position: relative;
+}
+
+.app-sidebar-menu .portfolio-tree-node::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 30px;
+  width: 12px;
+  height: 1px;
+  background: rgba(154, 172, 194, 0.45);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.app-sidebar-menu .portfolio-tree-node .ant-menu-title-content {
+  min-width: 0;
+}
+
+.app-sidebar-menu .portfolio-tree-node-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected {
+  background: var(--portfolio-tree-selected-bg);
+}
+
+.app-sidebar-menu .portfolio-tree-node.ant-menu-item-selected::after {
+  border-inline-end-color: var(--portfolio-tree-selected-border);
+}
