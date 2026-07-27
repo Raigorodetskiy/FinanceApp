@@ -96,6 +96,26 @@ const marketStateLabel: Record<string, { color: string; text: string }> = {
   CLOSED:  { color: 'default', text: 'Closed' },
 };
 
+const TICKER_COL_WIDTH = 220;
+const NAME_COL_WIDTH = 320;
+const CURRENT_PRICE_COL_WIDTH = 180;
+const LIVE_PRICE_COL_WIDTH = 240;
+const UPDATED_COL_WIDTH = 170;
+const ACTIONS_COL_WIDTH = 120;
+const TICKER_META_SPACE_WIDTH = 70;
+const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
+const STOCKS_TABLE_SCROLL_X =
+  TICKER_COL_WIDTH
+  + NAME_COL_WIDTH
+  + CURRENT_PRICE_COL_WIDTH
+  + LIVE_PRICE_COL_WIDTH
+  + UPDATED_COL_WIDTH
+  + ACTIONS_COL_WIDTH;
+const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
+const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
+const FLEX_MIN_WIDTH_STYLE: React.CSSProperties = { minWidth: 0, flex: 1 };
+
 type LivePriceEntry = {
   quote: StockQuoteResponse | null;
   loading: boolean;
@@ -378,6 +398,7 @@ const StocksPage: React.FC = () => {
       title: 'Тикер',
       dataIndex: 'ticker',
       key: 'ticker',
+      width: TICKER_COL_WIDTH,
       render: (_ticker: string, record: TableRow) => {
         if (isChartRow(record)) {
           const stock = stocks.find((s) => s.id === record._stockId);
@@ -401,38 +422,45 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const isExpanded = expandedStockId === stock.id;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button
-             type="button"
-             onClick={() => handleTickerClick(stock.id)}
-             aria-expanded={isExpanded}
-             aria-controls={`chart-panel-${stock.id}`}
-             aria-label={isExpanded ? `Закрыть график цены: ${stock.ticker}` : `Открыть график цены: ${stock.ticker}`}
-             style={{
-               padding: 0,
-               background: 'none',
-               border: 'none',
-               cursor: 'pointer',
-               fontWeight: 600,
-               color: isExpanded ? '#1677ff' : 'inherit',
-               display: 'inline-flex',
-               alignItems: 'center',
-               gap: 4,
-             }}
-          >
-             <CaretRightFilled
-               style={{
-                 fontSize: 10,
-                 transition: 'transform 0.2s',
-                 transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                 color: '#1677ff',
-               }}
-             />
-             {stock.ticker}
-          </button>
-          <Tooltip title={exchangeLabelByValue[stock.exchange]}>
-             <Tag style={{ marginInlineEnd: 0 }}>{exchangeAbbreviationByValue[stock.exchange]}</Tag>
-          </Tooltip>
+          <div style={CELL_NOWRAP_STYLE}>
+            <Tooltip title={stock.ticker}>
+              <button
+                type="button"
+                onClick={() => handleTickerClick(stock.id)}
+                aria-expanded={isExpanded}
+                aria-controls={`chart-panel-${stock.id}`}
+                aria-label={isExpanded ? `Закрыть график цены: ${stock.ticker}` : `Открыть график цены: ${stock.ticker}`}
+                style={{
+                  padding: 0,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  color: isExpanded ? '#1677ff' : 'inherit',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  minWidth: 0,
+                  maxWidth: TICKER_TEXT_MAX_WIDTH,
+                }}
+              >
+                <CaretRightFilled
+                  style={{
+                    fontSize: 10,
+                    transition: 'transform 0.2s',
+                    transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                    color: '#1677ff',
+                    flex: '0 0 auto',
+                  }}
+                />
+                <span style={ELLIPSIS_STYLE}>
+                  {stock.ticker}
+                </span>
+              </button>
+            </Tooltip>
+            <Tooltip title={exchangeLabelByValue[stock.exchange]}>
+              <Tag style={{ marginInlineEnd: 0 }}>{exchangeAbbreviationByValue[stock.exchange]}</Tag>
+            </Tooltip>
           </div>
         );
       },
@@ -441,13 +469,14 @@ const StocksPage: React.FC = () => {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
+      width: NAME_COL_WIDTH,
       render: (name: string, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span>{name}</span>
+            <div style={CELL_BASE_STYLE}>
+              <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
               {portfolioStockIds.has(stock.id) && (
                 <Tag color="green">
                   В портфеле
@@ -455,7 +484,7 @@ const StocksPage: React.FC = () => {
               )}
             </div>
             {stock.commonName && stock.commonName !== name && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" style={{ fontSize: 12 }} ellipsis={{ tooltip: stock.commonName }}>
                 {stock.commonName}
               </Text>
             )}
@@ -467,6 +496,7 @@ const StocksPage: React.FC = () => {
       title: 'Текущая цена (€)',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
+      width: CURRENT_PRICE_COL_WIDTH,
       render: (v: number, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -490,6 +520,7 @@ const StocksPage: React.FC = () => {
     {
       title: 'Живая цена',
       key: 'livePrice',
+      width: LIVE_PRICE_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -531,19 +562,21 @@ const StocksPage: React.FC = () => {
       title: 'Обновлено',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
+      width: UPDATED_COL_WIDTH,
       render: (v: string, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        return dayjs.utc(v).local().format('DD.MM.YYYY HH:mm');
+        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(v).local().format('DD.MM.YYYY HH:mm')}</span>;
       },
     },
     {
       title: 'Действия',
       key: 'actions',
+      width: ACTIONS_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         return (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
             <Tooltip title="Изменить">
               <Button
                 icon={<EditOutlined />}
@@ -605,7 +638,8 @@ const StocksPage: React.FC = () => {
           dataSource={rows}
           columns={columns}
           rowKey={getTableRowKey}
-          scroll={{ x: true }}
+          tableLayout="fixed"
+          scroll={{ x: STOCKS_TABLE_SCROLL_X }}
           pagination={false}
           rowClassName={(record: TableRow) => {
             if (isChartRow(record)) return 'chart-panel-row';
