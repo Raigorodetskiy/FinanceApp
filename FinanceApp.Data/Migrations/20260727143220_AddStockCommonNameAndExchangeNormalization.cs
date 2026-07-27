@@ -15,7 +15,7 @@ namespace FinanceApp.Data.Migrations
                 SET `Exchange` = CASE
                     WHEN UPPER(TRIM(COALESCE(`Exchange`, ''))) = 'NYSE' THEN 'NYSE'
                     WHEN UPPER(TRIM(COALESCE(`Exchange`, ''))) = 'FRANKFURT' THEN 'Frankfurt'
-                    WHEN RIGHT(UPPER(TRIM(COALESCE(`Ticker`, ''))), 2) = '.F' THEN 'Frankfurt'
+                    WHEN UPPER(TRIM(COALESCE(`Ticker`, ''))) LIKE '%.F' THEN 'Frankfurt'
                     ELSE 'NYSE'
                 END;
                 """);

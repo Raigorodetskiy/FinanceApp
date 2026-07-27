@@ -320,7 +320,7 @@ const StocksPage: React.FC = () => {
           commonName: normalizedCommonName,
           wkn,
           isin,
-          exchange: values.exchange ?? DEFAULT_STOCK_EXCHANGE,
+          exchange: values.exchange,
           updatedAt: new Date().toISOString(),
         });
         message.success('Акция обновлена');
@@ -331,7 +331,7 @@ const StocksPage: React.FC = () => {
           commonName: normalizedCommonName,
           wkn,
           isin,
-          exchange: values.exchange ?? DEFAULT_STOCK_EXCHANGE,
+          exchange: values.exchange,
         });
         message.success('Акция добавлена');
       }
