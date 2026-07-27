@@ -15,7 +15,6 @@ import {
   Tag,
   Tooltip,
 } from 'antd';
-import type { SorterResult } from 'antd/es/table/interface';
 import {
   PlusOutlined,
   EditOutlined,
@@ -37,6 +36,7 @@ import AppSidebar from '../components/AppSidebar';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockQuoteResponse, StockExchange } from '../types';
+import { groupStocks } from '../utils/stockGrouping';
 
 dayjs.extend(utc);
 
@@ -121,7 +121,6 @@ const StocksPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
-  const [sortConfig, setSortConfig] = useState<{ columnKey: React.Key | null; order: 'ascend' | 'descend' | null }>({ columnKey: null, order: null });
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
@@ -137,32 +136,10 @@ const StocksPage: React.FC = () => {
     });
     return ids;
   }, [portfolios]);
-  const sortedStocks = useMemo(() => {
-    const compareAlphabetically = (left: Stock, right: Stock) => {
-      const tickerCompare = left.ticker.localeCompare(right.ticker, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
-      if (tickerCompare !== 0) {
-        return tickerCompare;
-      }
-
-      const nameCompare = left.name.localeCompare(right.name, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
-      if (nameCompare !== 0) {
-        return nameCompare;
-      }
-
-      return left.id - right.id;
-    };
-
-    return [...stocks].sort((left, right) => {
-      const leftInPortfolio = portfolioStockIds.has(left.id);
-      const rightInPortfolio = portfolioStockIds.has(right.id);
-
-      if (leftInPortfolio !== rightInPortfolio) {
-        return leftInPortfolio ? -1 : 1;
-      }
-
-      return compareAlphabetically(left, right);
-    });
-  }, [portfolioStockIds, stocks]);
+  const { portfolioGroup, fraGroup, nyseGroup } = useMemo(
+    () => groupStocks(stocks, portfolioStockIds),
+    [stocks, portfolioStockIds],
+  );
 
   const fetchData = async () => {
     setLoading(true);
@@ -401,8 +378,6 @@ const StocksPage: React.FC = () => {
       title: 'Тикер',
       dataIndex: 'ticker',
       key: 'ticker',
-      sorter: true, // sort handled externally via handleTableChange
-      sortOrder: sortConfig.columnKey === 'ticker' ? sortConfig.order : null,
       render: (_ticker: string, record: TableRow) => {
         if (isChartRow(record)) {
           const stock = stocks.find((s) => s.id === record._stockId);
@@ -466,8 +441,6 @@ const StocksPage: React.FC = () => {
       title: 'Название',
       dataIndex: 'name',
       key: 'name',
-      sorter: true, // sort handled externally via handleTableChange
-      sortOrder: sortConfig.columnKey === 'name' ? sortConfig.order : null,
       render: (name: string, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -494,8 +467,6 @@ const StocksPage: React.FC = () => {
       title: 'Текущая цена (€)',
       dataIndex: 'currentPrice',
       key: 'currentPrice',
-      sorter: true, // sort handled externally via handleTableChange
-      sortOrder: sortConfig.columnKey === 'currentPrice' ? sortConfig.order : null,
       render: (v: number, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -560,8 +531,6 @@ const StocksPage: React.FC = () => {
       title: 'Обновлено',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      sorter: true, // sort handled externally via handleTableChange
-      sortOrder: sortConfig.columnKey === 'updatedAt' ? sortConfig.order : null,
       render: (v: string, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return dayjs.utc(v).local().format('DD.MM.YYYY HH:mm');
@@ -599,49 +568,47 @@ const StocksPage: React.FC = () => {
     },
   ];
 
-
-  // --- Manual sort ---
-  const displayStocks = useMemo(() => {
-    if (!sortConfig.columnKey || !sortConfig.order) return sortedStocks;
-    return [...sortedStocks].sort((a, b) => {
-      let cmp = 0;
-      if (sortConfig.columnKey === 'ticker') {
-        cmp = a.ticker.localeCompare(b.ticker, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
-      } else if (sortConfig.columnKey === 'name') {
-        cmp = a.name.localeCompare(b.name, STOCK_TEXT_LOCALE, { sensitivity: 'base' });
-      } else if (sortConfig.columnKey === 'currentPrice') {
-        cmp = a.currentPrice - b.currentPrice;
-      } else if (sortConfig.columnKey === 'updatedAt') {
-        cmp = dayjs.utc(a.updatedAt).valueOf() - dayjs.utc(b.updatedAt).valueOf();
-      }
-      return sortConfig.order === 'ascend' ? cmp : -cmp;
-    });
-  }, [sortedStocks, sortConfig]);
-
-  const tableData: TableRow[] = useMemo(() => {
+  const makeGroupRows = useCallback((group: Stock[]): TableRow[] => {
     const rows: TableRow[] = [];
-    for (const stock of displayStocks) {
+    for (const stock of group) {
       rows.push(stock);
       if (expandedStockId === stock.id) {
         rows.push({ _isChartRow: true, _stockId: stock.id });
       }
     }
     return rows;
-  }, [displayStocks, expandedStockId]);
+  }, [expandedStockId]);
+
+  const portfolioRows = useMemo(() => makeGroupRows(portfolioGroup), [makeGroupRows, portfolioGroup]);
+  const fraRows = useMemo(() => makeGroupRows(fraGroup), [makeGroupRows, fraGroup]);
+  const nyseRows = useMemo(() => makeGroupRows(nyseGroup), [makeGroupRows, nyseGroup]);
 
   const handleTickerClick = (stockId: number) => {
     setExpandedStockId((prev) => (prev === stockId ? null : stockId));
   };
 
-  const handleTableChange = (
-    _pagination: unknown,
-    _filters: unknown,
-    sorter: SorterResult<TableRow> | SorterResult<TableRow>[],
-    _extra: unknown,
-  ) => {
-    const s = Array.isArray(sorter) ? sorter[0] : sorter;
-    setSortConfig({ columnKey: s.columnKey ?? null, order: s.order ?? null });
-    setExpandedStockId(null);
+  const renderGroup = (groupTitle: string, groupStocks: Stock[], rows: TableRow[]) => {
+    if (groupStocks.length === 0) return null;
+    return (
+      <div key={groupTitle} style={{ marginBottom: 24, border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid #d9d9d9', background: '#fafafa', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Title level={5} style={{ margin: 0 }}>{groupTitle}</Title>
+          <Tag>{groupStocks.length}</Tag>
+        </div>
+        <Table
+          className="stocks-table"
+          dataSource={rows}
+          columns={columns}
+          rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
+          scroll={{ x: true }}
+          pagination={false}
+          rowClassName={(record: TableRow) => {
+            if (isChartRow(record)) return 'chart-panel-row';
+            return portfolioStockIds.has((record as Stock).id) ? PORTFOLIO_ROW_CLASS : '';
+          }}
+        />
+      </div>
+    );
   };
 
   return (
@@ -683,19 +650,11 @@ const StocksPage: React.FC = () => {
               <Spin size="large" />
             </div>
           ) : (
-            <Table
-              className="stocks-table"
-              dataSource={tableData}
-              columns={columns}
-              rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
-              scroll={{ x: true }}
-              pagination={false}
-              onChange={handleTableChange}
-              rowClassName={(record: TableRow) => {
-                if (isChartRow(record)) return 'chart-panel-row';
-                return portfolioStockIds.has((record as Stock).id) ? PORTFOLIO_ROW_CLASS : '';
-              }}
-            />
+            <>
+              {renderGroup('Портфель', portfolioGroup, portfolioRows)}
+              {renderGroup('FRA', fraGroup, fraRows)}
+              {renderGroup('NYSE', nyseGroup, nyseRows)}
+            </>
           )}
         </Content>
       </Layout>
