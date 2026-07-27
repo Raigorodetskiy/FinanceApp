@@ -73,7 +73,7 @@ public class StocksControllerTests
             CurrentPrice = 1m
         });
 
-        var badRequest = Assert.IsType<ObjectResult>(result.Result);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         var problem = Assert.IsType<ValidationProblemDetails>(badRequest.Value);
 
         Assert.Equal(StatusCodes.Status400BadRequest, badRequest.StatusCode);
