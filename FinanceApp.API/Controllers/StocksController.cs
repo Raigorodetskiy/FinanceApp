@@ -29,6 +29,28 @@ public class StocksController : ControllerBase
     /// <summary>Normalizes WKN/ISIN: trim whitespace, uppercase; blank becomes null.</summary>
     private static string? NormalizeIdentifier(string? value) => StockIdentifiers.Normalize(value);
 
+    private ActionResult? NormalizeAndValidateStock(Stock stock)
+    {
+        stock.Wkn = NormalizeIdentifier(stock.Wkn);
+        stock.Isin = NormalizeIdentifier(stock.Isin);
+        stock.Name = (stock.Name ?? string.Empty).Trim();
+        stock.CommonName = string.IsNullOrWhiteSpace(stock.CommonName)
+            ? stock.Name
+            : stock.CommonName.Trim();
+
+        if (!StockExchanges.TryNormalize(stock.Exchange, out var normalizedExchange))
+        {
+            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]>
+            {
+                [nameof(stock.Exchange)] = [$"Exchange must be one of: {string.Join(", ", StockExchanges.Supported)}."]
+            }));
+        }
+
+        stock.Exchange = normalizedExchange;
+
+        return ValidateIdentifiers(stock.Wkn, stock.Isin);
+    }
+
     /// <summary>Validates WKN and ISIN formats. Returns a 400 result when invalid, otherwise null.</summary>
     private ActionResult? ValidateIdentifiers(string? wkn, string? isin)
     {
@@ -72,10 +94,7 @@ public class StocksController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Stock>> Create(Stock stock)
     {
-        stock.Wkn = NormalizeIdentifier(stock.Wkn);
-        stock.Isin = NormalizeIdentifier(stock.Isin);
-
-        var validationError = ValidateIdentifiers(stock.Wkn, stock.Isin);
+        var validationError = NormalizeAndValidateStock(stock);
         if (validationError != null) return validationError;
 
         stock.UpdatedAt = DateTime.UtcNow;
@@ -106,10 +125,7 @@ public class StocksController : ControllerBase
     {
         if (id != stock.Id) return BadRequest();
 
-        stock.Wkn = NormalizeIdentifier(stock.Wkn);
-        stock.Isin = NormalizeIdentifier(stock.Isin);
-
-        var validationError = ValidateIdentifiers(stock.Wkn, stock.Isin);
+        var validationError = NormalizeAndValidateStock(stock);
         if (validationError != null) return validationError;
 
         var existing = await _context.Stocks.FindAsync(id);
@@ -117,6 +133,7 @@ public class StocksController : ControllerBase
 
         existing.Ticker = stock.Ticker;
         existing.Name = stock.Name;
+        existing.CommonName = stock.CommonName;
         existing.Exchange = stock.Exchange;
         existing.CurrentPrice = stock.CurrentPrice;
         existing.Wkn = stock.Wkn;

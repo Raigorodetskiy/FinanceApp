@@ -1,3 +1,5 @@
+export type StockExchange = 'NYSE' | 'Frankfurt';
+
 export interface User {
   id: number;
   username: string;
@@ -30,7 +32,8 @@ export interface Stock {
   id: number;
   ticker: string;
   name: string;
-  exchange: string;
+  commonName: string;
+  exchange: StockExchange;
   currentPrice: number;
   updatedAt: string;
   wkn?: string | null;
@@ -178,7 +181,8 @@ export interface AddPortfolioItemRequest {
 export interface CreateStockRequest {
   ticker: string;
   name: string;
-  exchange: string;
+  commonName?: string;
+  exchange: StockExchange;
   currentPrice: number;
   wkn?: string | null;
   isin?: string | null;
@@ -188,7 +192,8 @@ export interface UpdateStockRequest {
   id: number;
   ticker: string;
   name: string;
-  exchange: string;
+  commonName?: string;
+  exchange: StockExchange;
   currentPrice: number;
   updatedAt: string;
   wkn?: string | null;
