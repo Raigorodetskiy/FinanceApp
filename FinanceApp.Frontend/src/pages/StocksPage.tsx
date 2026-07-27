@@ -464,10 +464,20 @@ const StocksPage: React.FC = () => {
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           Изменение за период (к текущей цене)
                         </Text>
-                        <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600, marginTop: 4 }}>
-                          {periodChangeEur == null
-                            ? '—'
-                            : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>Тек. цена</div>
+                            <div style={{ color: '#1677ff', fontSize: 16, fontWeight: 600 }}>
+                              {selectedStockCurrentPriceDisplay == null
+                                ? '—'
+                                : `${historyCurrencySymbol}${selectedStockCurrentPriceDisplay.toFixed(2)}`}
+                            </div>
+                          </div>
+                          <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
+                            {periodChangeEur == null
+                              ? '—'
+                              : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -795,6 +805,11 @@ const StocksPage: React.FC = () => {
     ? (periodChangeEur / periodStartPriceEur) * 100
     : null;
   const performanceColor = periodChangeEur == null ? undefined : (periodChangeEur >= 0 ? COLOR_POSITIVE : COLOR_NEGATIVE);
+
+  // Current price in the same currency as the chart (EUR when conversion available, USD otherwise)
+  const selectedStockCurrentPriceDisplay: number | null = historyHasEurConversion
+    ? selectedStockCurrentPriceEur
+    : (expandedStockId ? (livePrices[expandedStockId]?.price ?? null) : null);
 
   // --- Manual sort ---
   const displayStocks = useMemo(() => {
