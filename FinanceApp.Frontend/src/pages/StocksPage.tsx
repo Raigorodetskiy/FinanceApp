@@ -102,6 +102,8 @@ const CURRENT_PRICE_COL_WIDTH = 180;
 const LIVE_PRICE_COL_WIDTH = 240;
 const UPDATED_COL_WIDTH = 170;
 const ACTIONS_COL_WIDTH = 120;
+const TICKER_META_SPACE_WIDTH = 70;
+const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
   TICKER_COL_WIDTH
   + NAME_COL_WIDTH
@@ -109,6 +111,10 @@ const STOCKS_TABLE_SCROLL_X =
   + LIVE_PRICE_COL_WIDTH
   + UPDATED_COL_WIDTH
   + ACTIONS_COL_WIDTH;
+const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
+const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
+const FLEX_MIN_WIDTH_STYLE: React.CSSProperties = { minWidth: 0, flex: 1 };
 
 type LivePriceEntry = {
   quote: StockQuoteResponse | null;
@@ -416,7 +422,7 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const isExpanded = expandedStockId === stock.id;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, whiteSpace: 'nowrap' }}>
+          <div style={CELL_NOWRAP_STYLE}>
             <Tooltip title={stock.ticker}>
               <button
                 type="button"
@@ -435,7 +441,7 @@ const StocksPage: React.FC = () => {
                   alignItems: 'center',
                   gap: 4,
                   minWidth: 0,
-                  maxWidth: 150,
+                  maxWidth: TICKER_TEXT_MAX_WIDTH,
                 }}
               >
                 <CaretRightFilled
@@ -447,7 +453,7 @@ const StocksPage: React.FC = () => {
                     flex: '0 0 auto',
                   }}
                 />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={ELLIPSIS_STYLE}>
                   {stock.ticker}
                 </span>
               </button>
@@ -469,8 +475,8 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <Text style={{ minWidth: 0, flex: 1 }} ellipsis={{ tooltip: name }}>{name}</Text>
+            <div style={CELL_BASE_STYLE}>
+              <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
               {portfolioStockIds.has(stock.id) && (
                 <Tag color="green">
                   В портфеле
