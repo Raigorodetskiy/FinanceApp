@@ -60,6 +60,8 @@ const formatSigned = (value: number, suffix = '') => `${value >= 0 ? '+' : ''}${
 
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
+const COLOR_PRIMARY = '#1677ff';
+const COLOR_SECONDARY_TEXT = '#8c8c8c';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
 const STOCK_TEXT_LOCALE = 'ru-RU';
 
@@ -466,8 +468,8 @@ const StocksPage: React.FC = () => {
                         </Text>
                         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
                           <div>
-                            <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>Тек. цена</div>
-                            <div style={{ color: '#1677ff', fontSize: 16, fontWeight: 600 }}>
+                            <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>Тек. цена</div>
+                            <div style={{ color: COLOR_PRIMARY, fontSize: 16, fontWeight: 600 }}>
                               {selectedStockCurrentPriceDisplay == null
                                 ? '—'
                                 : `${historyCurrencySymbol}${selectedStockCurrentPriceDisplay.toFixed(2)}`}
