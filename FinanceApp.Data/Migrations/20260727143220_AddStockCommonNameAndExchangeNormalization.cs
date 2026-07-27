@@ -43,7 +43,7 @@ namespace FinanceApp.Data.Migrations
             migrationBuilder.Sql("""
                 UPDATE `Stocks`
                 SET `CommonName` = COALESCE(NULLIF(TRIM(`Name`), ''), `Name`)
-                WHERE `CommonName` IS NULL OR TRIM(`CommonName`) = '';
+                WHERE TRIM(`CommonName`) = '';
                 """);
         }
 

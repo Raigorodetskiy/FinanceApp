@@ -741,8 +741,8 @@ const StocksPage: React.FC = () => {
             <Select options={exchangeOptions} />
           </Form.Item>
           <Form.Item
-          label="Текущая цена (€)"
-          name="currentPrice"
+            label="Текущая цена (€)"
+            name="currentPrice"
             rules={[{ required: true, message: 'Введите текущую цену' }]}
           >
             <InputNumber
