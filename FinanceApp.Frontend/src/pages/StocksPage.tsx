@@ -587,6 +587,11 @@ const StocksPage: React.FC = () => {
     setExpandedStockId((prev) => (prev === stockId ? null : stockId));
   };
 
+  const getTableRowKey = useCallback(
+    (record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id),
+    [],
+  );
+
   const renderGroup = (groupTitle: string, groupStocks: Stock[], rows: TableRow[]) => {
     if (groupStocks.length === 0) return null;
     return (
@@ -599,7 +604,7 @@ const StocksPage: React.FC = () => {
           className="stocks-table"
           dataSource={rows}
           columns={columns}
-          rowKey={(record: TableRow) => isChartRow(record) ? `chart-${record._stockId}` : String((record as Stock).id)}
+          rowKey={getTableRowKey}
           scroll={{ x: true }}
           pagination={false}
           rowClassName={(record: TableRow) => {

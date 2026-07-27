@@ -16,7 +16,7 @@ export interface StockGroups {
   portfolioGroup: Stock[];
   /** Frankfurt-exchange stocks not in any portfolio. */
   fraGroup: Stock[];
-  /** NYSE stocks (and any other exchange) not in any portfolio. */
+  /** NYSE stocks (and any unknown exchange) not in any portfolio. Falls back to this group for any exchange that is neither Frankfurt nor portfolio. */
   nyseGroup: Stock[];
 }
 
