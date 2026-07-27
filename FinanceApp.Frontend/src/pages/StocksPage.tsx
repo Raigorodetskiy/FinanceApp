@@ -482,8 +482,8 @@ const StocksPage: React.FC = () => {
                               scale="linear"
                               domain={['dataMin', 'dataMax']}
                               tickFormatter={(idx: number) => {
-                                const ts = weeklyIndexToTimestampMs.get(Math.round(idx));
-                                return ts != null ? dayjs.utc(ts).local().format('DD.MM HH:mm') : '';
+                                const ts = resolveWeeklyTs(idx);
+                                return ts != null ? dayjs.utc(ts).local().format(xAxisFormatByRange['1w']) : '';
                               }}
                             />
                           ) : (
@@ -502,7 +502,7 @@ const StocksPage: React.FC = () => {
                           <RechartsTooltip
                             labelFormatter={(value: number) => {
                               if (historyRange === '1w') {
-                                const ts = weeklyIndexToTimestampMs.get(Math.round(value));
+                                const ts = resolveWeeklyTs(value);
                                 return ts != null ? dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm') : '';
                               }
                               return dayjs.utc(value).local().format('DD.MM.YYYY HH:mm');
@@ -760,6 +760,12 @@ const StocksPage: React.FC = () => {
     }
     return map;
   }, [historyRange, historyChartData]);
+
+  /** Resolves the real timestampMs for a given 1w chart index. */
+  const resolveWeeklyTs = useCallback(
+    (idx: number) => weeklyIndexToTimestampMs.get(Math.round(idx)),
+    [weeklyIndexToTimestampMs],
+  );
 
   const selectedStock = useMemo(
     () => stocks.find((stock) => stock.id === expandedStockId) ?? null,
