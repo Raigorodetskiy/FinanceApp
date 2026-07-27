@@ -176,6 +176,10 @@ namespace FinanceApp.Data.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
+                    b.Property<string>("Isin")
+                        .HasMaxLength(12)
+                        .HasColumnType("varchar(12)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("longtext");
@@ -187,7 +191,19 @@ namespace FinanceApp.Data.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<string>("Wkn")
+                        .HasMaxLength(6)
+                        .HasColumnType("varchar(6)");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("Isin")
+                        .IsUnique()
+                        .HasFilter("`Isin` IS NOT NULL");
+
+                    b.HasIndex("Wkn")
+                        .IsUnique()
+                        .HasFilter("`Wkn` IS NOT NULL");
 
                     b.ToTable("Stocks");
                 });

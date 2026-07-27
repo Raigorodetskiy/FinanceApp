@@ -27,5 +27,13 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Interval).HasMaxLength(10);
             entity.Property(x => x.Volume).HasDefaultValue(0L);
         });
+
+        modelBuilder.Entity<Stock>(entity =>
+        {
+            entity.Property(x => x.Wkn).HasMaxLength(6);
+            entity.Property(x => x.Isin).HasMaxLength(12);
+            entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");
+            entity.HasIndex(x => x.Isin).IsUnique().HasFilter("`Isin` IS NOT NULL");
+        });
     }
 }

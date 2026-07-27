@@ -62,6 +62,10 @@ export interface StockPriceChartProps {
   stockId: number;
   ticker: string;
   name: string;
+  /** WKN security identifier (6-character alphanumeric). */
+  wkn?: string | null;
+  /** ISIN security identifier (12-character alphanumeric). */
+  isin?: string | null;
   /** Live price in EUR (from live price fetch). Used for period change display. */
   livePriceEur?: number | null;
   /** Live price in USD (from live price fetch). Used for USD-mode current price display. */
@@ -75,6 +79,8 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   stockId,
   ticker,
   name,
+  wkn,
+  isin,
   livePriceEur,
   livePriceUsd,
   storedPriceEur,
@@ -214,6 +220,42 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         borderBottom: '3px solid #1677ff',
       }}
     >
+      <div
+        style={{
+          display: 'flex',
+          gap: 24,
+          flexWrap: 'wrap',
+          marginBottom: 10,
+          padding: '6px 0',
+        }}
+      >
+        <span>
+          <Text type="secondary" style={{ fontSize: 12 }}>WKN: </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: 'monospace',
+              color: '#1677ff',
+            }}
+          >
+            {wkn ?? '—'}
+          </Text>
+        </span>
+        <span>
+          <Text type="secondary" style={{ fontSize: 12 }}>ISIN: </Text>
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: 'monospace',
+              color: '#1677ff',
+            }}
+          >
+            {isin ?? '—'}
+          </Text>
+        </span>
+      </div>
       <div
         style={{
           display: 'flex',

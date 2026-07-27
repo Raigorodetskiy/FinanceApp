@@ -11,6 +11,8 @@ export interface Stock {
   exchange: string;
   currentPrice: number;
   updatedAt: string;
+  wkn?: string | null;
+  isin?: string | null;
 }
 
 export interface PortfolioItem {

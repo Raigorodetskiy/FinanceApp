@@ -33,6 +33,8 @@ export interface Stock {
   exchange: string;
   currentPrice: number;
   updatedAt: string;
+  wkn?: string | null;
+  isin?: string | null;
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
@@ -134,6 +136,8 @@ export interface CreateStockRequest {
   name: string;
   exchange: string;
   currentPrice: number;
+  wkn?: string | null;
+  isin?: string | null;
 }
 
 export interface UpdateStockRequest {
@@ -143,6 +147,8 @@ export interface UpdateStockRequest {
   exchange: string;
   currentPrice: number;
   updatedAt: string;
+  wkn?: string | null;
+  isin?: string | null;
 }
 
 export interface CreateOrderRequest {
