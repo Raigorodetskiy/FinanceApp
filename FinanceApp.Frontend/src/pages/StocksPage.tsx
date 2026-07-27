@@ -7,6 +7,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Select,
   Spin,
   Typography,
   Popconfirm,
@@ -35,7 +36,7 @@ import {
 import AppSidebar from '../components/AppSidebar';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio, StockQuoteResponse } from '../types';
+import type { Stock, Portfolio, StockQuoteResponse, StockExchange } from '../types';
 
 dayjs.extend(utc);
 
@@ -48,6 +49,19 @@ const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
 const STOCK_TEXT_LOCALE = 'ru-RU';
+const DEFAULT_STOCK_EXCHANGE: StockExchange = 'NYSE';
+const exchangeLabelByValue: Record<StockExchange, string> = {
+  NYSE: 'NYSE',
+  Frankfurt: 'Frankfurt',
+};
+const exchangeAbbreviationByValue: Record<StockExchange, string> = {
+  NYSE: 'NYSE',
+  Frankfurt: 'FRA',
+};
+const exchangeOptions: { label: string; value: StockExchange }[] = [
+  { label: exchangeLabelByValue.NYSE, value: 'NYSE' },
+  { label: exchangeLabelByValue.Frankfurt, value: 'Frankfurt' },
+];
 
 const formatPercent24h = (pct: number): string => {
   const formatted = pct.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -267,6 +281,7 @@ const StocksPage: React.FC = () => {
   const openCreateModal = () => {
     setEditingStock(null);
     form.resetFields();
+    form.setFieldsValue({ exchange: DEFAULT_STOCK_EXCHANGE });
     setModalOpen(true);
   };
 
@@ -279,6 +294,8 @@ const StocksPage: React.FC = () => {
   const handleSubmit = async (values: {
     ticker: string;
     name: string;
+    commonName?: string;
+    exchange: StockExchange;
     currentPrice: number;
     wkn?: string;
     isin?: string;
@@ -290,6 +307,8 @@ const StocksPage: React.FC = () => {
     };
     const wkn = normalizeId(values.wkn);
     const isin = normalizeId(values.isin);
+    const normalizedName = values.name.trim();
+    const normalizedCommonName = (values.commonName ?? '').trim() || normalizedName;
 
     setSubmitting(true);
     try {
@@ -297,14 +316,23 @@ const StocksPage: React.FC = () => {
         await updateStock(editingStock.id, {
           ...editingStock,
           ...values,
+          name: normalizedName,
+          commonName: normalizedCommonName,
           wkn,
           isin,
-          exchange: '',
+          exchange: values.exchange,
           updatedAt: new Date().toISOString(),
         });
         message.success('Акция обновлена');
       } else {
-        await createStock({ ...values, wkn, isin, exchange: '' });
+        await createStock({
+          ...values,
+          name: normalizedName,
+          commonName: normalizedCommonName,
+          wkn,
+          isin,
+          exchange: values.exchange,
+        });
         message.success('Акция добавлена');
       }
       setModalOpen(false);
@@ -398,34 +426,39 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const isExpanded = expandedStockId === stock.id;
         return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
-            type="button"
-            onClick={() => handleTickerClick(stock.id)}
-            aria-expanded={isExpanded}
-            aria-controls={`chart-panel-${stock.id}`}
-            aria-label={isExpanded ? `Закрыть график цены: ${stock.ticker}` : `Открыть график цены: ${stock.ticker}`}
-            style={{
-              padding: 0,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              color: isExpanded ? '#1677ff' : 'inherit',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
+             type="button"
+             onClick={() => handleTickerClick(stock.id)}
+             aria-expanded={isExpanded}
+             aria-controls={`chart-panel-${stock.id}`}
+             aria-label={isExpanded ? `Закрыть график цены: ${stock.ticker}` : `Открыть график цены: ${stock.ticker}`}
+             style={{
+               padding: 0,
+               background: 'none',
+               border: 'none',
+               cursor: 'pointer',
+               fontWeight: 600,
+               color: isExpanded ? '#1677ff' : 'inherit',
+               display: 'inline-flex',
+               alignItems: 'center',
+               gap: 4,
+             }}
           >
-            <CaretRightFilled
-              style={{
-                fontSize: 10,
-                transition: 'transform 0.2s',
-                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                color: '#1677ff',
-              }}
-            />
-            {stock.ticker}
+             <CaretRightFilled
+               style={{
+                 fontSize: 10,
+                 transition: 'transform 0.2s',
+                 transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                 color: '#1677ff',
+               }}
+             />
+             {stock.ticker}
           </button>
+          <Tooltip title={exchangeLabelByValue[stock.exchange]}>
+             <Tag style={{ marginInlineEnd: 0 }}>{exchangeAbbreviationByValue[stock.exchange]}</Tag>
+          </Tooltip>
+          </div>
         );
       },
     },
@@ -439,12 +472,19 @@ const StocksPage: React.FC = () => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span>{name}</span>
-            {portfolioStockIds.has(stock.id) && (
-              <Tag color="green">
-                В портфеле
-              </Tag>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span>{name}</span>
+              {portfolioStockIds.has(stock.id) && (
+                <Tag color="green">
+                  В портфеле
+                </Tag>
+              )}
+            </div>
+            {stock.commonName && stock.commonName !== name && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {stock.commonName}
+              </Text>
             )}
           </div>
         );
@@ -666,7 +706,12 @@ const StocksPage: React.FC = () => {
         onCancel={() => { setModalOpen(false); form.resetFields(); setEditingStock(null); }}
         footer={null}
       >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ exchange: DEFAULT_STOCK_EXCHANGE }}
+          onFinish={handleSubmit}
+        >
           <Form.Item
             label="Тикер"
             name="ticker"
@@ -680,6 +725,20 @@ const StocksPage: React.FC = () => {
             rules={[{ required: true, message: 'Введите название' }]}
           >
             <Input placeholder="Apple Inc." />
+          </Form.Item>
+          <Form.Item
+            label="Общее название"
+            name="commonName"
+            extra="Используется для обозначения одной и той же компании/бумаги на разных биржах."
+          >
+            <Input placeholder="Если оставить пустым, будет использовано поле «Название»" />
+          </Form.Item>
+          <Form.Item
+            label="Биржа"
+            name="exchange"
+            rules={[{ required: true, message: 'Выберите биржу' }]}
+          >
+            <Select options={exchangeOptions} />
           </Form.Item>
           <Form.Item
             label="Текущая цена (€)"

@@ -34,6 +34,8 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Stock>(entity =>
         {
+            entity.Property(x => x.CommonName).HasDefaultValue(string.Empty);
+            entity.Property(x => x.Exchange).HasMaxLength(32).HasDefaultValue(StockExchanges.Nyse);
             entity.Property(x => x.Wkn).HasMaxLength(6);
             entity.Property(x => x.Isin).HasMaxLength(12);
             entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");

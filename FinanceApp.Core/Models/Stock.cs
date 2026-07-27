@@ -7,7 +7,8 @@ public class Stock
     public int Id { get; set; }
     public string Ticker { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-    public string Exchange { get; set; } = string.Empty;
+    public string CommonName { get; set; } = string.Empty;
+    public string Exchange { get; set; } = StockExchanges.Nyse;
     [Column(TypeName = "decimal(18,2)")]
     public decimal CurrentPrice { get; set; }
     public DateTime UpdatedAt { get; set; }
