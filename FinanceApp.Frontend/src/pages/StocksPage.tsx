@@ -47,14 +47,12 @@ const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
-// For 1w history only break on long weekend-like gaps (≥40 h); overnight pauses stay connected.
-const WEEK_GAP_THRESHOLD_MS = 40 * 60 * 60 * 1000;
 // For 24h/today views treat large market-closure gaps as line breaks.
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
 // Minimal positive offset so Recharts treats the inserted null point as a distinct timestamp.
 const MIN_GAP_MARKER_OFFSET_MS = 1;
+// For 1w, gaps are compressed by using an index-based X axis; only 24h/today need gap markers.
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
-  '1w': WEEK_GAP_THRESHOLD_MS,
   '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
   today: SHORT_INTRADAY_GAP_THRESHOLD_MS,
 };
@@ -477,19 +475,38 @@ const StocksPage: React.FC = () => {
                       <ResponsiveContainer>
                         <LineChart data={historyChartData}>
                           <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis
-                            type="number"
-                            dataKey="timestampMs"
-                            scale="time"
-                            domain={['dataMin', 'dataMax']}
-                            tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])}
-                          />
+                          {historyRange === '1w' ? (
+                            <XAxis
+                              type="number"
+                              dataKey="chartIndex"
+                              scale="linear"
+                              domain={['dataMin', 'dataMax']}
+                              tickFormatter={(idx: number) => {
+                                const ts = resolveWeeklyTs(idx);
+                                return ts != null ? dayjs.utc(ts).local().format(xAxisFormatByRange['1w']) : '';
+                              }}
+                            />
+                          ) : (
+                            <XAxis
+                              type="number"
+                              dataKey="timestampMs"
+                              scale="time"
+                              domain={['dataMin', 'dataMax']}
+                              tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])}
+                            />
+                          )}
                           <YAxis
                             domain={['auto', 'auto']}
                             tickFormatter={(value: number) => `${historyCurrencySymbol}${value.toFixed(2)}`}
                           />
                           <RechartsTooltip
-                            labelFormatter={(value: number) => dayjs.utc(value).local().format('DD.MM.YYYY HH:mm')}
+                            labelFormatter={(value: number) => {
+                              if (historyRange === '1w') {
+                                const ts = resolveWeeklyTs(value);
+                                return ts != null ? dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm') : '';
+                              }
+                              return dayjs.utc(value).local().format('DD.MM.YYYY HH:mm');
+                            }}
                             formatter={(value: unknown) => (
                               value == null
                                 ? ['Нет данных', 'Цена']
@@ -682,6 +699,8 @@ const StocksPage: React.FC = () => {
     timestamp: string;
     timestampMs: number;
     closeChart: number | null;
+    /** Sequential position used as the X-axis coordinate for the 1w compressed view. */
+    chartIndex?: number;
   };
   const historyChartData = useMemo(
     () => {
@@ -692,6 +711,12 @@ const StocksPage: React.FC = () => {
           closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close,
         }))
         .sort((left, right) => left.timestampMs - right.timestampMs);
+
+      // For 1w, assign a sequential index so every observation occupies equal horizontal space
+      // and overnight / weekend / holiday closures do not leave empty gaps on the X axis.
+      if (historyRange === '1w') {
+        return sortedPoints.map((pt, idx) => ({ ...pt, chartIndex: idx }));
+      }
 
       const gapThresholdMs = historyGapThresholdMsByRange[historyRange];
       if (!gapThresholdMs || sortedPoints.length < 2) {
@@ -721,6 +746,25 @@ const StocksPage: React.FC = () => {
       return pointsWithGaps;
     },
     [historyData, convertedHistoryRate, historyRange],
+  );
+
+  /** Maps chartIndex → timestampMs for the 1w compressed view (used by tick and tooltip formatters). */
+  const weeklyIndexToTimestampMs = useMemo(() => {
+    const map = new Map<number, number>();
+    if (historyRange === '1w') {
+      historyChartData.forEach((pt) => {
+        if (pt.chartIndex !== undefined) {
+          map.set(pt.chartIndex, pt.timestampMs);
+        }
+      });
+    }
+    return map;
+  }, [historyRange, historyChartData]);
+
+  /** Resolves the real timestampMs for a given 1w chart index. */
+  const resolveWeeklyTs = useCallback(
+    (idx: number) => weeklyIndexToTimestampMs.get(Math.round(idx)),
+    [weeklyIndexToTimestampMs],
   );
 
   const selectedStock = useMemo(
