@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Layout,
   Table,
@@ -26,6 +26,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   BellOutlined,
+  CaretRightFilled,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -49,6 +50,7 @@ import {
   deleteDividend,
 } from '../services/api';
 import AppSidebar from '../components/AppSidebar';
+import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
 import type {
   Portfolio,
@@ -64,6 +66,12 @@ import type {
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
+
+type PositionChartRow = { _isPositionChartRow: true; _itemId: number; _stockId: number };
+type PositionTableRow = PortfolioItem | PositionChartRow;
+const isPositionChartRow = (row: PositionTableRow): row is PositionChartRow =>
+  !!(row as PositionChartRow)._isPositionChartRow;
+const TOTAL_POS_COLS = 9;
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = { Buy: 'Покупка', Sell: 'Продажа' };
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = { Pending: 'Ожидание', Executed: 'Выполнено', Cancelled: 'Отменено' };
@@ -125,6 +133,9 @@ const PortfolioDetailPage: React.FC = () => {
   const [posSubmitting, setPosSubmitting] = useState(false);
   const [posForm] = Form.useForm();
 
+  // Position chart
+  const [expandedPositionId, setExpandedPositionId] = useState<number | null>(null);
+
   // Order modal
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -181,6 +192,11 @@ const PortfolioDetailPage: React.FC = () => {
       fetchFinanceData();
     }
   }, [section, id, financeLoaded, fetchFinanceData]);
+
+  // Reset expanded chart when switching portfolio or section
+  useEffect(() => {
+    setExpandedPositionId(null);
+  }, [id, section]);
 
   // ── Positions ──────────────────────────────────────────────
   const openAddPosModal = () => { setEditingItem(null); posForm.resetFields(); setPosModalOpen(true); };
@@ -334,36 +350,141 @@ const PortfolioDetailPage: React.FC = () => {
 
   // ── Columns ────────────────────────────────────────────────
   const positionColumns = [
-    { title: 'Тикер', dataIndex: ['stock', 'ticker'], key: 'ticker', render: (t: string) => <Tag color="blue">{t}</Tag> },
-    { title: 'Название', dataIndex: ['stock', 'name'], key: 'name' },
-    { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
-    { title: 'Цена покупки', dataIndex: 'buyPrice', key: 'buyPrice', render: (v: number) => `€${v.toFixed(2)}` },
-    { title: 'Тек. цена', key: 'currentPrice', render: (_: unknown, r: PortfolioItem) => `€${r.stock.currentPrice.toFixed(2)}` },
-    { title: 'Тек. стоимость', key: 'currentValue', render: (_: unknown, r: PortfolioItem) => `€${(r.stock.currentPrice * r.quantity).toFixed(2)}` },
     {
-      title: 'P&L (€)', key: 'pnlEur',
-      render: (_: unknown, r: PortfolioItem) => {
+      title: 'Тикер',
+      key: 'ticker',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) {
+          const item = items.find((i) => i.id === record._itemId);
+          return {
+            children: (
+              <StockPriceChart
+                panelId={`pos-chart-panel-${record._itemId}`}
+                stockId={record._stockId}
+                ticker={item?.stock?.ticker ?? ''}
+                name={item?.stock?.name ?? ''}
+                storedPriceEur={item?.stock?.currentPrice ?? null}
+              />
+            ),
+            props: { colSpan: TOTAL_POS_COLS },
+          };
+        }
+        const item = record as PortfolioItem;
+        const ticker = item.stock?.ticker;
+        if (!ticker) return <Tag color="blue">—</Tag>;
+        const isExpanded = expandedPositionId === item.id;
+        return (
+          <button
+            type="button"
+            onClick={() => setExpandedPositionId((prev) => (prev === item.id ? null : item.id))}
+            aria-expanded={isExpanded}
+            aria-controls={`pos-chart-panel-${item.id}`}
+            aria-label={isExpanded ? `Закрыть график цены: ${ticker}` : `Открыть график цены: ${ticker}`}
+            style={{
+              padding: 0,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              color: isExpanded ? '#1677ff' : 'inherit',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <CaretRightFilled
+              style={{
+                fontSize: 10,
+                transition: 'transform 0.2s',
+                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                color: '#1677ff',
+              }}
+            />
+            {ticker}
+          </button>
+        );
+      },
+    },
+    {
+      title: 'Название',
+      key: 'name',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        return (record as PortfolioItem).stock?.name ?? '—';
+      },
+    },
+    {
+      title: 'Кол-во',
+      key: 'quantity',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        return (record as PortfolioItem).quantity.toFixed(2);
+      },
+    },
+    {
+      title: 'Цена покупки',
+      key: 'buyPrice',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        return `€${(record as PortfolioItem).buyPrice.toFixed(2)}`;
+      },
+    },
+    {
+      title: 'Тек. цена',
+      key: 'currentPrice',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        return `€${(record as PortfolioItem).stock.currentPrice.toFixed(2)}`;
+      },
+    },
+    {
+      title: 'Тек. стоимость',
+      key: 'currentValue',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const r = record as PortfolioItem;
+        return `€${(r.stock.currentPrice * r.quantity).toFixed(2)}`;
+      },
+    },
+    {
+      title: 'P&L (€)',
+      key: 'pnlEur',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const r = record as PortfolioItem;
         const pnl = (r.stock.currentPrice - r.buyPrice) * r.quantity;
         return <span style={{ color: pnl >= 0 ? '#3f8600' : '#cf1322' }}>{pnl >= 0 ? '+' : ''}€{pnl.toFixed(2)}</span>;
       },
     },
     {
-      title: 'P&L (%)', key: 'pnlPct',
-      render: (_: unknown, r: PortfolioItem) => {
+      title: 'P&L (%)',
+      key: 'pnlPct',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const r = record as PortfolioItem;
         const pct = r.buyPrice > 0 ? ((r.stock.currentPrice - r.buyPrice) / r.buyPrice) * 100 : 0;
         return <span style={{ color: pct >= 0 ? '#3f8600' : '#cf1322' }}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</span>;
       },
     },
     {
-      title: 'Действия', key: 'actions',
-      render: (_: unknown, r: PortfolioItem) => (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button icon={<EditOutlined />} size="small" onClick={() => openEditPosModal(r)}>Изменить</Button>
-          <Popconfirm title="Удалить позицию?" onConfirm={() => handleDeleteItem(r.id)} okText="Да" cancelText="Нет">
-            <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
-          </Popconfirm>
-        </div>
-      ),
+      title: 'Действия',
+      key: 'actions',
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const r = record as PortfolioItem;
+        return (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Tooltip title="Изменить">
+              <Button icon={<EditOutlined />} size="small" aria-label="Изменить" onClick={() => openEditPosModal(r)} />
+            </Tooltip>
+            <Popconfirm title="Удалить позицию?" onConfirm={() => handleDeleteItem(r.id)} okText="Да" cancelText="Нет">
+              <Tooltip title="Удалить">
+                <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+              </Tooltip>
+            </Popconfirm>
+          </div>
+        );
+      },
     },
   ];
 
@@ -420,6 +541,18 @@ const PortfolioDetailPage: React.FC = () => {
 
   // Derive selectedKey and sidebarOpenKeys from current section
   const sectionKey = `portfolio-${id}-${section}`;
+
+  // Position table data with inline chart rows
+  const positionTableData: PositionTableRow[] = useMemo(() => {
+    const rows: PositionTableRow[] = [];
+    for (const item of items) {
+      rows.push(item);
+      if (expandedPositionId === item.id) {
+        rows.push({ _isPositionChartRow: true, _itemId: item.id, _stockId: item.stockId });
+      }
+    }
+    return rows;
+  }, [items, expandedPositionId]);
   const isFinanceSection = section === 'balance' || section === 'transactions' || section === 'dividends';
   const sidebarOpenKeys = [
     'portfolios',
@@ -481,7 +614,21 @@ const PortfolioDetailPage: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
                     <Button type="primary" icon={<PlusOutlined />} onClick={openAddPosModal}>Добавить позицию</Button>
                   </div>
-                  <Table dataSource={items} columns={positionColumns} rowKey="id" scroll={{ x: true }} pagination={{ pageSize: 20 }} />
+                  <Table
+                    className="positions-table"
+                    dataSource={positionTableData}
+                    columns={positionColumns}
+                    rowKey={(record: PositionTableRow) =>
+                      isPositionChartRow(record)
+                        ? `pos-chart-${record._itemId}`
+                        : String((record as PortfolioItem).id)
+                    }
+                    rowClassName={(record: PositionTableRow) =>
+                      isPositionChartRow(record) ? 'chart-panel-row' : ''
+                    }
+                    scroll={{ x: true }}
+                    pagination={{ pageSize: 20 }}
+                  />
                 </>
               )}
 
