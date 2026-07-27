@@ -342,6 +342,21 @@ const PortfolioDetailPage: React.FC = () => {
   };
 
   const items = portfolio?.items ?? [];
+
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      const nameA = a.stock?.name ?? '';
+      const nameB = b.stock?.name ?? '';
+      if (!nameA && nameB) return 1;
+      if (nameA && !nameB) return -1;
+      const cmp = nameA.localeCompare(nameB, 'ru', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      const tickerCmp = (a.stock?.ticker ?? '').localeCompare(b.stock?.ticker ?? '', 'ru', { sensitivity: 'base' });
+      if (tickerCmp !== 0) return tickerCmp;
+      return a.id - b.id;
+    });
+  }, [items]);
+
   const summary = computeSummary(items);
 
   // ── Derived order lists ───────────────────────────────────────────────
@@ -545,14 +560,14 @@ const PortfolioDetailPage: React.FC = () => {
   // Position table data with inline chart rows
   const positionTableData: PositionTableRow[] = useMemo(() => {
     const rows: PositionTableRow[] = [];
-    for (const item of items) {
+    for (const item of sortedItems) {
       rows.push(item);
       if (expandedPositionId === item.id) {
         rows.push({ _isPositionChartRow: true, _itemId: item.id, _stockId: item.stockId });
       }
     }
     return rows;
-  }, [items, expandedPositionId]);
+  }, [sortedItems, expandedPositionId]);
   const isFinanceSection = section === 'balance' || section === 'transactions' || section === 'dividends';
   const sidebarOpenKeys = [
     'portfolios',
