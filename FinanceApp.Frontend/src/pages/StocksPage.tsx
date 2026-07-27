@@ -582,10 +582,10 @@ const StocksPage: React.FC = () => {
   const tableData: TableRow[] = useMemo(() => {
     const rows: TableRow[] = [];
     for (const stock of displayStocks) {
+      rows.push(stock);
       if (expandedStockId === stock.id) {
         rows.push({ _isChartRow: true, _stockId: stock.id });
       }
-      rows.push(stock);
     }
     return rows;
   }, [displayStocks, expandedStockId]);
