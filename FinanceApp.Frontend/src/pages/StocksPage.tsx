@@ -476,7 +476,7 @@ const StocksPage: React.FC = () => {
                           <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
                             {periodChangeEur == null
                               ? '—'
-                              : `€${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                              : `${historyCurrencySymbol}${formatSigned(periodChangeEur)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
                           </div>
                         </div>
                       </div>
