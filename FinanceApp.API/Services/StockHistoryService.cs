@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using FinanceApp.API.Models;
 using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.EntityFrameworkCore;
@@ -19,15 +20,18 @@ public class StockHistoryService : IStockHistoryService
 
     private readonly AppDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IStockQuoteConversionService _stockQuoteConversionService;
     private readonly ILogger<StockHistoryService> _logger;
 
     public StockHistoryService(
         AppDbContext dbContext,
         IHttpClientFactory httpClientFactory,
+        IStockQuoteConversionService stockQuoteConversionService,
         ILogger<StockHistoryService> logger)
     {
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
+        _stockQuoteConversionService = stockQuoteConversionService;
         _logger = logger;
     }
 
@@ -76,40 +80,48 @@ public class StockHistoryService : IStockHistoryService
         await UpsertCandlesAsync(stock.Id, "10m", tenMinute, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<StockHistoricalPrice>> GetHistoryAsync(int stockId, string range, CancellationToken cancellationToken = default)
+    public async Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default)
     {
         var normalizedRange = NormalizeRange(range);
+        var interval = GetInterval(normalizedRange);
+        var from = GetFromTimestamp(normalizedRange);
 
-        var now = DateTime.UtcNow;
-        var from = normalizedRange switch
+        var data = await LoadHistoryRowsAsync(stock.Id, interval, from, cancellationToken);
+        if ((data.Count == 0 || data.Any(NeedsMetadataBackfill)) && !string.IsNullOrWhiteSpace(stock.Ticker))
         {
-            "5y" => now.AddYears(-5),
-            "3y" => now.AddYears(-3),
-            "1y" => now.AddYears(-1),
-            "6m" => now.AddMonths(-6),
-            "3m" => now.AddMonths(-3),
-            "1m" => now.AddMonths(-1),
-            "1w" => now.AddDays(-7),
-            "24h" => now.AddHours(-24),
-            "today" => now.Date,
-            _ => now.AddYears(-5)
-        };
+            try
+            {
+                await SyncHistoricalDataForStockAsync(stock, cancellationToken);
+                data = await LoadHistoryRowsAsync(stock.Id, interval, from, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "On-demand stock history sync failed for stock {StockId}", stock.Id);
+            }
+        }
 
-        var interval = normalizedRange switch
+        var currencyMetadata = data.LastOrDefault();
+        var conversionContext = await _stockQuoteConversionService.GetConversionContextAsync(
+            currencyMetadata?.QuoteCurrency,
+            currencyMetadata?.FinancialCurrency,
+            cancellationToken);
+
+        return new StockHistoryResponse
         {
-            "5y" or "3y" => "1mo",
-            "1y" => "1wk",
-            "6m" or "3m" or "1m" => "1d",
-            "1w" => "1h",
-            "24h" or "today" => "10m",
-            _ => "1mo"
+            Range = normalizedRange,
+            Interval = interval,
+            Currency = conversionContext.Metadata.QuoteCurrency,
+            FinancialCurrency = conversionContext.Metadata.FinancialCurrency,
+            NormalizedQuoteCurrency = conversionContext.Metadata.NormalizedQuoteCurrency,
+            QuoteUnitMultiplier = conversionContext.Metadata.QuoteUnitMultiplier,
+            RateToEur = conversionContext.ExchangeRate.RateToEur,
+            RateTimestampUtc = conversionContext.ExchangeRate.RateTimestampUtc,
+            RateSource = conversionContext.ExchangeRate.Source,
+            ConversionWarning = conversionContext.Warning,
+            Points = data
+                .Select(point => _stockQuoteConversionService.BuildHistoryPointResponse(point, conversionContext))
+                .ToList()
         };
-
-        return await _dbContext.StockHistoricalPrices
-            .AsNoTracking()
-            .Where(x => x.StockId == stockId && x.Interval == interval && x.Timestamp >= from)
-            .OrderBy(x => x.Timestamp)
-            .ToListAsync(cancellationToken);
     }
 
     private static string NormalizeRange(string range)
@@ -130,8 +142,51 @@ public class StockHistoryService : IStockHistoryService
         };
     }
 
-    private async Task UpsertCandlesAsync(int stockId, string interval, IReadOnlyList<CandleData> candles, CancellationToken cancellationToken)
+    private static DateTime GetFromTimestamp(string normalizedRange)
     {
+        var now = DateTime.UtcNow;
+        return normalizedRange switch
+        {
+            "5y" => now.AddYears(-5),
+            "3y" => now.AddYears(-3),
+            "1y" => now.AddYears(-1),
+            "6m" => now.AddMonths(-6),
+            "3m" => now.AddMonths(-3),
+            "1m" => now.AddMonths(-1),
+            "1w" => now.AddDays(-7),
+            "24h" => now.AddHours(-24),
+            "today" => now.Date,
+            _ => now.AddYears(-5)
+        };
+    }
+
+    private static string GetInterval(string normalizedRange) => normalizedRange switch
+    {
+        "5y" or "3y" => "1mo",
+        "1y" => "1wk",
+        "6m" or "3m" or "1m" => "1d",
+        "1w" => "1h",
+        "24h" or "today" => "10m",
+        _ => "1mo"
+    };
+
+    private async Task<List<StockHistoricalPrice>> LoadHistoryRowsAsync(int stockId, string interval, DateTime from, CancellationToken cancellationToken)
+    {
+        return await _dbContext.StockHistoricalPrices
+            .AsNoTracking()
+            .Where(x => x.StockId == stockId && x.Interval == interval && x.Timestamp >= from)
+            .OrderBy(x => x.Timestamp)
+            .ToListAsync(cancellationToken);
+    }
+
+    private static bool NeedsMetadataBackfill(StockHistoricalPrice price) =>
+        string.IsNullOrWhiteSpace(price.QuoteCurrency) ||
+        string.IsNullOrWhiteSpace(price.NormalizedQuoteCurrency) ||
+        price.QuoteUnitMultiplier <= 0m;
+
+    private async Task UpsertCandlesAsync(int stockId, string interval, CandleBatch candleBatch, CancellationToken cancellationToken)
+    {
+        var candles = candleBatch.Candles;
         if (candles.Count == 0)
         {
             return;
@@ -158,6 +213,10 @@ public class StockHistoryService : IStockHistoryService
                 row.High = candle.High;
                 row.Low = candle.Low;
                 row.Close = candle.Close;
+                row.QuoteCurrency = candleBatch.QuoteCurrency;
+                row.FinancialCurrency = candleBatch.FinancialCurrency;
+                row.NormalizedQuoteCurrency = candleBatch.NormalizedQuoteCurrency;
+                row.QuoteUnitMultiplier = candleBatch.QuoteUnitMultiplier;
                 row.Volume = candle.Volume;
             }
             else
@@ -171,6 +230,10 @@ public class StockHistoryService : IStockHistoryService
                     High = candle.High,
                     Low = candle.Low,
                     Close = candle.Close,
+                    QuoteCurrency = candleBatch.QuoteCurrency,
+                    FinancialCurrency = candleBatch.FinancialCurrency,
+                    NormalizedQuoteCurrency = candleBatch.NormalizedQuoteCurrency,
+                    QuoteUnitMultiplier = candleBatch.QuoteUnitMultiplier,
                     Volume = candle.Volume
                 });
             }
@@ -179,7 +242,7 @@ public class StockHistoryService : IStockHistoryService
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<CandleData>> FetchCandlesAsync(string symbol, string interval, string range, CancellationToken cancellationToken)
+    private async Task<CandleBatch> FetchCandlesAsync(string symbol, string interval, string range, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient();
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
@@ -218,7 +281,7 @@ public class StockHistoryService : IStockHistoryService
                     interval,
                     range,
                     (int)response.StatusCode);
-                return Array.Empty<CandleData>();
+                return CandleBatch.Empty;
             }
             catch (HttpRequestException ex) when (attempt < MaxYahooRequestAttempts)
             {
@@ -252,31 +315,32 @@ public class StockHistoryService : IStockHistoryService
             "Yahoo history request failed after retries for interval={Interval} range={Range}",
             interval,
             range);
-        return Array.Empty<CandleData>();
+        return CandleBatch.Empty;
     }
 
-    private static IReadOnlyList<CandleData> ParseCandles(JsonElement root)
+    private static CandleBatch ParseCandles(JsonElement root)
     {
         if (!root.TryGetProperty("chart", out var chart) ||
             !chart.TryGetProperty("result", out var resultArray) ||
             resultArray.GetArrayLength() == 0)
         {
-            return Array.Empty<CandleData>();
+            return CandleBatch.Empty;
         }
 
         var result = resultArray[0];
+        var meta = result.TryGetProperty("meta", out var metaElement) ? metaElement : default;
         if (!result.TryGetProperty("timestamp", out var timestamps) ||
             !result.TryGetProperty("indicators", out var indicators) ||
             !indicators.TryGetProperty("quote", out var quoteArray) ||
             quoteArray.GetArrayLength() == 0)
         {
-            return Array.Empty<CandleData>();
+            return CandleBatch.Empty;
         }
 
         var quote = quoteArray[0];
         if (!quote.TryGetProperty("close", out var closeArray))
         {
-            return Array.Empty<CandleData>();
+            return CandleBatch.Empty;
         }
 
         var openArray = quote.TryGetProperty("open", out var openElement) ? openElement : default;
@@ -312,9 +376,16 @@ public class StockHistoryService : IStockHistoryService
                 volume));
         }
 
-        return candles
-            .OrderBy(x => x.Timestamp)
-            .ToList();
+        var quoteCurrency = meta.TryGetProperty("currency", out var currencyProp) ? currencyProp.GetString() : null;
+        var financialCurrency = meta.TryGetProperty("financialCurrency", out var financialCurrencyProp) ? financialCurrencyProp.GetString() : null;
+        var currencyMetadata = QuoteCurrencyMetadata.Parse(quoteCurrency, financialCurrency);
+
+        return new CandleBatch(
+            candles.OrderBy(x => x.Timestamp).ToList(),
+            currencyMetadata.QuoteCurrency,
+            currencyMetadata.FinancialCurrency,
+            currencyMetadata.NormalizedQuoteCurrency,
+            currencyMetadata.QuoteUnitMultiplier);
     }
 
     private static bool IsTransientStatusCode(HttpStatusCode statusCode) =>
@@ -375,9 +446,9 @@ public class StockHistoryService : IStockHistoryService
         }
     }
 
-    private static IReadOnlyList<CandleData> AggregateToTenMinute(IReadOnlyList<CandleData> fiveMinuteCandles)
+    private static CandleBatch AggregateToTenMinute(CandleBatch fiveMinuteCandles)
     {
-        return fiveMinuteCandles
+        var aggregatedCandles = fiveMinuteCandles.Candles
             .GroupBy(x => new DateTime(
                 x.Timestamp.Year,
                 x.Timestamp.Month,
@@ -399,6 +470,13 @@ public class StockHistoryService : IStockHistoryService
                     ordered.Sum(x => x.Volume));
             })
             .ToList();
+
+        return new CandleBatch(
+            aggregatedCandles,
+            fiveMinuteCandles.QuoteCurrency,
+            fiveMinuteCandles.FinancialCurrency,
+            fiveMinuteCandles.NormalizedQuoteCurrency,
+            fiveMinuteCandles.QuoteUnitMultiplier);
     }
 
     private static bool TryGetDecimal(JsonElement arrayElement, int index, out decimal value)
@@ -478,4 +556,14 @@ public class StockHistoryService : IStockHistoryService
         decimal Low,
         decimal Close,
         long Volume);
+
+    private sealed record CandleBatch(
+        IReadOnlyList<CandleData> Candles,
+        string? QuoteCurrency,
+        string? FinancialCurrency,
+        string? NormalizedQuoteCurrency,
+        decimal QuoteUnitMultiplier)
+    {
+        public static CandleBatch Empty { get; } = new(Array.Empty<CandleData>(), null, null, null, 1m);
+    }
 }

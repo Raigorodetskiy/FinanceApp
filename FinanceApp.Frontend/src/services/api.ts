@@ -13,8 +13,9 @@ import type {
   AddPortfolioItemRequest,
   CreateStockRequest,
   UpdateStockRequest,
-  StockHistoryPoint,
+  StockHistoryResponse,
   StockHistoryRange,
+  StockQuoteResponse,
   CreateOrderRequest,
   UpdateOrderRequest,
   CreateTransactionRequest,
@@ -86,11 +87,11 @@ export const createStock = (data: CreateStockRequest) => api.post<Stock>('/Stock
 export const updateStock = (id: number, data: UpdateStockRequest) => api.put<Stock>(`/Stocks/${id}`, data);
 export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
 export const getStockHistory = (id: number, range: StockHistoryRange) =>
-  api.get<StockHistoryPoint[]>(`/Stocks/${id}/history`, { params: { range } });
+  api.get<StockHistoryResponse>(`/Stocks/${id}/history`, { params: { range } });
 
 // Stock prices
 export const getStockPrice = (symbol: string) =>
-  api.get<{ symbol: string; currentPrice: number; change: number; percentChange: number; marketState: string }>(`/StockPrice/${symbol}`);
+  api.get<StockQuoteResponse>(`/StockPrice/${symbol}`);
 export const getEurUsdRate = () =>
   api.get<{ eurUsd: number }>('/StockPrice/rate/eurusd');
 

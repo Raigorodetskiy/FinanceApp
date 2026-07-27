@@ -25,6 +25,10 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => new { x.StockId, x.Timestamp, x.Interval }).IsUnique();
             entity.HasIndex(x => new { x.StockId, x.Timestamp });
             entity.Property(x => x.Interval).HasMaxLength(10);
+            entity.Property(x => x.QuoteCurrency).HasMaxLength(8);
+            entity.Property(x => x.FinancialCurrency).HasMaxLength(8);
+            entity.Property(x => x.NormalizedQuoteCurrency).HasMaxLength(8);
+            entity.Property(x => x.QuoteUnitMultiplier).HasDefaultValue(1m);
             entity.Property(x => x.Volume).HasDefaultValue(0L);
         });
 

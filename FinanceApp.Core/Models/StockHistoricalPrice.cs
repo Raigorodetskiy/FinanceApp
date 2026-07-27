@@ -22,5 +22,12 @@ public class StockHistoricalPrice
     [Column(TypeName = "decimal(18,4)")]
     public decimal Close { get; set; }
 
+    public string? QuoteCurrency { get; set; }
+    public string? FinancialCurrency { get; set; }
+    public string? NormalizedQuoteCurrency { get; set; }
+
+    [Column(TypeName = "decimal(18,6)")]
+    public decimal QuoteUnitMultiplier { get; set; } = 1m;
+
     public long Volume { get; set; }
 }

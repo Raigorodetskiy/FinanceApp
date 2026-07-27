@@ -39,14 +39,58 @@ export interface Stock {
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
 
+export interface StockQuoteResponse {
+  symbol: string;
+  rawCurrentPrice: number;
+  rawPreviousClose: number;
+  rawChange: number;
+  currency: string | null;
+  financialCurrency: string | null;
+  normalizedQuoteCurrency: string | null;
+  quoteUnitMultiplier: number;
+  normalizedCurrentPrice: number;
+  normalizedPreviousClose: number;
+  normalizedChange: number;
+  currentPriceEur: number | null;
+  changeEur: number | null;
+  percentChange: number;
+  marketState: string;
+  rateToEur: number | null;
+  rateTimestampUtc: string | null;
+  rateSource: string | null;
+  conversionWarning: string | null;
+}
+
 export interface StockHistoryPoint {
   timestamp: string;
   interval: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
+  openRaw: number;
+  highRaw: number;
+  lowRaw: number;
+  closeRaw: number;
+  openNormalized: number;
+  highNormalized: number;
+  lowNormalized: number;
+  closeNormalized: number;
+  openEur: number | null;
+  highEur: number | null;
+  lowEur: number | null;
+  closeEur: number | null;
   volume: number;
+}
+
+export interface StockHistoryResponse {
+  range: StockHistoryRange;
+  interval: string;
+  currency: string | null;
+  financialCurrency: string | null;
+  normalizedQuoteCurrency: string | null;
+  quoteUnitMultiplier: number;
+  rateToEur: number | null;
+  rateTimestampUtc: string | null;
+  rateSource: string | null;
+  conversionWarning: string | null;
+  points: StockHistoryPoint[];
 }
 
 export type OrderType = 'Buy' | 'Sell';

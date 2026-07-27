@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Segmented, Spin, Typography, Empty, message } from 'antd';
+import { Segmented, Spin, Typography, Empty, Alert, message } from 'antd';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
@@ -11,25 +11,24 @@ import {
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { getStockHistory, getEurUsdRate } from '../services/api';
-import type { StockHistoryPoint, StockHistoryRange } from '../types';
+import { getStockHistory } from '../services/api';
+import type {
+  StockHistoryPoint,
+  StockHistoryRange,
+  StockHistoryResponse,
+  StockQuoteResponse,
+} from '../types';
 
 dayjs.extend(utc);
 
 const { Text } = Typography;
 
-// For 24h/today views treat large market-closure gaps as line breaks.
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-// Minimal positive offset so Recharts treats the inserted null point as a distinct timestamp.
 const MIN_GAP_MARKER_OFFSET_MS = 1;
-// For 1w, gaps are compressed by using an index-based X axis; only 24h/today need gap markers.
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
   '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
   today: SHORT_INTRADAY_GAP_THRESHOLD_MS,
 };
-
-const formatSigned = (value: number, suffix = '') =>
-  `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
 
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
@@ -52,27 +51,34 @@ type HistoryChartPoint = {
   timestamp: string;
   timestampMs: number;
   closeChart: number | null;
-  /** Sequential position used as the X-axis coordinate for the 1w compressed view. */
+  rawClose: number;
   chartIndex?: number;
 };
 
 export interface StockPriceChartProps {
-  /** DOM id for the chart panel container (used by aria-controls). */
   panelId: string;
   stockId: number;
   ticker: string;
   name: string;
-  /** WKN security identifier (6-character alphanumeric). */
   wkn?: string | null;
-  /** ISIN security identifier (12-character alphanumeric). */
   isin?: string | null;
-  /** Live price in EUR (from live price fetch). Used for period change display. */
-  livePriceEur?: number | null;
-  /** Live price in USD (from live price fetch). Used for USD-mode current price display. */
-  livePriceUsd?: number | null;
-  /** Stored / fallback current price in EUR (used when no live price is available). */
+  liveQuote?: StockQuoteResponse | null;
   storedPriceEur?: number | null;
 }
+
+const formatSigned = (value: number, suffix = '') =>
+  `${value >= 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
+
+const formatCurrencyValue = (value: number, currencyCode: string | null | undefined): string => {
+  if ((currencyCode ?? 'EUR') === 'EUR') {
+    return `€${value.toFixed(2)}`;
+  }
+
+  return `${value.toFixed(2)} ${currencyCode ?? '—'}`;
+};
+
+const formatRawQuote = (quote: StockQuoteResponse): string =>
+  `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`;
 
 const StockPriceChart: React.FC<StockPriceChartProps> = ({
   panelId,
@@ -81,31 +87,21 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   name,
   wkn,
   isin,
-  livePriceEur,
-  livePriceUsd,
+  liveQuote,
   storedPriceEur,
 }) => {
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyData, setHistoryData] = useState<StockHistoryPoint[]>([]);
-  const [historyEurUsdRate, setHistoryEurUsdRate] = useState<number | null>(null);
+  const [historyResponse, setHistoryResponse] = useState<StockHistoryResponse | null>(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
       setHistoryLoading(true);
       try {
         const res = await getStockHistory(stockId, historyRange);
-        setHistoryData(res.data);
-        try {
-          const eurUsdRes = await getEurUsdRate();
-          setHistoryEurUsdRate(eurUsdRes.data.eurUsd);
-        } catch {
-          setHistoryEurUsdRate(null);
-          message.warning('Не удалось получить курс EUR/USD. История отображается в USD.');
-        }
+        setHistoryResponse(res.data);
       } catch {
-        setHistoryData([]);
-        setHistoryEurUsdRate(null);
+        setHistoryResponse(null);
         message.error('Ошибка загрузки исторических данных');
       } finally {
         setHistoryLoading(false);
@@ -115,22 +111,22 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     fetchHistory();
   }, [stockId, historyRange]);
 
-  const historyHasEurConversion = historyEurUsdRate != null && historyEurUsdRate > 0;
-  const historyCurrencyCode = historyHasEurConversion ? 'EUR' : 'USD';
-  const historyCurrencySymbol = historyHasEurConversion ? '€' : '$';
-  const convertedHistoryRate = historyHasEurConversion ? historyEurUsdRate : null;
+  const historyData = historyResponse?.points ?? [];
+  const historyHasEurConversion = historyResponse?.rateToEur != null;
+  const historyCurrencyCode = historyHasEurConversion
+    ? 'EUR'
+    : historyResponse?.normalizedQuoteCurrency ?? historyResponse?.currency ?? null;
 
   const historyChartData = useMemo<HistoryChartPoint[]>(() => {
     const sortedPoints: HistoryChartPoint[] = historyData
-      .map((point) => ({
+      .map((point: StockHistoryPoint) => ({
         timestamp: point.timestamp,
         timestampMs: dayjs.utc(point.timestamp).valueOf(),
-        closeChart: convertedHistoryRate ? point.close / convertedHistoryRate : point.close,
+        closeChart: point.closeEur ?? point.closeNormalized,
+        rawClose: point.closeRaw,
       }))
       .sort((left, right) => left.timestampMs - right.timestampMs);
 
-    // For 1w, assign a sequential index so every observation occupies equal horizontal space
-    // and overnight / weekend / holiday closures do not leave empty gaps on the X axis.
     if (historyRange === '1w') {
       return sortedPoints.map((pt, idx) => ({ ...pt, chartIndex: idx }));
     }
@@ -146,12 +142,12 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       const currentPoint = sortedPoints[i];
       const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
       if (gapMs > gapThresholdMs) {
-        // Keep marker just after the last real point so Recharts registers a distinct null marker and breaks the line.
         const gapTimestampMs = previousPoint.timestampMs + MIN_GAP_MARKER_OFFSET_MS;
         pointsWithGaps.push({
           timestamp: dayjs(gapTimestampMs).toISOString(),
           timestampMs: gapTimestampMs,
           closeChart: null,
+          rawClose: previousPoint.rawClose,
         });
       }
       pointsWithGaps.push(currentPoint);
@@ -159,9 +155,8 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     }
 
     return pointsWithGaps;
-  }, [historyData, convertedHistoryRate, historyRange]);
+  }, [historyData, historyRange]);
 
-  /** Maps chartIndex → timestampMs for the 1w compressed view (used by tick and tooltip formatters). */
   const weeklyIndexToTimestampMs = useMemo(() => {
     const map = new Map<number, number>();
     if (historyRange === '1w') {
@@ -174,42 +169,73 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     return map;
   }, [historyRange, historyChartData]);
 
-  /** Resolves the real timestampMs for a given 1w chart index. */
   const resolveWeeklyTs = useCallback(
     (idx: number) => weeklyIndexToTimestampMs.get(Math.round(idx)),
     [weeklyIndexToTimestampMs],
   );
 
-  // Current price in EUR: prefer live, fall back to stored
-  const currentPriceEur = livePriceEur ?? storedPriceEur ?? null;
-
-  const periodStartPriceEur = useMemo(() => {
-    if (!historyHasEurConversion) return null;
+  const firstHistoryClose = useMemo(() => {
     for (const point of historyChartData) {
       if (point.closeChart != null) return point.closeChart;
     }
     return null;
-  }, [historyChartData, historyHasEurConversion]);
+  }, [historyChartData]);
 
-  const periodChangeEur =
-    periodStartPriceEur != null && currentPriceEur != null
-      ? currentPriceEur - periodStartPriceEur
+  const latestHistoryClose = useMemo(() => {
+    for (let i = historyChartData.length - 1; i >= 0; i -= 1) {
+      if (historyChartData[i].closeChart != null) return historyChartData[i].closeChart;
+    }
+    return null;
+  }, [historyChartData]);
+
+  const displayCurrencyCode = historyCurrencyCode ?? liveQuote?.normalizedQuoteCurrency ?? liveQuote?.currency ?? 'EUR';
+
+  const currentPriceDisplayValue = useMemo(() => {
+    if (historyHasEurConversion) {
+      if (liveQuote?.currentPriceEur != null) return liveQuote.currentPriceEur;
+      return storedPriceEur ?? latestHistoryClose;
+    }
+
+    if (liveQuote?.normalizedCurrentPrice != null) return liveQuote.normalizedCurrentPrice;
+    return latestHistoryClose;
+  }, [historyHasEurConversion, latestHistoryClose, liveQuote, storedPriceEur]);
+
+  const currentPriceDisplayText = useMemo(() => {
+    if (liveQuote?.currentPriceEur != null) {
+      return formatCurrencyValue(liveQuote.currentPriceEur, 'EUR');
+    }
+
+    if (!historyHasEurConversion && liveQuote != null) {
+      return formatRawQuote(liveQuote);
+    }
+
+    if (currentPriceDisplayValue == null) {
+      return '—';
+    }
+
+    return formatCurrencyValue(currentPriceDisplayValue, displayCurrencyCode);
+  }, [currentPriceDisplayValue, displayCurrencyCode, historyHasEurConversion, liveQuote]);
+
+  const periodChangeValue =
+    currentPriceDisplayValue != null && firstHistoryClose != null
+      ? currentPriceDisplayValue - firstHistoryClose
       : null;
   const periodChangePercent =
-    periodChangeEur != null && periodStartPriceEur != null && periodStartPriceEur !== 0
-      ? (periodChangeEur / periodStartPriceEur) * 100
+    periodChangeValue != null && firstHistoryClose != null && firstHistoryClose !== 0
+      ? (periodChangeValue / firstHistoryClose) * 100
       : null;
   const performanceColor =
-    periodChangeEur == null
+    periodChangeValue == null
       ? undefined
-      : periodChangeEur >= 0
+      : periodChangeValue >= 0
         ? COLOR_POSITIVE
         : COLOR_NEGATIVE;
 
-  // Display current price in the same currency as the chart (EUR when conversion available, USD otherwise)
-  const currentPriceDisplay: number | null = historyHasEurConversion
-    ? currentPriceEur
-    : (livePriceUsd ?? null);
+  const warningText = liveQuote?.conversionWarning ?? historyResponse?.conversionWarning ?? null;
+  const normalizedQuoteText =
+    liveQuote != null && liveQuote.quoteUnitMultiplier !== 1 && liveQuote.normalizedQuoteCurrency
+      ? `${liveQuote.normalizedCurrentPrice.toFixed(3)} ${liveQuote.normalizedQuoteCurrency}`
+      : null;
 
   return (
     <div
@@ -231,31 +257,37 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       >
         <span>
           <Text type="secondary" style={{ fontSize: 12 }}>WKN: </Text>
-          <Text
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              fontFamily: 'monospace',
-              color: '#1677ff',
-            }}
-          >
+          <Text style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: '#1677ff' }}>
             {wkn ?? '—'}
           </Text>
         </span>
         <span>
           <Text type="secondary" style={{ fontSize: 12 }}>ISIN: </Text>
-          <Text
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              fontFamily: 'monospace',
-              color: '#1677ff',
-            }}
-          >
+          <Text style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: '#1677ff' }}>
             {isin ?? '—'}
           </Text>
         </span>
+        <span>
+          <Text type="secondary" style={{ fontSize: 12 }}>Валюта котировки: </Text>
+          <Text style={{ fontSize: 13, fontWeight: 600 }}>
+            {liveQuote?.currency ?? historyResponse?.currency ?? '—'}
+          </Text>
+        </span>
+        <span>
+          <Text type="secondary" style={{ fontSize: 12 }}>Валюта отчётности: </Text>
+          <Text style={{ fontSize: 13, fontWeight: 600 }}>
+            {liveQuote?.financialCurrency ?? historyResponse?.financialCurrency ?? '—'}
+          </Text>
+        </span>
       </div>
+      {warningText && (
+        <Alert
+          type="warning"
+          showIcon
+          message={warningText}
+          style={{ marginBottom: 12 }}
+        />
+      )}
       <div
         style={{
           display: 'flex',
@@ -296,7 +328,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div
               style={{
-                minWidth: 220,
+                minWidth: 240,
                 padding: '8px 12px',
                 border: '1px solid #d0e8ff',
                 borderRadius: 8,
@@ -320,17 +352,18 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     Тек. цена
                   </div>
                   <div style={{ color: COLOR_PRIMARY, fontSize: 16, fontWeight: 600 }}>
-                    {currentPriceDisplay == null
-                      ? '—'
-                      : `${historyCurrencySymbol}${currentPriceDisplay.toFixed(2)}`}
+                    {currentPriceDisplayText}
                   </div>
+                  {normalizedQuoteText && (
+                    <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginTop: 2 }}>
+                      Нормализовано: {normalizedQuoteText}
+                    </div>
+                  )}
                 </div>
                 <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
-                  {periodChangeEur == null
+                  {periodChangeValue == null
                     ? '—'
-                    : `${historyCurrencySymbol}${formatSigned(periodChangeEur)} (${
-                        periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')
-                      })`}
+                    : `${formatCurrencyValue(periodChangeValue, displayCurrencyCode)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
                 </div>
               </div>
             </div>
@@ -366,7 +399,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 <YAxis
                   domain={['auto', 'auto']}
                   tickFormatter={(value: number) =>
-                    `${historyCurrencySymbol}${value.toFixed(2)}`
+                    formatCurrencyValue(value, displayCurrencyCode)
                   }
                 />
                 <RechartsTooltip
@@ -377,19 +410,27 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     }
                     return dayjs.utc(value).local().format('DD.MM.YYYY HH:mm');
                   }}
-                  formatter={(value: unknown) =>
-                    value == null
-                      ? ['Нет данных', 'Цена']
-                      : [
-                          `${historyCurrencySymbol}${Number(value).toFixed(2)}`,
-                          'Цена',
-                        ]
-                  }
+                  formatter={(value: unknown, _name: string, item) => {
+                    const payload = item.payload as HistoryChartPoint | undefined;
+                    if (value == null || payload == null) {
+                      return ['Нет данных', 'Цена'];
+                    }
+
+                    const formattedChartValue = formatCurrencyValue(Number(value), displayCurrencyCode);
+                    if (historyHasEurConversion) {
+                      return [formattedChartValue, 'Цена'];
+                    }
+
+                    return [
+                      `${formattedChartValue} (raw: ${payload.rawClose.toFixed(2)} ${historyResponse?.currency ?? displayCurrencyCode ?? '—'})`,
+                      'Цена',
+                    ];
+                  }}
                 />
                 <Line
                   type="monotone"
                   dataKey="closeChart"
-                  name={`Close (${historyCurrencyCode})`}
+                  name={`Close (${displayCurrencyCode ?? '—'})`}
                   stroke="#1677ff"
                   dot={false}
                   strokeWidth={2}

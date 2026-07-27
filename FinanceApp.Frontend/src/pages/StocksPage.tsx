@@ -31,12 +31,11 @@ import {
   deleteStock,
   getPortfolios,
   getStockPrice,
-  getEurUsdRate,
 } from '../services/api';
 import AppSidebar from '../components/AppSidebar';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio } from '../types';
+import type { Stock, Portfolio, StockQuoteResponse } from '../types';
 
 dayjs.extend(utc);
 
@@ -69,11 +68,11 @@ const getPercent24hText = (live: LivePriceEntry | undefined): string | null => {
     return '...';
   }
 
-  if (live.percentChange24h === null || live.percentChange24h === undefined) {
+  if (live.quote?.percentChange === null || live.quote?.percentChange === undefined) {
     return '—';
   }
 
-  return formatPercent24h(live.percentChange24h);
+  return formatPercent24h(live.quote.percentChange);
 };
 
 const marketStateLabel: Record<string, { color: string; text: string }> = {
@@ -84,11 +83,8 @@ const marketStateLabel: Record<string, { color: string; text: string }> = {
 };
 
 type LivePriceEntry = {
-  price: number | null;
-  priceEur: number | null;
+  quote: StockQuoteResponse | null;
   loading: boolean;
-  marketState?: string;
-  percentChange24h?: number | null;
 };
 
 type ChartRow = { _isChartRow: true; _stockId: number };
@@ -97,11 +93,8 @@ type TableRow = Stock | ChartRow;
 const isChartRow = (record: TableRow): record is ChartRow => !!(record as ChartRow)._isChartRow;
 
 const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): LivePriceEntry => ({
-  price: current?.price ?? null,
-  priceEur: current?.priceEur ?? null,
+  quote: current?.quote ?? null,
   loading,
-  marketState: current?.marketState,
-  percentChange24h: current?.percentChange24h ?? null,
 });
 
 const StocksPage: React.FC = () => {
@@ -178,6 +171,23 @@ const StocksPage: React.FC = () => {
     fetchData();
   }, []);
 
+  const persistConvertedPrice = useCallback(async (stock: Stock, quote: StockQuoteResponse) => {
+    if (quote.currentPriceEur == null) {
+      return null;
+    }
+
+    const roundedCurrentPrice = Math.round(quote.currentPriceEur * 100) / 100;
+    const updatedAt = new Date().toISOString();
+
+    await updateStock(stock.id, {
+      ...stock,
+      currentPrice: roundedCurrentPrice,
+      updatedAt,
+    });
+
+    return { roundedCurrentPrice, updatedAt };
+  }, []);
+
   const handleRefreshPrices = useCallback(async (silent = false) => {
     if (refreshing) return;
     setRefreshing(true);
@@ -193,28 +203,18 @@ const StocksPage: React.FC = () => {
         return next;
       });
 
-      const eurUsdRes = await getEurUsdRate();
-      const eurUsd = eurUsdRes.data.eurUsd;
-
       const results = await Promise.allSettled(
         stocksWithTicker.map(async (stock) => {
           try {
             const priceRes = await getStockPrice(stock.ticker);
-            const priceUsd = priceRes.data.currentPrice;
-            const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
-            const marketState: string = priceRes.data.marketState ?? 'CLOSED';
-            const percentChange24h: number | null = priceRes.data.percentChange ?? null;
+            const quote = priceRes.data;
 
             setLivePrices((prev) => ({
               ...prev,
-              [stock.id]: { price: priceUsd, priceEur, loading: false, marketState, percentChange24h },
+              [stock.id]: { quote, loading: false },
             }));
 
-            await updateStock(stock.id, {
-              ...stock,
-              currentPrice: Math.round(priceEur * 100) / 100,
-              updatedAt: new Date().toISOString(),
-            });
+            await persistConvertedPrice(stock, quote);
           } catch (error) {
             setLivePrices((prev) => ({
               ...prev,
@@ -240,7 +240,7 @@ const StocksPage: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
-  }, [refreshing]);
+  }, [persistConvertedPrice, refreshing]);
 
   useEffect(() => {
     const autoRefreshTimer = setInterval(() => {
@@ -341,34 +341,25 @@ const StocksPage: React.FC = () => {
     if (!stock.ticker?.trim()) return;
     setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], true) }));
     try {
-      const [priceRes, eurUsdRes] = await Promise.all([
-        getStockPrice(stock.ticker),
-        getEurUsdRate(),
-      ]);
-      const priceUsd = priceRes.data.currentPrice;
-      const eurUsd = eurUsdRes.data.eurUsd;
-      const priceEur = eurUsd > 0 ? priceUsd / eurUsd : priceUsd;
-      const marketState: string = priceRes.data.marketState ?? 'CLOSED';
-      const percentChange24h: number | null = priceRes.data.percentChange ?? null;
+      const priceRes = await getStockPrice(stock.ticker);
+      const quote = priceRes.data;
 
       setLivePrices((prev) => ({
         ...prev,
-        [stock.id]: { price: priceUsd, priceEur, loading: false, marketState, percentChange24h },
+        [stock.id]: { quote, loading: false },
       }));
 
-      await updateStock(stock.id, {
-        ...stock,
-        currentPrice: Math.round(priceEur * 100) / 100,
-        updatedAt: new Date().toISOString(),
-      });
+      const persisted = await persistConvertedPrice(stock, quote);
 
-      setStocks((prev) =>
-        prev.map((s) =>
-          s.id === stock.id
-            ? { ...s, currentPrice: Math.round(priceEur * 100) / 100, updatedAt: new Date().toISOString() }
-            : s
-        )
-      );
+      if (persisted != null) {
+        setStocks((prev) =>
+          prev.map((s) =>
+            s.id === stock.id
+              ? { ...s, currentPrice: persisted.roundedCurrentPrice, updatedAt: persisted.updatedAt }
+              : s
+          )
+        );
+      }
     } catch {
       setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], false) }));
       message.error(`Ошибка получения цены для ${stock.ticker}`);
@@ -397,8 +388,7 @@ const StocksPage: React.FC = () => {
                 name={stock?.name ?? ''}
                 wkn={stock?.wkn ?? null}
                 isin={stock?.isin ?? null}
-                livePriceEur={live?.priceEur ?? null}
-                livePriceUsd={live?.price ?? null}
+                liveQuote={live?.quote ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
               />
             ),
@@ -470,9 +460,9 @@ const StocksPage: React.FC = () => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         const live = livePrices[stock.id];
-        const pct = live?.percentChange24h;
+        const pct = live?.quote?.percentChange;
         const pctColor = getPercent24hColor(pct);
-        const displayPrice = live?.priceEur ?? v;
+        const displayPrice = live?.quote?.currentPriceEur ?? v;
         const percentText = getPercent24hText(live);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -493,18 +483,27 @@ const StocksPage: React.FC = () => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         const live = livePrices[stock.id];
-        const stateInfo = live?.marketState ? marketStateLabel[live.marketState] ?? { color: 'default', text: live.marketState } : null;
+        const quote = live?.quote ?? null;
+        const stateInfo = quote?.marketState ? marketStateLabel[quote.marketState] ?? { color: 'default', text: quote.marketState } : null;
+        const rawQuoteText = quote
+          ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
+          : '—';
+        const normalizedTooltip =
+          quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
+            ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
+            : undefined;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span>
+            <span title={normalizedTooltip}>
               {live?.loading
                 ? '...'
-                : live?.price != null
-                ? `$${live.price.toFixed(2)} USD`
-                : '—'}
+                : rawQuoteText}
             </span>
             {stateInfo && !live?.loading && (
               <Tag color={stateInfo.color}>{stateInfo.text}</Tag>
+            )}
+            {quote?.conversionWarning && !live?.loading && (
+              <Tag color="gold">Нет EUR</Tag>
             )}
             <Button
               icon={<ReloadOutlined />}
