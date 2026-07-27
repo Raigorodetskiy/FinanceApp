@@ -112,7 +112,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
+builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
+builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 

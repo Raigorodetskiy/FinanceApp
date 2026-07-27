@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using FinanceApp.API.Services;
 
 namespace FinanceApp.API.Controllers;
 
@@ -10,37 +11,35 @@ namespace FinanceApp.API.Controllers;
 public class StockPriceController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IExchangeRateService _exchangeRateService;
+    private readonly IStockQuoteConversionService _stockQuoteConversionService;
 
-    public StockPriceController(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    public StockPriceController(
+        IHttpClientFactory httpClientFactory,
+        IExchangeRateService exchangeRateService,
+        IStockQuoteConversionService stockQuoteConversionService)
     {
         _httpClientFactory = httpClientFactory;
+        _exchangeRateService = exchangeRateService;
+        _stockQuoteConversionService = stockQuoteConversionService;
     }
 
     [HttpGet("rate/eurusd")]
-    public async Task<IActionResult> GetEurUsdRate()
+    public async Task<IActionResult> GetEurUsdRate(CancellationToken cancellationToken = default)
     {
-        var client = _httpClientFactory.CreateClient();
-        var url = "https://api.frankfurter.app/latest?from=USD&to=EUR";
-        var response = await client.GetAsync(url);
-        if (!response.IsSuccessStatusCode)
-            return StatusCode((int)response.StatusCode, "Could not get EUR/USD rate");
+        var rate = await _exchangeRateService.GetRateToEurAsync("USD", cancellationToken);
+        if (rate.RateToEur is not { } usdToEur || usdToEur == 0m)
+        {
+            return StatusCode(502, rate.Error ?? "Could not get EUR/USD rate");
+        }
 
-        var json = await response.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        if (!root.TryGetProperty("rates", out var rates) ||
-            !rates.TryGetProperty("EUR", out var eurProp))
-            return StatusCode(502, "Unexpected response from frankfurter.app");
-
-        var usdToEur = eurProp.GetDecimal();
         var eurUsd = 1m / usdToEur;
 
         return Ok(new { eurUsd });
     }
 
     [HttpGet("{symbol}")]
-    public async Task<IActionResult> GetPrice(string symbol)
+    public async Task<IActionResult> GetPrice(string symbol, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(symbol) || !System.Text.RegularExpressions.Regex.IsMatch(symbol, @"^[A-Za-z0-9.\-]{1,20}$"))
             return BadRequest("Invalid symbol");
@@ -52,13 +51,13 @@ public class StockPriceController : ControllerBase
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
             var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d";
-            var response = await client.GetAsync(url);
+            var response = await client.GetAsync(url, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
                 return StatusCode((int)response.StatusCode, $"Yahoo Finance error: {(int)response.StatusCode}");
 
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             var root = doc.RootElement;
 
             var meta = root
@@ -79,6 +78,8 @@ public class StockPriceController : ControllerBase
 
             var change = currentPrice - previousClose;
             var percentChange = previousClose != 0 ? (change / previousClose) * 100m : 0m;
+            var quoteCurrency = meta.TryGetProperty("currency", out var currencyProp) ? currencyProp.GetString() : null;
+            var financialCurrency = meta.TryGetProperty("financialCurrency", out var financialCurrencyProp) ? financialCurrencyProp.GetString() : null;
 
             var marketState = "CLOSED";
             if (meta.TryGetProperty("currentTradingPeriod", out var tradingPeriod))
@@ -113,7 +114,18 @@ public class StockPriceController : ControllerBase
                     marketState = "CLOSED";
             }
 
-            return Ok(new { symbol, currentPrice, change, percentChange, marketState });
+            var conversionContext = await _stockQuoteConversionService.GetConversionContextAsync(
+                quoteCurrency,
+                financialCurrency,
+                cancellationToken);
+
+            return Ok(_stockQuoteConversionService.BuildQuoteResponse(
+                symbol,
+                currentPrice,
+                previousClose,
+                percentChange,
+                marketState,
+                conversionContext));
         }
         catch (Exception ex)
         {

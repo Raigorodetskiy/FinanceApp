@@ -52,7 +52,7 @@ public class StocksController : ControllerBase
     }
 
     [HttpGet("{id}/history")]
-    public async Task<ActionResult<IEnumerable<object>>> GetHistory(int id, [FromQuery] string range = "5y", CancellationToken cancellationToken = default)
+    public async Task<ActionResult> GetHistory(int id, [FromQuery] string range = "5y", CancellationToken cancellationToken = default)
     {
         var stock = await _context.Stocks.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
         if (stock == null)
@@ -66,30 +66,7 @@ public class StocksController : ControllerBase
             return BadRequest("Invalid range. Allowed values: 5y, 3y, 1y, 6m, 3m, 1m, 1w, 24h, today");
         }
 
-        var data = await _stockHistoryService.GetHistoryAsync(id, normalizedRange, cancellationToken);
-        if (data.Count == 0)
-        {
-            try
-            {
-                await _stockHistoryService.SyncHistoricalDataForStockAsync(stock, cancellationToken);
-                data = await _stockHistoryService.GetHistoryAsync(id, normalizedRange, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "On-demand stock history sync failed for stock {StockId}", stock.Id);
-            }
-        }
-
-        return Ok(data.Select(x => new
-        {
-            x.Timestamp,
-            x.Interval,
-            x.Open,
-            x.High,
-            x.Low,
-            x.Close,
-            x.Volume
-        }));
+        return Ok(await _stockHistoryService.GetHistoryAsync(stock, normalizedRange, cancellationToken));
     }
 
     [HttpPost]
