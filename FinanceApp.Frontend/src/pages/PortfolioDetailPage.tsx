@@ -349,10 +349,8 @@ const PortfolioDetailPage: React.FC = () => {
       const nameB = b.stock?.name ?? '';
       if (!nameA && nameB) return 1;
       if (nameA && !nameB) return -1;
-      if (nameA && nameB) {
-        const cmp = nameA.localeCompare(nameB, 'ru', { sensitivity: 'base' });
-        if (cmp !== 0) return cmp;
-      }
+      const cmp = nameA.localeCompare(nameB, 'ru', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
       const tickerCmp = (a.stock?.ticker ?? '').localeCompare(b.stock?.ticker ?? '', 'ru', { sensitivity: 'base' });
       if (tickerCmp !== 0) return tickerCmp;
       return a.id - b.id;
