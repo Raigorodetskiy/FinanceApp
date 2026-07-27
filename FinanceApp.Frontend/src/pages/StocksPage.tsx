@@ -280,26 +280,48 @@ const StocksPage: React.FC = () => {
     ticker: string;
     name: string;
     currentPrice: number;
+    wkn?: string;
+    isin?: string;
   }) => {
+    // Normalize: blank → null, trim + uppercase
+    const normalizeId = (v?: string): string | null => {
+      const s = (v ?? '').trim().toUpperCase();
+      return s.length > 0 ? s : null;
+    };
+    const wkn = normalizeId(values.wkn);
+    const isin = normalizeId(values.isin);
+
     setSubmitting(true);
     try {
       if (editingStock) {
         await updateStock(editingStock.id, {
           ...editingStock,
           ...values,
+          wkn,
+          isin,
           exchange: '',
           updatedAt: new Date().toISOString(),
         });
         message.success('Акция обновлена');
       } else {
-        await createStock({ ...values, exchange: '' });
+        await createStock({ ...values, wkn, isin, exchange: '' });
         message.success('Акция добавлена');
       }
       setModalOpen(false);
       form.resetFields();
       fetchData();
-    } catch {
-      message.error('Ошибка сохранения акции');
+    } catch (err: unknown) {
+      const errorMsg =
+        err != null &&
+        typeof err === 'object' &&
+        'response' in err &&
+        err.response != null &&
+        typeof err.response === 'object' &&
+        'data' in err.response &&
+        typeof err.response.data === 'string'
+          ? err.response.data
+          : 'Ошибка сохранения акции';
+      message.error(errorMsg);
     } finally {
       setSubmitting(false);
     }
@@ -373,6 +395,8 @@ const StocksPage: React.FC = () => {
                 stockId={record._stockId}
                 ticker={stock?.ticker ?? ''}
                 name={stock?.name ?? ''}
+                wkn={stock?.wkn ?? null}
+                isin={stock?.isin ?? null}
                 livePriceEur={live?.priceEur ?? null}
                 livePriceUsd={live?.price ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
@@ -669,6 +693,50 @@ const StocksPage: React.FC = () => {
               style={{ width: '100%' }}
               placeholder="0.00"
               prefix="€"
+            />
+          </Form.Item>
+          <Form.Item
+            label="WKN"
+            name="wkn"
+            rules={[
+              {
+                validator: (_, value: string | undefined) => {
+                  const v = (value ?? '').trim().toUpperCase();
+                  if (v.length === 0) return Promise.resolve();
+                  if (/^[A-Z0-9]{6}$/.test(v)) return Promise.resolve();
+                  return Promise.reject(new Error('WKN: ровно 6 буквенно-цифровых символов'));
+                },
+              },
+            ]}
+          >
+            <Input
+              placeholder="865985"
+              maxLength={6}
+              onChange={(e) => {
+                form.setFieldValue('wkn', e.target.value.toUpperCase());
+              }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="ISIN"
+            name="isin"
+            rules={[
+              {
+                validator: (_, value: string | undefined) => {
+                  const v = (value ?? '').trim().toUpperCase();
+                  if (v.length === 0) return Promise.resolve();
+                  if (/^[A-Z]{2}[A-Z0-9]{10}$/.test(v)) return Promise.resolve();
+                  return Promise.reject(new Error('ISIN: 2 буквы страны + 10 буквенно-цифровых символов'));
+                },
+              },
+            ]}
+          >
+            <Input
+              placeholder="US0378331005"
+              maxLength={12}
+              onChange={(e) => {
+                form.setFieldValue('isin', e.target.value.toUpperCase());
+              }}
             />
           </Form.Item>
           <Form.Item>

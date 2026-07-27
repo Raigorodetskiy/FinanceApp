@@ -11,4 +11,6 @@ public class Stock
     [Column(TypeName = "decimal(18,2)")]
     public decimal CurrentPrice { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string? Wkn { get; set; }
+    public string? Isin { get; set; }
 }

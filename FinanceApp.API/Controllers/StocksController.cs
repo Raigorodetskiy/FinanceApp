@@ -15,6 +15,7 @@ public class StocksController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IStockHistoryService _stockHistoryService;
     private readonly ILogger<StocksController> _logger;
+
     public StocksController(
         AppDbContext context,
         IStockHistoryService stockHistoryService,
@@ -23,6 +24,19 @@ public class StocksController : ControllerBase
         _context = context;
         _stockHistoryService = stockHistoryService;
         _logger = logger;
+    }
+
+    /// <summary>Normalizes WKN/ISIN: trim whitespace, uppercase; blank becomes null.</summary>
+    private static string? NormalizeIdentifier(string? value) => StockIdentifiers.Normalize(value);
+
+    /// <summary>Validates WKN and ISIN formats. Returns a 400 result when invalid, otherwise null.</summary>
+    private ActionResult? ValidateIdentifiers(string? wkn, string? isin)
+    {
+        if (wkn != null && !StockIdentifiers.IsValidWkn(wkn))
+            return BadRequest("WKN должен содержать ровно 6 буквенно-цифровых символов (A–Z, 0–9).");
+        if (isin != null && !StockIdentifiers.IsValidIsin(isin))
+            return BadRequest("ISIN должен содержать ровно 12 символов: 2 буквы страны и 10 буквенно-цифровых символов (A–Z, 0–9).");
+        return null;
     }
 
     [HttpGet]
@@ -81,9 +95,22 @@ public class StocksController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Stock>> Create(Stock stock)
     {
+        stock.Wkn = NormalizeIdentifier(stock.Wkn);
+        stock.Isin = NormalizeIdentifier(stock.Isin);
+
+        var validationError = ValidateIdentifiers(stock.Wkn, stock.Isin);
+        if (validationError != null) return validationError;
+
         stock.UpdatedAt = DateTime.UtcNow;
         _context.Stocks.Add(stock);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
+        {
+            return BadRequest(BuildDuplicateMessage(stock.Wkn, stock.Isin));
+        }
 
         try
         {
@@ -101,9 +128,33 @@ public class StocksController : ControllerBase
     public async Task<IActionResult> Update(int id, Stock stock)
     {
         if (id != stock.Id) return BadRequest();
-        stock.UpdatedAt = DateTime.UtcNow;
-        _context.Entry(stock).State = EntityState.Modified;
-        await _context.SaveChangesAsync();
+
+        stock.Wkn = NormalizeIdentifier(stock.Wkn);
+        stock.Isin = NormalizeIdentifier(stock.Isin);
+
+        var validationError = ValidateIdentifiers(stock.Wkn, stock.Isin);
+        if (validationError != null) return validationError;
+
+        var existing = await _context.Stocks.FindAsync(id);
+        if (existing == null) return NotFound();
+
+        existing.Ticker = stock.Ticker;
+        existing.Name = stock.Name;
+        existing.Exchange = stock.Exchange;
+        existing.CurrentPrice = stock.CurrentPrice;
+        existing.Wkn = stock.Wkn;
+        existing.Isin = stock.Isin;
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
+        {
+            return BadRequest(BuildDuplicateMessage(stock.Wkn, stock.Isin));
+        }
+
         return NoContent();
     }
 
@@ -115,5 +166,20 @@ public class StocksController : ControllerBase
         _context.Stocks.Remove(stock);
         await _context.SaveChangesAsync();
         return NoContent();
+    }
+
+    private static bool IsDuplicateKeyException(DbUpdateException ex)
+        => ex.InnerException?.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase) == true
+        || ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string BuildDuplicateMessage(string? wkn, string? isin)
+    {
+        if (wkn != null && isin != null)
+            return $"Акция с WKN «{wkn}» или ISIN «{isin}» уже существует.";
+        if (wkn != null)
+            return $"Акция с WKN «{wkn}» уже существует.";
+        if (isin != null)
+            return $"Акция с ISIN «{isin}» уже существует.";
+        return "Акция с указанными идентификаторами уже существует.";
     }
 }
