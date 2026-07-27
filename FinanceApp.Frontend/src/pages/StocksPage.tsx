@@ -389,6 +389,7 @@ const StocksPage: React.FC = () => {
             onClick={() => handleTickerClick(stock.id)}
             aria-expanded={isExpanded}
             aria-controls={`chart-panel-${stock.id}`}
+            aria-label={isExpanded ? `Закрыть график цены: ${stock.ticker}` : `Открыть график цены: ${stock.ticker}`}
             style={{
               padding: 0,
               background: 'none',

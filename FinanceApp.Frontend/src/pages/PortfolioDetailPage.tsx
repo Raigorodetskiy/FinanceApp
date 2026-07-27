@@ -379,6 +379,7 @@ const PortfolioDetailPage: React.FC = () => {
             onClick={() => setExpandedPositionId((prev) => (prev === item.id ? null : item.id))}
             aria-expanded={isExpanded}
             aria-controls={`pos-chart-panel-${item.id}`}
+            aria-label={isExpanded ? `Закрыть график цены: ${ticker}` : `Открыть график цены: ${ticker}`}
             style={{
               padding: 0,
               background: 'none',

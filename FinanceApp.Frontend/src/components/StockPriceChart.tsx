@@ -58,7 +58,7 @@ type HistoryChartPoint = {
 
 export interface StockPriceChartProps {
   /** DOM id for the chart panel container (used by aria-controls). */
-  panelId?: string;
+  panelId: string;
   stockId: number;
   ticker: string;
   name: string;
