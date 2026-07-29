@@ -217,7 +217,7 @@ const StocksPage: React.FC = () => {
       const results = await Promise.allSettled(
         stocksWithTicker.map(async (stock) => {
           try {
-            const priceRes = await getStockPrice(stock.ticker);
+            const priceRes = await getStockPrice(stock.ticker, stock.exchange);
             const quote = priceRes.data;
 
             setLivePrices((prev) => ({
@@ -366,7 +366,7 @@ const StocksPage: React.FC = () => {
     if (!stock.ticker?.trim()) return;
     setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], true) }));
     try {
-      const priceRes = await getStockPrice(stock.ticker);
+      const priceRes = await getStockPrice(stock.ticker, stock.exchange);
       const quote = priceRes.data;
 
       setLivePrices((prev) => ({
