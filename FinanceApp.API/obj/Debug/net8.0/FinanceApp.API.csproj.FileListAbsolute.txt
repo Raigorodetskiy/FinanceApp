@@ -245,3 +245,4 @@
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/obj/Debug/net8.0/FinanceApp.API.pdb
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/obj/Debug/net8.0/FinanceApp.API.genruntimeconfig.cache
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/obj/Debug/net8.0/ref/FinanceApp.API.dll
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/obj/Debug/net8.0/FinanceApp.API.sourcelink.json
