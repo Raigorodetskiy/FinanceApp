@@ -114,6 +114,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
+builder.Services.Configure<FinnhubOptions>(builder.Configuration.GetSection("Finnhub"));
+builder.Services.AddHttpClient<IFinnhubQuoteService, FinnhubQuoteService>(client =>
+{
+    client.BaseAddress = new Uri("https://finnhub.io/api/v1/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+});
 builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
 builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();

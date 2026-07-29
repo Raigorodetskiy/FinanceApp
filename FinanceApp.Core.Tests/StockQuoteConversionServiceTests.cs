@@ -87,7 +87,7 @@ public class StockQuoteConversionServiceTests
         var missingQuote = service.BuildQuoteResponse("TEST", 12m, 10m, 20m, "REGULAR", missingContext);
         Assert.Null(missingQuote.CurrentPriceEur);
         Assert.Null(missingQuote.NormalizedQuoteCurrency);
-        Assert.NotNull(missingQuote.ConversionWarning);
+        Assert.Equal("Источник котировки не указал валюту, поэтому EUR-конвертация недоступна.", missingQuote.ConversionWarning);
 
         var unknownContext = await service.GetConversionContextAsync("SEK", "USD");
         var unknownQuote = service.BuildQuoteResponse("TEST", 12m, 10m, 20m, "REGULAR", unknownContext);

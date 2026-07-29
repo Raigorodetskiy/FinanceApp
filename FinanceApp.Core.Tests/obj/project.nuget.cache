@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "Si/rcPzN89c=",
+  "dgSpecHash": "XZU/XqdqyG0=",
   "success": true,
   "projectFilePath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core.Tests/FinanceApp.Core.Tests.csproj",
   "expectedPackageFiles": [
@@ -17,6 +17,7 @@
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.entityframeworkcore.abstractions/8.0.11/microsoft.entityframeworkcore.abstractions.8.0.11.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.entityframeworkcore.analyzers/8.0.11/microsoft.entityframeworkcore.analyzers.8.0.11.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.entityframeworkcore.design/8.0.11/microsoft.entityframeworkcore.design.8.0.11.nupkg.sha512",
+    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.entityframeworkcore.inmemory/8.0.11/microsoft.entityframeworkcore.inmemory.8.0.11.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.entityframeworkcore.relational/8.0.11/microsoft.entityframeworkcore.relational.8.0.11.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.extensions.apidescription.server/6.0.5/microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.extensions.caching.abstractions/8.0.0/microsoft.extensions.caching.abstractions.8.0.0.nupkg.sha512",
@@ -69,8 +70,8 @@
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/xunit.extensibility.core/2.9.2/xunit.extensibility.core.2.9.2.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/xunit.extensibility.execution/2.9.2/xunit.extensibility.execution.2.9.2.nupkg.sha512",
     "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/xunit.runner.visualstudio/2.8.2/xunit.runner.visualstudio.2.8.2.nupkg.sha512",
-    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.netcore.app.ref/8.0.28/microsoft.netcore.app.ref.8.0.28.nupkg.sha512",
-    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/8.0.28/microsoft.aspnetcore.app.ref.8.0.28.nupkg.sha512"
+    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.netcore.app.ref/8.0.29/microsoft.netcore.app.ref.8.0.29.nupkg.sha512",
+    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/8.0.29/microsoft.aspnetcore.app.ref.8.0.29.nupkg.sha512"
   ],
   "logs": []
 }

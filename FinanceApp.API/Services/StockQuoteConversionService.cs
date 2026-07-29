@@ -104,7 +104,7 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
     {
         if (string.IsNullOrWhiteSpace(metadata.QuoteCurrency))
         {
-            return "Yahoo не указал валюту котировки, поэтому EUR-конвертация недоступна.";
+            return "Источник котировки не указал валюту, поэтому EUR-конвертация недоступна.";
         }
 
         if (!rate.IsAvailable)

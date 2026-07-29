@@ -28,7 +28,7 @@ public sealed class FrankfurterExchangeRateService : IExchangeRateService
         var normalizedCurrency = NormalizeCurrency(sourceCurrency);
         if (normalizedCurrency is null)
         {
-            return new ExchangeRateResult(null, null, null, "yahoo", "Yahoo quote currency is missing.");
+            return new ExchangeRateResult(null, null, null, "quote", "Quote currency is missing.");
         }
 
         if (normalizedCurrency == "EUR")
