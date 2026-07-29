@@ -10,7 +10,7 @@
         "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/FinanceApp.API.csproj",
         "projectName": "FinanceApp.API",
         "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/FinanceApp.API.csproj",
-        "packagesPath": "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages",
+        "packagesPath": "/home/runner/.nuget/packages/",
         "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.API/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
@@ -81,20 +81,6 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[8.0.28, 8.0.28]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Host.linux-x64",
-              "version": "[8.0.28, 8.0.28]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[8.0.28, 8.0.28]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"
@@ -103,7 +89,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.302/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
@@ -113,7 +99,7 @@
         "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
         "projectName": "FinanceApp.Core",
         "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
-        "packagesPath": "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages",
+        "packagesPath": "/home/runner/.nuget/packages/",
         "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
@@ -159,22 +145,12 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[8.0.28, 8.0.28]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[8.0.28, 8.0.28]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.302/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
@@ -184,7 +160,7 @@
         "projectUniqueName": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
         "projectName": "FinanceApp.Data",
         "projectPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/FinanceApp.Data.csproj",
-        "packagesPath": "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages",
+        "packagesPath": "/home/runner/.nuget/packages/",
         "outputPath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Data/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
@@ -248,22 +224,12 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[8.0.28, 8.0.28]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[8.0.28, 8.0.28]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.302/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
