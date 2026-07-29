@@ -122,6 +122,7 @@ builder.Services.AddHttpClient<IFinnhubQuoteService, FinnhubQuoteService>(client
     client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 });
 builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
+builder.Services.AddScoped<IYahooQuoteService, YahooQuoteService>();
 builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();

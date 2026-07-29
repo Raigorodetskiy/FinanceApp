@@ -16,6 +16,7 @@ import type {
   StockHistoryResponse,
   StockHistoryRange,
   StockQuoteResponse,
+  StockExchange,
   CreateOrderRequest,
   UpdateOrderRequest,
   CreateTransactionRequest,
@@ -90,8 +91,10 @@ export const getStockHistory = (id: number, range: StockHistoryRange) =>
   api.get<StockHistoryResponse>(`/Stocks/${id}/history`, { params: { range } });
 
 // Stock prices
-export const getStockPrice = (symbol: string) =>
-  api.get<StockQuoteResponse>(`/StockPrice/${symbol}`);
+export const getStockPrice = (symbol: string, exchange: StockExchange) =>
+  api.get<StockQuoteResponse>(`/StockPrice/${encodeURIComponent(symbol)}`, {
+    params: { exchange },
+  });
 export const getEurUsdRate = () =>
   api.get<{ eurUsd: number }>('/StockPrice/rate/eurusd');
 
