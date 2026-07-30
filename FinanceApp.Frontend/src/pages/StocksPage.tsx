@@ -529,7 +529,7 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Живая цена',
+      title: 'Цена',
       key: 'livePrice',
       width: LIVE_PRICE_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
@@ -555,7 +555,6 @@ const StocksPage: React.FC = () => {
                 : rawQuoteText}
             </span>
             {quoteStatus === 'current' && <Tag color="green">Текущая</Tag>}
-            {quoteStatus === 'last' && <Tag color="default">Последняя</Tag>}
             {quote?.conversionWarning && !live?.loading && (
               <Tag color="gold">Нет EUR</Tag>
             )}
