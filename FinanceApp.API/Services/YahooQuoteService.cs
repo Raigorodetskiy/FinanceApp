@@ -38,11 +38,16 @@ public sealed class YahooQuoteService : IYahooQuoteService
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<YahooQuoteService> _logger;
+    private readonly TimeProvider _timeProvider;
 
-    public YahooQuoteService(IHttpClientFactory httpClientFactory, ILogger<YahooQuoteService> logger)
+    public YahooQuoteService(
+        IHttpClientFactory httpClientFactory,
+        ILogger<YahooQuoteService> logger,
+        TimeProvider? timeProvider = null)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<YahooQuoteResult> GetQuoteAsync(string symbol, CancellationToken cancellationToken = default)
@@ -100,7 +105,7 @@ public sealed class YahooQuoteService : IYahooQuoteService
                     return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider returned an empty response.");
                 }
 
-                return ParseQuote(symbol, payload);
+                return ParseQuote(symbol, payload, _timeProvider);
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -136,7 +141,7 @@ public sealed class YahooQuoteService : IYahooQuoteService
     private static string SanitizeForLog(string value) =>
         value.Replace('\r', '_').Replace('\n', '_');
 
-    private static YahooQuoteResult ParseQuote(string symbol, string payload)
+    private static YahooQuoteResult ParseQuote(string symbol, string payload, TimeProvider timeProvider)
     {
         try
         {
@@ -173,7 +178,7 @@ public sealed class YahooQuoteService : IYahooQuoteService
 
             var currency = GetOptionalString(meta, "currency");
             var estimateCurrency = GetOptionalString(meta, "financialCurrency");
-            var marketState = ParseMarketState(meta);
+            var marketState = ParseMarketState(meta, timeProvider);
 
             return YahooQuoteResult.Success(new YahooQuoteData(
                 symbol,
@@ -190,22 +195,106 @@ public sealed class YahooQuoteService : IYahooQuoteService
         }
     }
 
-    private static string ParseMarketState(JsonElement meta)
+    private static string ParseMarketState(JsonElement meta, TimeProvider timeProvider)
     {
         var state = GetOptionalString(meta, "marketState");
-        if (state is null)
+        if (state is not null)
+        {
+            var mapped = state.ToUpperInvariant() switch
+            {
+                "REGULAR" => "REGULAR",
+                "PRE" or "PREPRE" => "PRE",
+                "POST" or "POSTPOST" => "POST",
+                "CLOSED" => "CLOSED",
+                _ => null
+            };
+            if (mapped is not null)
+            {
+                return mapped;
+            }
+        }
+
+        // Fall back to currentTradingPeriod when marketState is absent or unrecognised.
+        var nowUnix = timeProvider.GetUtcNow().ToUnixTimeSeconds();
+        if (!meta.TryGetProperty("currentTradingPeriod", out var ctp))
         {
             return "UNKNOWN";
         }
 
-        return state.ToUpperInvariant() switch
+        if (TryGetPeriodBounds(ctp, "regular", out var regStart, out var regEnd) &&
+            nowUnix >= regStart && nowUnix < regEnd)
         {
-            "REGULAR" => "REGULAR",
-            "PRE" or "PREPRE" => "PRE",
-            "POST" or "POSTPOST" => "POST",
-            "CLOSED" => "CLOSED",
-            _ => "UNKNOWN"
-        };
+            return "REGULAR";
+        }
+
+        if (TryGetPeriodBounds(ctp, "pre", out var preStart, out var preEnd) &&
+            nowUnix >= preStart && nowUnix < preEnd)
+        {
+            return "PRE";
+        }
+
+        if (TryGetPeriodBounds(ctp, "post", out var postStart, out var postEnd) &&
+            nowUnix >= postStart && nowUnix < postEnd)
+        {
+            return "POST";
+        }
+
+        // At least one valid period was present, but the current time falls outside all of them.
+        var hasAnyPeriod =
+            TryGetPeriodBounds(ctp, "regular", out _, out _) ||
+            TryGetPeriodBounds(ctp, "pre", out _, out _) ||
+            TryGetPeriodBounds(ctp, "post", out _, out _);
+
+        return hasAnyPeriod ? "CLOSED" : "UNKNOWN";
+    }
+
+    /// <summary>
+    /// Tries to read valid, non-reversed start/end Unix timestamps from a named period
+    /// sub-object inside <paramref name="tradingPeriod"/>.
+    /// Returns <c>false</c> when the period is absent, malformed, or has start &gt;= end.
+    /// </summary>
+    private static bool TryGetPeriodBounds(
+        JsonElement tradingPeriod,
+        string periodName,
+        out long start,
+        out long end)
+    {
+        start = 0;
+        end = 0;
+
+        if (!tradingPeriod.TryGetProperty(periodName, out var period))
+        {
+            return false;
+        }
+
+        if (!TryGetLong(period, "start", out start) || !TryGetLong(period, "end", out end))
+        {
+            return false;
+        }
+
+        return start < end;
+    }
+
+    private static bool TryGetLong(JsonElement element, string propertyName, out long value)
+    {
+        value = 0;
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt64(out value))
+        {
+            return true;
+        }
+
+        if (property.ValueKind == JsonValueKind.String &&
+            long.TryParse(property.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static bool IsTransient(HttpStatusCode statusCode) =>
