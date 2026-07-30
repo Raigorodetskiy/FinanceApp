@@ -48,6 +48,8 @@ public class YahooQuoteServiceTests
         Assert.Equal("EUR", result.Quote.Currency);
         Assert.Equal("EUR", result.Quote.EstimateCurrency);
         Assert.Equal("REGULAR", result.Quote.MarketState);
+        // Yahoo always returns regularMarketPrice, so PriceSession must always be REGULAR
+        Assert.Equal("REGULAR", result.Quote.PriceSession);
     }
 
     [Fact]
@@ -195,6 +197,111 @@ public class YahooQuoteServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
+    }
+
+    // ── PriceSession / PriceTimestampUtc tests ────────────────────────────────
+
+    [Fact]
+    public async Task GetQuoteAsync_PreMarketState_PriceSessionIsStillRegular()
+    {
+        // Verifies that when marketState=PRE the price session is still labelled REGULAR
+        // because Yahoo only returns regularMarketPrice, not a pre-market price.
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 390.54,
+                    "chartPreviousClose": 388.0,
+                    "regularMarketChangePercent": 0.65,
+                    "marketState": "PRE"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("PRE", result.Quote!.MarketState);
+        Assert.Equal("REGULAR", result.Quote.PriceSession);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_PostMarketState_PriceSessionIsStillRegular()
+    {
+        // Verifies that when marketState=POST the price session is still labelled REGULAR.
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 390.54,
+                    "chartPreviousClose": 388.0,
+                    "marketState": "POST"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("POST", result.Quote!.MarketState);
+        Assert.Equal("REGULAR", result.Quote.PriceSession);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_RegularMarketTimePresent_IsPropagatedAsPriceTimestampUtc()
+    {
+        // regularMarketTime = 1720000000 → 2024-07-03T10:26:40Z
+        var expectedUtc = DateTimeOffset.FromUnixTimeSeconds(1720000000).UtcDateTime;
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 520.5,
+                    "chartPreviousClose": 514.0,
+                    "regularMarketTime": 1720000000,
+                    "marketState": "REGULAR"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(expectedUtc, result.Quote!.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_NoRegularMarketTime_PriceTimestampUtcIsNull()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(ValidChartResponse); // ValidChartResponse has no regularMarketTime
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Quote!.PriceTimestampUtc);
     }
 
     // ── currentTradingPeriod fallback tests ───────────────────────────────────

@@ -29,7 +29,18 @@ public sealed record YahooQuoteData(
     decimal PercentChange,
     string? Currency,
     string? EstimateCurrency,
-    string MarketState);
+    string MarketState,
+    /// <summary>
+    /// Session that the returned price belongs to.  Yahoo's chart endpoint always returns
+    /// <c>regularMarketPrice</c>, so this is always <c>"REGULAR"</c> regardless of the
+    /// current market state (which may be PRE or POST).
+    /// </summary>
+    string PriceSession = "REGULAR",
+    /// <summary>
+    /// UTC timestamp of the price from the provider (<c>regularMarketTime</c>).
+    /// Null when the provider did not supply the field.
+    /// </summary>
+    DateTime? PriceTimestampUtc = null);
 
 public sealed class YahooQuoteService : IYahooQuoteService
 {
@@ -180,6 +191,13 @@ public sealed class YahooQuoteService : IYahooQuoteService
             var estimateCurrency = GetOptionalString(meta, "financialCurrency");
             var marketState = ParseMarketState(meta, timeProvider);
 
+            // Yahoo chart always returns regularMarketPrice regardless of the current session.
+            // PriceSession is therefore always "REGULAR"; MarketState reflects the current session.
+            const string priceSession = "REGULAR";
+            var priceTimestampUtc = TryGetLong(meta, "regularMarketTime", out var rawPriceTimestamp) && rawPriceTimestamp > 0
+                ? DateTimeOffset.FromUnixTimeSeconds(rawPriceTimestamp).UtcDateTime
+                : (DateTime?)null;
+
             return YahooQuoteResult.Success(new YahooQuoteData(
                 symbol,
                 currentPrice,
@@ -187,7 +205,9 @@ public sealed class YahooQuoteService : IYahooQuoteService
                 percentChange,
                 currency,
                 estimateCurrency,
-                marketState));
+                marketState,
+                priceSession,
+                priceTimestampUtc));
         }
         catch (JsonException)
         {
