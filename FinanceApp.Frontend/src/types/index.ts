@@ -58,6 +58,12 @@ export interface StockQuoteResponse {
   changeEur: number | null;
   percentChange: number;
   marketState: string;
+  /** Session the returned price belongs to (e.g. "REGULAR", "LAST"). Distinct from marketState. */
+  priceSession: string;
+  /** UTC timestamp of the price from the provider. Null when not supplied. */
+  priceTimestampUtc: string | null;
+  /** True when priceTimestampUtc is present and older than 24 hours. */
+  isStale: boolean;
   rateToEur: number | null;
   rateTimestampUtc: string | null;
   rateSource: string | null;

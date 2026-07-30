@@ -89,11 +89,17 @@ const getPercent24hText = (live: LivePriceEntry | undefined): string | null => {
   return formatPercent24h(live.quote.percentChange);
 };
 
-const marketStateLabel: Record<string, { color: string; text: string }> = {
-  REGULAR: { color: 'green', text: 'Open' },
-  PRE:     { color: 'blue',  text: 'Pre-Market' },
-  POST:    { color: 'orange', text: 'After-Hours' },
-  CLOSED:  { color: 'default', text: 'Closed' },
+/** Label shown next to the price itself, describing which session the price comes from. */
+const priceSessionLabel: Record<string, { color: string; text: string }> = {
+  REGULAR: { color: 'green',   text: 'Обычная сессия' },
+  LAST:    { color: 'default', text: 'Последняя цена' },
+};
+
+/** Label shown separately to indicate the current market state (not the price source). */
+const marketStatusLabel: Record<string, { color: string; text: string }> = {
+  PRE:    { color: 'blue',   text: 'Рынок: Премаркет' },
+  POST:   { color: 'orange', text: 'Рынок: Постмаркет' },
+  CLOSED: { color: 'default', text: 'Рынок закрыт' },
 };
 
 const TICKER_COL_WIDTH = 220;
@@ -526,7 +532,8 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const live = livePrices[stock.id];
         const quote = live?.quote ?? null;
-        const stateInfo = quote?.marketState ? marketStateLabel[quote.marketState] ?? { color: 'default', text: quote.marketState } : null;
+        const sessionInfo = quote?.priceSession ? priceSessionLabel[quote.priceSession] ?? { color: 'default', text: quote.priceSession } : null;
+        const statusInfo = quote?.marketState ? marketStatusLabel[quote.marketState] ?? null : null;
         const rawQuoteText = quote
           ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
           : '—';
@@ -541,8 +548,14 @@ const StocksPage: React.FC = () => {
                 ? '...'
                 : rawQuoteText}
             </span>
-            {stateInfo && !live?.loading && (
-              <Tag color={stateInfo.color}>{stateInfo.text}</Tag>
+            {sessionInfo && !live?.loading && (
+              <Tag color={sessionInfo.color}>{sessionInfo.text}</Tag>
+            )}
+            {quote?.isStale && !live?.loading && (
+              <Tag color="warning">Устаревшая</Tag>
+            )}
+            {statusInfo && !live?.loading && (
+              <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
             )}
             {quote?.conversionWarning && !live?.loading && (
               <Tag color="gold">Нет EUR</Tag>

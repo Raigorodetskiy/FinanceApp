@@ -12,17 +12,30 @@ public interface IStockQuoteConversionService
         decimal rawPreviousClose,
         decimal percentChange,
         string marketState,
-        CurrencyConversionContext conversionContext);
+        CurrencyConversionContext conversionContext,
+        string priceSession = "REGULAR",
+        DateTime? priceTimestampUtc = null);
     StockHistoryPointResponse BuildHistoryPointResponse(StockHistoricalPrice historicalPrice, CurrencyConversionContext conversionContext);
 }
 
 public sealed class StockQuoteConversionService : IStockQuoteConversionService
 {
-    private readonly IExchangeRateService _exchangeRateService;
+    /// <summary>
+    /// A price is considered stale when its provider timestamp is older than this threshold.
+    /// 24 hours covers intra-day and overnight scenarios without falsely flagging a same-day
+    /// regular close during the following morning's pre-market session.
+    /// </summary>
+    private static readonly TimeSpan StaleThreshold = TimeSpan.FromHours(24);
 
-    public StockQuoteConversionService(IExchangeRateService exchangeRateService)
+    private readonly IExchangeRateService _exchangeRateService;
+    private readonly TimeProvider _timeProvider;
+
+    public StockQuoteConversionService(
+        IExchangeRateService exchangeRateService,
+        TimeProvider? timeProvider = null)
     {
         _exchangeRateService = exchangeRateService;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<CurrencyConversionContext> GetConversionContextAsync(
@@ -43,7 +56,9 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
         decimal rawPreviousClose,
         decimal percentChange,
         string marketState,
-        CurrencyConversionContext conversionContext)
+        CurrencyConversionContext conversionContext,
+        string priceSession = "REGULAR",
+        DateTime? priceTimestampUtc = null)
     {
         var normalizedCurrentPrice = conversionContext.Normalize(rawCurrentPrice);
         var normalizedPreviousClose = conversionContext.Normalize(rawPreviousClose);
@@ -66,11 +81,25 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
             ChangeEur = conversionContext.ConvertNormalizedToEur(normalizedChange),
             PercentChange = percentChange,
             MarketState = marketState,
+            PriceSession = priceSession,
+            PriceTimestampUtc = priceTimestampUtc,
+            IsStale = ComputeIsStale(priceTimestampUtc),
             RateToEur = conversionContext.ExchangeRate.RateToEur,
             RateTimestampUtc = conversionContext.ExchangeRate.RateTimestampUtc,
             RateSource = conversionContext.ExchangeRate.Source,
             ConversionWarning = conversionContext.Warning
         };
+    }
+
+    private bool ComputeIsStale(DateTime? priceTimestampUtc)
+    {
+        if (priceTimestampUtc is null)
+        {
+            return false;
+        }
+
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        return (now - priceTimestampUtc.Value) > StaleThreshold;
     }
 
     public StockHistoryPointResponse BuildHistoryPointResponse(StockHistoricalPrice historicalPrice, CurrencyConversionContext conversionContext)

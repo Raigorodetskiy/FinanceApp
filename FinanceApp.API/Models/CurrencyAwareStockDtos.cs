@@ -17,6 +17,21 @@ public sealed class StockQuoteResponse
     public decimal? ChangeEur { get; init; }
     public decimal PercentChange { get; init; }
     public string MarketState { get; init; } = "CLOSED";
+    /// <summary>
+    /// Session that the returned price belongs to (e.g. "REGULAR", "LAST").
+    /// Distinct from <see cref="MarketState"/>, which reflects the current trading session.
+    /// </summary>
+    public string PriceSession { get; init; } = "REGULAR";
+    /// <summary>
+    /// UTC timestamp of the price as reported by the provider.
+    /// Null when the provider did not supply a reliable timestamp.
+    /// </summary>
+    public DateTime? PriceTimestampUtc { get; init; }
+    /// <summary>
+    /// True when <see cref="PriceTimestampUtc"/> is present and more than
+    /// <c>24 hours</c> old at the time of the request.
+    /// </summary>
+    public bool IsStale { get; init; }
     public decimal? RateToEur { get; init; }
     public DateTime? RateTimestampUtc { get; init; }
     public string? RateSource { get; init; }

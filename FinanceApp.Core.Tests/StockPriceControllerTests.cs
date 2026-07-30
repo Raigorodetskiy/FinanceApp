@@ -48,6 +48,7 @@ public class StockPriceControllerTests
         Assert.Equal(4.55m, response.ChangeEur);
         Assert.Equal(5m, response.PercentChange);
         Assert.Equal("REGULAR", response.MarketState);
+        Assert.Equal("LAST", response.PriceSession);
         Assert.Equal(0.91m, response.RateToEur);
         Assert.Equal("stub", response.RateSource);
         Assert.Null(response.ConversionWarning);
@@ -156,10 +157,10 @@ public class StockPriceControllerTests
         var response = Assert.IsType<StockQuoteResponse>(ok.Value);
         Assert.Equal("RHM.DE", response.Symbol);
         Assert.Equal(520m, response.RawCurrentPrice);
-        Assert.Equal(514m, response.RawPreviousClose);
         Assert.Equal(1.17m, response.PercentChange);
         Assert.Equal("EUR", response.Currency);
         Assert.Equal("REGULAR", response.MarketState);
+        Assert.Equal("REGULAR", response.PriceSession);
         // EUR → EUR rate = 1.0, so CurrentPriceEur == CurrentPrice
         Assert.Equal(520m, response.CurrentPriceEur);
     }

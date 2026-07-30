@@ -145,10 +145,102 @@ public class StockQuoteConversionServiceTests
         Assert.Equal(6.14718m, point.CloseEur);
     }
 
-    private static StockQuoteConversionService CreateService(params (string Currency, decimal? RateToEur)[] configuredRates)
+    // ── PriceSession / IsStale / PriceTimestampUtc tests ─────────────────────
+
+    [Fact]
+    public async Task PriceSession_IsPropagatedToResponse()
     {
-        return new StockQuoteConversionService(new StubExchangeRateService(configuredRates));
+        var service = CreateService();
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "PRE", context, priceSession: "REGULAR");
+
+        Assert.Equal("REGULAR", quote.PriceSession);
+        Assert.Equal("PRE", quote.MarketState);
     }
+
+    [Fact]
+    public async Task PriceTimestampUtc_IsPropagatedToResponse()
+    {
+        var ts = new DateTime(2026, 7, 1, 10, 0, 0, DateTimeKind.Utc);
+        var fakeNow = new DateTimeOffset(2026, 7, 1, 11, 0, 0, TimeSpan.Zero); // 1 hour later → not stale
+        var service = CreateService(timeProvider: new FakeTimeProvider(fakeNow));
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "REGULAR", context, priceTimestampUtc: ts);
+
+        Assert.Equal(ts, quote.PriceTimestampUtc);
+        Assert.False(quote.IsStale);
+    }
+
+    [Fact]
+    public async Task IsStale_False_WhenTimestampIsNull()
+    {
+        var service = CreateService();
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "REGULAR", context);
+
+        Assert.Null(quote.PriceTimestampUtc);
+        Assert.False(quote.IsStale);
+    }
+
+    [Fact]
+    public async Task IsStale_False_WhenTimestampIsRecent()
+    {
+        var ts = new DateTime(2026, 7, 1, 10, 0, 0, DateTimeKind.Utc);
+        var fakeNow = new DateTimeOffset(2026, 7, 1, 18, 0, 0, TimeSpan.Zero); // 8 hours later
+        var service = CreateService(timeProvider: new FakeTimeProvider(fakeNow));
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "REGULAR", context, priceTimestampUtc: ts);
+
+        Assert.False(quote.IsStale);
+    }
+
+    [Fact]
+    public async Task IsStale_True_WhenTimestampIsOlderThan24Hours()
+    {
+        // Simulates a Friday close visible on Monday morning (>24 h old)
+        var ts = new DateTime(2026, 7, 3, 17, 30, 0, DateTimeKind.Utc); // Friday close
+        var fakeNow = new DateTimeOffset(2026, 7, 6, 8, 0, 0, TimeSpan.Zero);  // Monday pre-market (>24 h later)
+        var service = CreateService(timeProvider: new FakeTimeProvider(fakeNow));
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "PRE", context, priceTimestampUtc: ts);
+
+        Assert.True(quote.IsStale);
+    }
+
+    [Fact]
+    public async Task IsStale_False_WhenTimestampIsExactly24HoursOld()
+    {
+        // Exactly at the boundary – not yet stale
+        var ts = new DateTime(2026, 7, 1, 10, 0, 0, DateTimeKind.Utc);
+        var fakeNow = new DateTimeOffset(2026, 7, 2, 10, 0, 0, TimeSpan.Zero); // exactly 24 h
+        var service = CreateService(timeProvider: new FakeTimeProvider(fakeNow));
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "REGULAR", context, priceTimestampUtc: ts);
+
+        Assert.False(quote.IsStale);
+    }
+
+    private sealed class FakeTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _utcNow;
+        public FakeTimeProvider(DateTimeOffset utcNow) => _utcNow = utcNow;
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+    }
+
+    private static StockQuoteConversionService CreateService(
+        params (string Currency, decimal? RateToEur)[] configuredRates) =>
+        new StockQuoteConversionService(new StubExchangeRateService(configuredRates));
+
+    private static StockQuoteConversionService CreateService(
+        TimeProvider timeProvider,
+        params (string Currency, decimal? RateToEur)[] configuredRates) =>
+        new StockQuoteConversionService(new StubExchangeRateService(configuredRates), timeProvider);
 
     private sealed class StubExchangeRateService : IExchangeRateService
     {

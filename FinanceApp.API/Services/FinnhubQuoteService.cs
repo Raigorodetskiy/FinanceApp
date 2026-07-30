@@ -38,7 +38,12 @@ public sealed record FinnhubQuoteData(
     string? EstimateCurrency,
     string? Country,
     string? Exchange,
-    string MarketState);
+    string MarketState,
+    /// <summary>
+    /// Session the price belongs to.  Finnhub exposes a generic "current/last" price that
+    /// cannot be reliably attributed to a specific session, so this is always <c>"LAST"</c>.
+    /// </summary>
+    string PriceSession = "LAST");
 
 public sealed class FinnhubQuoteService : IFinnhubQuoteService
 {

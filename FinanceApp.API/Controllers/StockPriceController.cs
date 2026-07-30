@@ -61,6 +61,8 @@ public class StockPriceController : ControllerBase
             decimal previousClose;
             decimal percentChange;
             string marketState;
+            string priceSession;
+            DateTime? priceTimestampUtc;
 
             if (normalizedExchange == StockExchanges.Frankfurt)
             {
@@ -77,6 +79,8 @@ public class StockPriceController : ControllerBase
                 previousClose = quote.PreviousClose;
                 percentChange = quote.PercentChange;
                 marketState = quote.MarketState;
+                priceSession = quote.PriceSession;
+                priceTimestampUtc = quote.PriceTimestampUtc;
             }
             else
             {
@@ -93,6 +97,10 @@ public class StockPriceController : ControllerBase
                 previousClose = quote.PreviousClose;
                 percentChange = quote.PercentChange;
                 marketState = quote.MarketState;
+                priceSession = quote.PriceSession;
+                priceTimestampUtc = quote.QuoteTimestampUnix > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(quote.QuoteTimestampUnix).UtcDateTime
+                    : null;
             }
 
             var conversionContext = await _stockQuoteConversionService.GetConversionContextAsync(
@@ -106,7 +114,9 @@ public class StockPriceController : ControllerBase
                 previousClose,
                 percentChange,
                 marketState,
-                conversionContext));
+                conversionContext,
+                priceSession,
+                priceTimestampUtc));
         }
         catch (Exception)
         {
