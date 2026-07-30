@@ -89,17 +89,24 @@ const getPercent24hText = (live: LivePriceEntry | undefined): string | null => {
   return formatPercent24h(live.quote.percentChange);
 };
 
-/** Label shown next to the price itself, describing which session the price comes from. */
-const priceSessionLabel: Record<string, { color: string; text: string }> = {
-  REGULAR: { color: 'green',   text: 'Обычная сессия' },
-  LAST:    { color: 'default', text: 'Последняя цена' },
-};
+/**
+ * A quote is considered "current" when:
+ *   - the provider market state is REGULAR;
+ *   - a provider timestamp exists, is valid, is not in the future,
+ *     and is no older than PRICE_FRESHNESS_THRESHOLD_MS.
+ */
+const PRICE_FRESHNESS_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
 
-/** Label shown separately to indicate the current market state (not the price source). */
-const marketStatusLabel: Record<string, { color: string; text: string }> = {
-  PRE:    { color: 'blue',   text: 'Рынок: Премаркет' },
-  POST:   { color: 'orange', text: 'Рынок: Постмаркет' },
-  CLOSED: { color: 'default', text: 'Рынок закрыт' },
+export const isQuoteCurrent = (
+  quote: Pick<import('../types').StockQuoteResponse, 'marketState' | 'priceTimestampUtc'>,
+  now: number = Date.now(),
+): boolean => {
+  if (quote.marketState !== 'REGULAR') return false;
+  if (!quote.priceTimestampUtc) return false;
+  const ts = Date.parse(quote.priceTimestampUtc);
+  if (!isFinite(ts)) return false;
+  if (ts > now) return false;
+  return (now - ts) <= PRICE_FRESHNESS_THRESHOLD_MS;
 };
 
 const TICKER_COL_WIDTH = 220;
@@ -194,7 +201,10 @@ const StocksPage: React.FC = () => {
     }
 
     const roundedCurrentPrice = Math.round(quote.currentPriceEur * 100) / 100;
-    const updatedAt = new Date().toISOString();
+    // Use the provider's price timestamp when available; otherwise keep the existing stored time.
+    const providerTs = quote.priceTimestampUtc;
+    const tsRaw = providerTs ? Date.parse(providerTs) : NaN;
+    const updatedAt = isFinite(tsRaw) ? providerTs! : stock.updatedAt;
 
     await updateStock(stock.id, {
       ...stock,
@@ -483,11 +493,6 @@ const StocksPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={CELL_BASE_STYLE}>
               <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
-              {portfolioStockIds.has(stock.id) && (
-                <Tag color="green">
-                  В портфеле
-                </Tag>
-              )}
             </div>
             {stock.commonName && stock.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 12 }} ellipsis={{ tooltip: stock.commonName }}>
@@ -532,8 +537,6 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const live = livePrices[stock.id];
         const quote = live?.quote ?? null;
-        const sessionInfo = quote?.priceSession ? priceSessionLabel[quote.priceSession] ?? { color: 'default', text: quote.priceSession } : null;
-        const statusInfo = quote?.marketState ? marketStatusLabel[quote.marketState] ?? null : null;
         const rawQuoteText = quote
           ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
           : '—';
@@ -541,6 +544,9 @@ const StocksPage: React.FC = () => {
           quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
             ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
             : undefined;
+        const quoteStatus = quote && !live?.loading
+          ? isQuoteCurrent(quote) ? 'current' : 'last'
+          : null;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span title={normalizedTooltip}>
@@ -548,15 +554,8 @@ const StocksPage: React.FC = () => {
                 ? '...'
                 : rawQuoteText}
             </span>
-            {sessionInfo && !live?.loading && (
-              <Tag color={sessionInfo.color}>{sessionInfo.text}</Tag>
-            )}
-            {quote?.isStale && !live?.loading && (
-              <Tag color="warning">Устаревшая</Tag>
-            )}
-            {statusInfo && !live?.loading && (
-              <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
-            )}
+            {quoteStatus === 'current' && <Tag color="green">Текущая</Tag>}
+            {quoteStatus === 'last' && <Tag color="default">Последняя</Tag>}
             {quote?.conversionWarning && !live?.loading && (
               <Tag color="gold">Нет EUR</Tag>
             )}
@@ -572,13 +571,21 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Обновлено',
-      dataIndex: 'updatedAt',
-      key: 'updatedAt',
+      title: 'Время цены',
+      key: 'priceTime',
       width: UPDATED_COL_WIDTH,
-      render: (v: string, record: TableRow) => {
+      render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(v).local().format('DD.MM.YYYY HH:mm')}</span>;
+        const stock = record as Stock;
+        const live = livePrices[stock.id];
+        // Once a live quote has been fetched, display the provider timestamp.
+        // Before any fetch, fall back to the stored updatedAt for backward compatibility.
+        if (live !== undefined) {
+          const ts = live.quote?.priceTimestampUtc;
+          if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
+          return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm')}</span>;
+        }
+        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(stock.updatedAt).local().format('DD.MM.YYYY HH:mm')}</span>;
       },
     },
     {
