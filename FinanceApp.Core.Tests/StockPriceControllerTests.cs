@@ -28,7 +28,7 @@ public class StockPriceControllerTests
                 "REGULAR")),
             yahooResult: YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Should not be called"));
 
-        var actionResult = await controller.GetPrice("AAPL", StockExchanges.Nyse);
+        var actionResult = await controller.GetPrice("AAPL", StockExchanges.Nyse, null);
 
         var ok = Assert.IsType<OkObjectResult>(actionResult);
         var response = Assert.IsType<StockQuoteResponse>(ok.Value);
@@ -64,7 +64,7 @@ public class StockPriceControllerTests
                 "AAPL", 105m, 103m, 100m, 5m, 0, "USD", "USD", "US", "NASDAQ", "REGULAR")),
             yahooService: yahooService);
 
-        await controller.GetPrice("AAPL", StockExchanges.Nyse);
+        await controller.GetPrice("AAPL", StockExchanges.Nyse, null);
 
         Assert.Equal(0, yahooService.CallCount);
     }
@@ -79,7 +79,7 @@ public class StockPriceControllerTests
             yahooResult: YahooQuoteResult.Success(new YahooQuoteData(
                 "RHM.DE", 520m, 514m, 1.17m, "EUR", "EUR", "CLOSED")));
 
-        var actionResult = await controller.GetPrice("RHM.DE", StockExchanges.Frankfurt);
+        var actionResult = await controller.GetPrice("RHM.DE", StockExchanges.Frankfurt, null);
 
         var ok = Assert.IsType<OkObjectResult>(actionResult);
         var response = Assert.IsType<StockQuoteResponse>(ok.Value);
@@ -97,7 +97,7 @@ public class StockPriceControllerTests
                 "AAPL", 105m, 103m, 100m, 5m, 0, "USD", "USD", "US", "NASDAQ", "REGULAR")),
             yahooResult: YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Should not be called"));
 
-        var actionResult = await controller.GetPrice("AAPL", null);
+        var actionResult = await controller.GetPrice("AAPL", null, null);
 
         Assert.IsType<OkObjectResult>(actionResult);
     }
@@ -109,7 +109,7 @@ public class StockPriceControllerTests
             finnhubResult: FinnhubQuoteResult.Failure(StatusCodes.Status502BadGateway, "Not called"),
             yahooResult: YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Not called"));
 
-        var actionResult = await controller.GetPrice("AAPL", "UNKNOWN_EXCHANGE");
+        var actionResult = await controller.GetPrice("AAPL", "UNKNOWN_EXCHANGE", null);
 
         var bad = Assert.IsType<BadRequestObjectResult>(actionResult);
         Assert.Equal("Unsupported exchange.", bad.Value);
@@ -122,7 +122,7 @@ public class StockPriceControllerTests
             finnhubResult: FinnhubQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider request failed."),
             yahooResult: YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Should not be called"));
 
-        var actionResult = await controller.GetPrice("AAPL", StockExchanges.Nyse);
+        var actionResult = await controller.GetPrice("AAPL", StockExchanges.Nyse, null);
 
         var result = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
@@ -136,7 +136,7 @@ public class StockPriceControllerTests
             finnhubResult: FinnhubQuoteResult.Failure(StatusCodes.Status502BadGateway, "Should not be called"),
             yahooResult: YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider request failed."));
 
-        var actionResult = await controller.GetPrice("RHM.DE", StockExchanges.Frankfurt);
+        var actionResult = await controller.GetPrice("RHM.DE", StockExchanges.Frankfurt, null);
 
         var result = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
@@ -151,7 +151,7 @@ public class StockPriceControllerTests
             yahooResult: YahooQuoteResult.Success(new YahooQuoteData(
                 "RHM.DE", 520m, 514m, 1.17m, "EUR", "EUR", "REGULAR")));
 
-        var actionResult = await controller.GetPrice("RHM.DE", StockExchanges.Frankfurt);
+        var actionResult = await controller.GetPrice("RHM.DE", StockExchanges.Frankfurt, null);
 
         var ok = Assert.IsType<OkObjectResult>(actionResult);
         var response = Assert.IsType<StockQuoteResponse>(ok.Value);
@@ -177,6 +177,7 @@ public class StockPriceControllerTests
                 finnhubResult ?? FinnhubQuoteResult.Failure(StatusCodes.Status502BadGateway, "not configured")),
             yahooService ?? new StubYahooQuoteService(
                 yahooResult ?? YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "not configured")),
+            new DisabledFinanzenNetQuoteService(),
             exchangeRate,
             new StockQuoteConversionService(exchangeRate))
         {
@@ -263,5 +264,16 @@ public class StockPriceControllerTests
 
             return Task.FromResult(new ExchangeRateResult(sourceCurrency.ToUpperInvariant(), null, null, "stub", "rate unavailable"));
         }
+    }
+
+    private sealed class DisabledFinanzenNetQuoteService : IFinanzenNetQuoteService
+    {
+        public bool IsEnabled => false;
+
+        public Task<FinanzenNetQuoteResult> GetPreMarketQuoteAsync(
+            string slug,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(FinanzenNetQuoteResult.Failure(
+                StatusCodes.Status503ServiceUnavailable, "Disabled"));
     }
 }

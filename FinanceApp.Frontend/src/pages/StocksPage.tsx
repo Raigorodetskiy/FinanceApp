@@ -233,7 +233,7 @@ const StocksPage: React.FC = () => {
       const results = await Promise.allSettled(
         stocksWithTicker.map(async (stock) => {
           try {
-            const priceRes = await getStockPrice(stock.ticker, stock.exchange);
+            const priceRes = await getStockPrice(stock.ticker, stock.exchange, stock.finanzenNetSlug);
             const quote = priceRes.data;
 
             setLivePrices((prev) => ({
@@ -312,6 +312,7 @@ const StocksPage: React.FC = () => {
     currentPrice: number;
     wkn?: string;
     isin?: string;
+    finanzenNetSlug?: string;
   }) => {
     // Normalize: blank → null, trim + uppercase
     const normalizeId = (v?: string): string | null => {
@@ -320,6 +321,7 @@ const StocksPage: React.FC = () => {
     };
     const wkn = normalizeId(values.wkn);
     const isin = normalizeId(values.isin);
+    const finanzenNetSlug = (values.finanzenNetSlug ?? '').trim().toLowerCase() || null;
     const normalizedName = values.name.trim();
     const normalizedCommonName = (values.commonName ?? '').trim() || normalizedName;
 
@@ -333,6 +335,7 @@ const StocksPage: React.FC = () => {
           commonName: normalizedCommonName,
           wkn,
           isin,
+          finanzenNetSlug,
           exchange: values.exchange,
           updatedAt: new Date().toISOString(),
         });
@@ -344,6 +347,7 @@ const StocksPage: React.FC = () => {
           commonName: normalizedCommonName,
           wkn,
           isin,
+          finanzenNetSlug,
           exchange: values.exchange,
         });
         message.success('Акция добавлена');
@@ -382,7 +386,7 @@ const StocksPage: React.FC = () => {
     if (!stock.ticker?.trim()) return;
     setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], true) }));
     try {
-      const priceRes = await getStockPrice(stock.ticker, stock.exchange);
+      const priceRes = await getStockPrice(stock.ticker, stock.exchange, stock.finanzenNetSlug);
       const quote = priceRes.data;
 
       setLivePrices((prev) => ({
@@ -811,6 +815,29 @@ const StocksPage: React.FC = () => {
               maxLength={12}
               onChange={(e) => {
                 form.setFieldValue('isin', e.target.value.toUpperCase());
+              }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="finanzen.net Slug"
+            name="finanzenNetSlug"
+            tooltip="Экспериментальное поле. Например: microsoft-aktie. Только строчные буквы, цифры и дефисы. Оставьте пустым, если не нужно."
+            rules={[
+              {
+                validator: (_, value: string | undefined) => {
+                  const v = (value ?? '').trim().toLowerCase();
+                  if (v.length === 0) return Promise.resolve();
+                  if (/^[a-z0-9][a-z0-9-]{0,119}$/.test(v)) return Promise.resolve();
+                  return Promise.reject(new Error('Только строчные буквы, цифры и дефисы; начинается с буквы или цифры'));
+                },
+              },
+            ]}
+          >
+            <Input
+              placeholder="microsoft-aktie"
+              maxLength={120}
+              onChange={(e) => {
+                form.setFieldValue('finanzenNetSlug', e.target.value.toLowerCase());
               }}
             />
           </Form.Item>

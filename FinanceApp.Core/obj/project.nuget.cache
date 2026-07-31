@@ -1,8 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "u+Cblkq9sfs=",
+  "dgSpecHash": "Ga7IqT9C3Vc=",
   "success": true,
   "projectFilePath": "/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core/FinanceApp.Core.csproj",
-  "expectedPackageFiles": [],
+  "expectedPackageFiles": [
+    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.netcore.app.ref/8.0.29/microsoft.netcore.app.ref.8.0.29.nupkg.sha512",
+    "/tmp/codeql-scratch-bee09f4ac8f0c828/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/8.0.29/microsoft.aspnetcore.app.ref.8.0.29.nupkg.sha512"
+  ],
   "logs": []
 }

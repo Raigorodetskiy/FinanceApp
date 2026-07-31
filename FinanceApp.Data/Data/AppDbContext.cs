@@ -40,6 +40,7 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Isin).HasMaxLength(12);
             entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");
             entity.HasIndex(x => x.Isin).IsUnique().HasFilter("`Isin` IS NOT NULL");
+            entity.Property(x => x.FinanzenNetSlug).HasMaxLength(120);
         });
     }
 }

@@ -12,17 +12,20 @@ public class StockPriceController : ControllerBase
 {
     private readonly IFinnhubQuoteService _finnhubQuoteService;
     private readonly IYahooQuoteService _yahooQuoteService;
+    private readonly IFinanzenNetQuoteService _finanzenNetQuoteService;
     private readonly IExchangeRateService _exchangeRateService;
     private readonly IStockQuoteConversionService _stockQuoteConversionService;
 
     public StockPriceController(
         IFinnhubQuoteService finnhubQuoteService,
         IYahooQuoteService yahooQuoteService,
+        IFinanzenNetQuoteService finanzenNetQuoteService,
         IExchangeRateService exchangeRateService,
         IStockQuoteConversionService stockQuoteConversionService)
     {
         _finnhubQuoteService = finnhubQuoteService;
         _yahooQuoteService = yahooQuoteService;
+        _finanzenNetQuoteService = finanzenNetQuoteService;
         _exchangeRateService = exchangeRateService;
         _stockQuoteConversionService = stockQuoteConversionService;
     }
@@ -45,6 +48,7 @@ public class StockPriceController : ControllerBase
     public async Task<IActionResult> GetPrice(
         string symbol,
         [FromQuery] string? exchange,
+        [FromQuery] string? finanzenNetSlug,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(symbol) || !System.Text.RegularExpressions.Regex.IsMatch(symbol, @"^[A-Za-z0-9.\-]{1,20}$"))
@@ -52,6 +56,13 @@ public class StockPriceController : ControllerBase
 
         if (!StockExchanges.TryNormalize(exchange, out var normalizedExchange))
             return BadRequest("Unsupported exchange.");
+
+        // Validate slug if provided to prevent URL injection before any other work
+        if (!string.IsNullOrWhiteSpace(finanzenNetSlug) &&
+            !FinanzenNetQuoteService.IsValidSlug(finanzenNetSlug))
+        {
+            return BadRequest("Invalid finanzen.net slug. Only lowercase letters, digits, and hyphens are allowed.");
+        }
 
         try
         {
@@ -103,6 +114,52 @@ public class StockPriceController : ControllerBase
                     : null;
             }
 
+            // Optional pre-market enrichment via finanzen.net (experimental, disabled by default).
+            // Only replaces the primary quote when:
+            //   - The provider is enabled in configuration
+            //   - A valid slug was provided for this instrument
+            //   - The page explicitly and unambiguously labels the price as pre-market ("PRE")
+            // Any failure (timeout, 403, changed markup, ambiguous data) is silently ignored
+            // and the existing Yahoo/Finnhub result is preserved.
+            string? priceSource = null;
+            if (_finanzenNetQuoteService.IsEnabled &&
+                !string.IsNullOrWhiteSpace(finanzenNetSlug))
+            {
+                try
+                {
+                    var fnResult = await _finanzenNetQuoteService.GetPreMarketQuoteAsync(
+                        finanzenNetSlug, cancellationToken);
+
+                    if (fnResult.IsSuccess &&
+                        fnResult.Quote is { } fnQuote &&
+                        fnQuote.PriceSession == "PRE" &&
+                        fnQuote.Price > 0m)
+                    {
+                        // Use the pre-market price; keep previousClose from the primary provider
+                        // so percent-change is computed against the last official close.
+                        var fnPercentChange = previousClose > 0m
+                            ? (fnQuote.Price - previousClose) / previousClose * 100m
+                            : 0m;
+
+                        currentPrice = fnQuote.Price;
+                        percentChange = fnPercentChange;
+                        priceSession = "PRE";
+                        priceTimestampUtc = fnQuote.ProviderTimestampUtc;
+                        priceSource = fnQuote.Source;
+                        // Currency from finanzen.net overrides primary only when provided
+                        if (!string.IsNullOrWhiteSpace(fnQuote.Currency))
+                        {
+                            currency = fnQuote.Currency;
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // FinanzenNet enrichment failure must not fail the primary quote endpoint.
+                    // The exception is already logged inside the service.
+                }
+            }
+
             var conversionContext = await _stockQuoteConversionService.GetConversionContextAsync(
                 currency,
                 estimateCurrency,
@@ -116,7 +173,8 @@ public class StockPriceController : ControllerBase
                 marketState,
                 conversionContext,
                 priceSession,
-                priceTimestampUtc));
+                priceTimestampUtc,
+                priceSource));
         }
         catch (Exception)
         {
