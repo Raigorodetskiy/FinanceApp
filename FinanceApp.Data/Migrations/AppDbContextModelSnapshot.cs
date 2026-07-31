@@ -185,6 +185,10 @@ namespace FinanceApp.Data.Migrations
                         .HasColumnType("varchar(32)")
                         .HasDefaultValue("NYSE");
 
+                    b.Property<string>("FinanzenNetSlug")
+                        .HasMaxLength(120)
+                        .HasColumnType("varchar(120)");
+
                     b.Property<string>("Isin")
                         .HasMaxLength(12)
                         .HasColumnType("varchar(12)");

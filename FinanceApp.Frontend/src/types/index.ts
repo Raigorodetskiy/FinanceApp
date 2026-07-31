@@ -38,6 +38,8 @@ export interface Stock {
   updatedAt: string;
   wkn?: string | null;
   isin?: string | null;
+  /** Optional finanzen.net instrument slug (e.g. "microsoft-aktie"). Used for experimental pre-market enrichment. */
+  finanzenNetSlug?: string | null;
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
@@ -64,6 +66,8 @@ export interface StockQuoteResponse {
   priceTimestampUtc: string | null;
   /** True when priceTimestampUtc is present and older than 24 hours. */
   isStale: boolean;
+  /** Identifies which quote provider supplied rawCurrentPrice. Null for Yahoo/Finnhub (primary providers). */
+  priceSource: string | null;
   rateToEur: number | null;
   rateTimestampUtc: string | null;
   rateSource: string | null;
@@ -192,6 +196,7 @@ export interface CreateStockRequest {
   currentPrice: number;
   wkn?: string | null;
   isin?: string | null;
+  finanzenNetSlug?: string | null;
 }
 
 export interface UpdateStockRequest {
@@ -204,6 +209,7 @@ export interface UpdateStockRequest {
   updatedAt: string;
   wkn?: string | null;
   isin?: string | null;
+  finanzenNetSlug?: string | null;
 }
 
 export interface CreateOrderRequest {

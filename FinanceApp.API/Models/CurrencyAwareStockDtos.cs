@@ -32,6 +32,12 @@ public sealed class StockQuoteResponse
     /// <c>24 hours</c> old at the time of the request.
     /// </summary>
     public bool IsStale { get; init; }
+    /// <summary>
+    /// Identifies which quote provider supplied the <see cref="RawCurrentPrice"/>.
+    /// Populated only for experimental or non-default providers (e.g. <c>"finanzen.net"</c>).
+    /// Null when the primary provider (Yahoo/Finnhub) is used.
+    /// </summary>
+    public string? PriceSource { get; init; }
     public decimal? RateToEur { get; init; }
     public DateTime? RateTimestampUtc { get; init; }
     public string? RateSource { get; init; }

@@ -121,6 +121,8 @@ builder.Services.AddHttpClient<IFinnhubQuoteService, FinnhubQuoteService>(client
     client.Timeout = TimeSpan.FromSeconds(10);
     client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 });
+builder.Services.Configure<FinanzenNetOptions>(builder.Configuration.GetSection("FinanzenNet"));
+builder.Services.AddSingleton<IFinanzenNetQuoteService, FinanzenNetQuoteService>();
 builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
 builder.Services.AddScoped<IYahooQuoteService, YahooQuoteService>();
 builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();

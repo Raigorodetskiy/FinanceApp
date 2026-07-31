@@ -29,10 +29,29 @@ public class StocksController : ControllerBase
     /// <summary>Normalizes WKN/ISIN: trim whitespace, uppercase; blank becomes null.</summary>
     private static string? NormalizeIdentifier(string? value) => StockIdentifiers.Normalize(value);
 
+    /// <summary>Validates a finanzen.net slug. Returns a 400 result when invalid, otherwise null.</summary>
+    private ActionResult? ValidateFinanzenNetSlug(string? slug)
+    {
+        if (slug is null)
+        {
+            return null;
+        }
+
+        if (!FinanzenNetQuoteService.IsValidSlug(slug))
+        {
+            return BadRequest("FinanzenNetSlug darf nur Kleinbuchstaben, Ziffern und Bindestriche enthalten und muss mit einem Buchstaben oder einer Ziffer beginnen.");
+        }
+
+        return null;
+    }
+
     private ActionResult? NormalizeAndValidateStock(Stock stock)
     {
         stock.Wkn = NormalizeIdentifier(stock.Wkn);
         stock.Isin = NormalizeIdentifier(stock.Isin);
+        stock.FinanzenNetSlug = string.IsNullOrWhiteSpace(stock.FinanzenNetSlug)
+            ? null
+            : stock.FinanzenNetSlug.Trim();
         stock.Name = (stock.Name ?? string.Empty).Trim();
         stock.CommonName = string.IsNullOrWhiteSpace(stock.CommonName)
             ? stock.Name
@@ -47,6 +66,12 @@ public class StocksController : ControllerBase
         }
 
         stock.Exchange = normalizedExchange;
+
+        var slugError = ValidateFinanzenNetSlug(stock.FinanzenNetSlug);
+        if (slugError is not null)
+        {
+            return slugError;
+        }
 
         return ValidateIdentifiers(stock.Wkn, stock.Isin);
     }
@@ -138,6 +163,7 @@ public class StocksController : ControllerBase
         existing.CurrentPrice = stock.CurrentPrice;
         existing.Wkn = stock.Wkn;
         existing.Isin = stock.Isin;
+        existing.FinanzenNetSlug = stock.FinanzenNetSlug;
         existing.UpdatedAt = DateTime.UtcNow;
 
         try

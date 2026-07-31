@@ -199,3 +199,4 @@
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core.Tests/bin/Debug/net8.0/FinanceApp.Data.dll
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core.Tests/bin/Debug/net8.0/FinanceApp.API.pdb
 /home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core.Tests/bin/Debug/net8.0/FinanceApp.Data.pdb
+/home/runner/work/FinanceApp/FinanceApp/FinanceApp.Core.Tests/bin/Debug/net8.0/AngleSharp.dll

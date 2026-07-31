@@ -14,4 +14,11 @@ public class Stock
     public DateTime UpdatedAt { get; set; }
     public string? Wkn { get; set; }
     public string? Isin { get; set; }
+    /// <summary>
+    /// Optional finanzen.net instrument slug (e.g. <c>microsoft-aktie</c>).
+    /// Used by the experimental <c>FinanzenNetQuoteService</c> when it is enabled.
+    /// Must consist only of lowercase letters, digits, and hyphens.
+    /// Null means the stock is not mapped to a finanzen.net instrument.
+    /// </summary>
+    public string? FinanzenNetSlug { get; set; }
 }

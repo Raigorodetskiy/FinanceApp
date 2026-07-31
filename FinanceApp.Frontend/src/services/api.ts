@@ -91,9 +91,9 @@ export const getStockHistory = (id: number, range: StockHistoryRange) =>
   api.get<StockHistoryResponse>(`/Stocks/${id}/history`, { params: { range } });
 
 // Stock prices
-export const getStockPrice = (symbol: string, exchange: StockExchange) =>
+export const getStockPrice = (symbol: string, exchange: StockExchange, finanzenNetSlug?: string | null) =>
   api.get<StockQuoteResponse>(`/StockPrice/${encodeURIComponent(symbol)}`, {
-    params: { exchange },
+    params: { exchange, ...(finanzenNetSlug ? { finanzenNetSlug } : {}) },
   });
 export const getEurUsdRate = () =>
   api.get<{ eurUsd: number }>('/StockPrice/rate/eurusd');
