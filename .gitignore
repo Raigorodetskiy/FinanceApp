@@ -1,0 +1,64 @@
+# .NET build outputs
+**/bin/
+**/obj/
+
+# Published output
+publish/
+
+# NuGet packages
+*.nupkg
+*.snupkg
+.nuget/packages/
+
+# User-specific files
+*.user
+*.userosscache
+*.userprefs
+*.suo
+.vs/
+.vscode/
+
+# Test results and coverage
+TestResults/
+**/TestResults/
+coverage/
+**/coverage/
+*.trx
+*.coveragexml
+*.coverage
+lcov.info
+
+# Logs
+*.log
+logs/
+
+# Environment & secrets (never commit real credentials)
+.env
+.env.local
+.env.*.local
+appsettings.Local.json
+**/appsettings.Production.json
+secrets.json
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# Visual Studio Code
+.vscode/
+
+# Node.js / npm / Expo
+node_modules/
+.expo/
+.expo-shared/
+dist/
+.cache/
+*.tgz
+
+# Frontend build outputs
+FinanceApp.Frontend/dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
