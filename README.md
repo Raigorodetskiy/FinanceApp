@@ -4,11 +4,34 @@ Finance portfolio management application with ASP.NET Core 8 Backend and React F
 
 ## Backend
 
-The backend is built with ASP.NET Core 8 and runs at `http://173.249.42.11:5000`.
+The backend is built with ASP.NET Core 8.
 
 ### Requirements
 - .NET 8 SDK
 - MySQL / MariaDB
+
+### Local Configuration
+
+`appsettings.json` in this repository contains **only empty placeholders** — no real credentials are stored in source control.
+
+Supply real values via environment variables (recommended) or [.NET user secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets):
+
+**Environment variables (recommended for CI/Docker):**
+```bash
+export ConnectionStrings__DefaultConnection="server=localhost;port=3306;database=financeapp;user=financeapp_user;******"
+export Jwt__Key="YOUR_JWT_SIGNING_KEY_AT_LEAST_32_CHARS"
+export Finnhub__ApiKey="YOUR_FINNHUB_KEY"
+```
+
+**User secrets (recommended for local development):**
+```bash
+cd FinanceApp.API
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "server=localhost;port=3306;database=financeapp;user=financeapp_user;******"
+dotnet user-secrets set "Jwt:Key" "YOUR_JWT_SIGNING_KEY_AT_LEAST_32_CHARS"
+dotnet user-secrets set "Finnhub:ApiKey" "YOUR_FINNHUB_KEY"
+```
+
+> ⚠️ **Credential rotation notice:** Previously committed versions of `appsettings.json` contained a database password, JWT signing key, and Finnhub API key. Those values **must be considered compromised** and rotated at the infrastructure level. Deleting them from the latest commit does **not** remove them from Git history — anyone with repository access can recover them from past commits. Rotate all three credentials outside the repository immediately.
 
 ### Run
 ```bash
@@ -33,7 +56,7 @@ Copy `.env.example` to `.env.local` and adjust as needed:
 cp .env.example .env.local
 ```
 
-By default the frontend connects to `http://173.249.42.11:5000/api`. Set `VITE_API_BASE_URL` in `.env.local` to override.
+By default the frontend connects to `/api`. Set `VITE_API_BASE_URL` in `.env.local` to override.
 
 ### Install
 ```bash
@@ -57,14 +80,12 @@ npm run build
 
 ## Experimental: finanzen.net Pre-Market Quote Provider
 
-> **⚠️ Experimental — for development use only. Not supported in production.**
-
-### Overview
+> **⚠️ Experimental — disabled by default. For development research only. Not for production use.**
 
 The `FinanzenNetQuoteService` is an optional, disabled-by-default enrichment provider that attempts to retrieve explicitly labeled pre-market prices from [finanzen.net](https://www.finanzen.net) stock pages. It is not a replacement for the primary Yahoo Finance / Finnhub providers.
 
 **Key characteristics:**
-- Disabled by default (`Enabled: false`)
+- Disabled by default (`Enabled: false`) — this setting must remain `false` in all tracked configuration files
 - Only provides a price when the page **explicitly** labels the value as pre-market ("Vorbörslich" / "Pre-Market")
 - Session labels are **never inferred** from clock time or market schedule
 - All failures (timeout, changed markup, ambiguous data, HTTP errors) fall back silently to the Yahoo/Finnhub result
@@ -88,7 +109,7 @@ The `FinanzenNetQuoteService` is an optional, disabled-by-default enrichment pro
 
 ### Configuration
 
-In `appsettings.Development.json` (never enable in production `appsettings.json`):
+To enable locally (never in tracked `appsettings.json`), use user secrets or `appsettings.Development.json`:
 
 ```json
 {
@@ -105,7 +126,7 @@ In `appsettings.Development.json` (never enable in production `appsettings.json`
 
 | Option | Default | Description |
 |---|---|---|
-| `Enabled` | `false` | Must be `true` to activate. Never `true` in production. |
+| `Enabled` | `false` | Must be `true` to activate. Never `true` in production config. |
 | `BaseUrl` | `https://www.finanzen.net` | Base URL for the site. |
 | `CacheDuration` | `00:05:00` | How long to cache a successfully parsed pre-market quote. |
 | `MinRequestInterval` | `00:00:05` | Minimum delay between outgoing HTTP requests (process-level throttle). |
@@ -145,4 +166,3 @@ When disabled, or when no pre-market price is found, the response reflects the n
 ### Markup Stability Caveat
 
 finanzen.net's page structure may change without notice. If the parser cannot find an **unambiguous, explicitly labeled** pre-market section, it returns failure and the normal provider is used. This is intentional. Monitor logs for `FinanzenNet request failed` or `No explicitly labeled pre-market price found` messages.
-
