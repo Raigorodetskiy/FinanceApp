@@ -177,11 +177,25 @@ public sealed class YahooQuoteService : IYahooQuoteService
                 return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider returned an invalid current price.");
             }
 
-            var previousClose = TryGetDecimal(meta, "chartPreviousClose", out var chartPrevClose) && chartPrevClose > 0
-                ? chartPrevClose
-                : TryGetDecimal(meta, "previousClose", out var prevClose) && prevClose > 0
-                    ? prevClose
-                    : currentPrice;
+            // Prefer regularMarketChange (the authoritative absolute daily change from Yahoo)
+            // to derive previousClose.  This guarantees that NormalizedChange / ChangeEur
+            // is exactly consistent with PercentChange (from regularMarketChangePercent),
+            // even when chartPreviousClose uses a different baseline (e.g. an adjusted or
+            // range-start price that does not match the actual previous regular-session close).
+            decimal previousClose;
+            if (TryGetDecimal(meta, "regularMarketChange", out var marketChange))
+            {
+                var derived = currentPrice - marketChange;
+                previousClose = derived > 0 ? derived : currentPrice;
+            }
+            else
+            {
+                previousClose = TryGetDecimal(meta, "chartPreviousClose", out var chartPrevClose) && chartPrevClose > 0
+                    ? chartPrevClose
+                    : TryGetDecimal(meta, "previousClose", out var prevClose) && prevClose > 0
+                        ? prevClose
+                        : currentPrice;
+            }
 
             var percentChange = TryGetDecimal(meta, "regularMarketChangePercent", out var parsedPercent)
                 ? parsedPercent

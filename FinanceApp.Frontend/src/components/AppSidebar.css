@@ -3,7 +3,7 @@
   padding: 12px;
   gap: 14px;
   align-items: flex-start;
-  background: #4B9CD7;
+  background: #B8B8B8;
   /* Explicitly row so layout remains correct when Sider is inside sidebar-desktop-wrap */
   flex-direction: row !important;
 }
@@ -47,7 +47,7 @@
 }
 
 .app-sidebar.ant-layout-sider {
-  background: #073f86 !important;
+  background: transparent !important;
   align-self: flex-start;
   height: auto !important;
   border-radius: 0;

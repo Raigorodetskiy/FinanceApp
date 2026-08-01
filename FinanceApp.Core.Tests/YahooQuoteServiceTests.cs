@@ -414,6 +414,119 @@ public class YahooQuoteServiceTests
         Assert.Equal("REGULAR", result.Quote!.MarketState);
     }
 
+    // ── regularMarketChange baseline consistency tests ────────────────────────
+
+    [Fact]
+    public async Task GetQuoteAsync_RegularMarketChangePresent_PreviousCloseIsDerivedFromIt()
+    {
+        // regularMarketChange = 2.87 → previousClose = 236.46 − 2.87 = 233.59
+        // chartPreviousClose = 205.05 is intentionally far off to prove it is NOT used.
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 236.46,
+                    "regularMarketChange": 2.87,
+                    "chartPreviousClose": 205.05,
+                    "regularMarketChangePercent": 1.23,
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("AMZN.F");
+
+        Assert.True(result.IsSuccess);
+        var quote = result.Quote!;
+        Assert.Equal(236.46m, quote.CurrentPrice);
+        // PreviousClose must be derived from regularMarketChange, not chartPreviousClose
+        Assert.Equal(236.46m - 2.87m, quote.PreviousClose);
+        Assert.NotEqual(205.05m, quote.PreviousClose);
+        Assert.Equal(1.23m, quote.PercentChange);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_NoRegularMarketChange_FallsBackToChartPreviousClose()
+    {
+        // Without regularMarketChange, chartPreviousClose should still be used as before.
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 520.5,
+                    "chartPreviousClose": 514.0,
+                    "regularMarketChangePercent": 1.26,
+                    "marketState": "REGULAR"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(514.0m, result.Quote!.PreviousClose);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_RegularMarketChangePresent_AbsoluteAndPercentChangeDeriveFromSameBaseline()
+    {
+        // Simulates the FRA/AMZN mismatch scenario: chartPreviousClose implies ~15% change
+        // while regularMarketChange and regularMarketChangePercent agree on ~1.23%.
+        // Verifies that, after the fix, PreviousClose is consistent with PercentChange.
+        const decimal currentPrice = 236.46m;
+        const decimal regularMarketChange = 2.87m;
+        const decimal regularMarketChangePercent = 1.23m;
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{currentPrice}},
+                    "regularMarketChange": {{regularMarketChange}},
+                    "chartPreviousClose": 205.05,
+                    "regularMarketChangePercent": {{regularMarketChangePercent}},
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("AMZN.F");
+
+        Assert.True(result.IsSuccess);
+        var quote = result.Quote!;
+
+        var expectedPreviousClose = currentPrice - regularMarketChange; // 233.59
+        Assert.Equal(expectedPreviousClose, quote.PreviousClose);
+
+        // Absolute change derived from the same baseline must be consistent with PercentChange:
+        // absoluteChange / previousClose * 100 ≈ regularMarketChangePercent
+        var impliedPercent = (quote.CurrentPrice - quote.PreviousClose) / quote.PreviousClose * 100m;
+        // Allow a small rounding tolerance
+        Assert.True(Math.Abs(impliedPercent - regularMarketChangePercent) < 0.02m,
+            $"Implied percent {impliedPercent:F4} is not close to declared {regularMarketChangePercent}");
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static string BuildResponseWithTradingPeriod(
