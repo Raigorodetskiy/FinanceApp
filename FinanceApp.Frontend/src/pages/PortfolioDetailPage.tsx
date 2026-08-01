@@ -764,7 +764,7 @@ const PortfolioDetailPage: React.FC = () => {
                             isPositionChartRow(record) ? 'chart-panel-row' : ''
                           }
                           scroll={{ x: true }}
-                          pagination={{ pageSize: 20 }}
+                          pagination={false}
                         />
                       ),
                     },
@@ -883,6 +883,7 @@ const PortfolioDetailPage: React.FC = () => {
 
                     {/* Transaction journal */}
                     <Table
+                      className="transactions-table"
                       dataSource={filteredTransactions}
                       rowKey="id"
                       scroll={{ x: true }}
