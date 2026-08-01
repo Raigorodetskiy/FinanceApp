@@ -82,16 +82,16 @@ export const isQuoteCurrent = (
 };
 
 const TICKER_COL_WIDTH = 220;
-const NAME_COL_WIDTH = 320;
-const LIVE_PRICE_COL_WIDTH = 240;
+const NAME_COL_WIDTH = 300;
+const SAVED_PRICE_COL_WIDTH = 200;
 const UPDATED_COL_WIDTH = 170;
-const ACTIONS_COL_WIDTH = 280;
+const ACTIONS_COL_WIDTH = 310;
 const TICKER_META_SPACE_WIDTH = 70;
 const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
   TICKER_COL_WIDTH
   + NAME_COL_WIDTH
-  + LIVE_PRICE_COL_WIDTH
+  + SAVED_PRICE_COL_WIDTH
   + UPDATED_COL_WIDTH
   + ACTIONS_COL_WIDTH;
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
@@ -404,6 +404,13 @@ const StocksPage: React.FC = () => {
 
   const TOTAL_COLS = 5;
 
+  const formatEur = (v: number) =>
+    v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatChange = (v: number) =>
+    (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatPct = (v: number) =>
+    (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+
   const columns = [
     {
       title: 'Тикер',
@@ -499,42 +506,35 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Обновление',
-      key: 'livePrice',
-      width: LIVE_PRICE_COL_WIDTH,
+      title: 'Текущая цена',
+      key: 'savedPrice',
+      width: SAVED_PRICE_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const live = livePrices[stock.id];
-        const quote = live?.quote ?? null;
-        const rawQuoteText = quote
-          ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
-          : '—';
-        const normalizedTooltip =
-          quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
-            ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
-            : undefined;
-        const quoteStatus = quote && !live?.loading
-          ? isQuoteCurrent(quote) ? 'current' : 'last'
-          : null;
+        const savedPrice = stock.currentPrice;
+        const savedChange = stock.currentPriceChange ?? null;
+        const savedChangePct = stock.currentPriceChangePercent ?? null;
+        const changeColor =
+          savedChange == null
+            ? '#8c8c8c'
+            : savedChange > 0
+              ? COLOR_POSITIVE
+              : savedChange < 0
+                ? COLOR_NEGATIVE
+                : '#8c8c8c';
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span title={normalizedTooltip}>
-              {live?.loading
-                ? '...'
-                : rawQuoteText}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap', minWidth: 0 }}>
+            <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+              €{formatEur(savedPrice)}
             </span>
-            {quoteStatus === 'current' && <Tag color="green">Текущая</Tag>}
-            {quote?.conversionWarning && !live?.loading && (
-              <Tag color="gold">Нет EUR</Tag>
+            {savedChange != null && savedChangePct != null ? (
+              <span style={{ color: changeColor, whiteSpace: 'nowrap', fontSize: 12 }}>
+                {formatChange(savedChange)} ({formatPct(savedChangePct)})
+              </span>
+            ) : (
+              <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap', fontSize: 12 }}>—</span>
             )}
-            <Button
-              icon={<ReloadOutlined />}
-              size="small"
-              loading={live?.loading}
-              disabled={!stock.ticker?.trim()}
-              onClick={() => handleFetchLivePrice(stock)}
-            />
           </div>
         );
       },
@@ -562,41 +562,21 @@ const StocksPage: React.FC = () => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-
-        // Determine persisted price and change to display.
-        // Prefer values updated in this session (reflected in local stock state after persist),
-        // which fall back to what was loaded from the database.
-        const savedPrice = stock.currentPrice;
-        const savedChange = stock.currentPriceChange ?? null;
-        const savedChangePct = stock.currentPriceChangePercent ?? null;
-
-        const changeColor = savedChange == null
-          ? undefined
-          : savedChange > 0 ? COLOR_POSITIVE : savedChange < 0 ? COLOR_NEGATIVE : '#8c8c8c';
-
-        const formatEur = (v: number) =>
-          v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const formatChange = (v: number) =>
-          (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const formatPct = (v: number) =>
-          (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
-
+        const live = livePrices[stock.id];
+        const quote = live?.quote ?? null;
+        const rawQuoteText = quote
+          ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
+          : null;
+        const normalizedTooltip =
+          quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
+            ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
+            : undefined;
+        const quoteStatus = quote && !live?.loading
+          ? isQuoteCurrent(quote) ? 'current' : 'last'
+          : null;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {/* Persisted saved price + change block – no separate column heading */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', minWidth: 0 }}>
-              <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
-                €{formatEur(savedPrice)}
-              </span>
-              {savedChange != null && savedChangePct != null ? (
-                <span style={{ color: changeColor, whiteSpace: 'nowrap', fontSize: 12 }}>
-                  {formatChange(savedChange)} ({formatPct(savedChangePct)})
-                </span>
-              ) : (
-                <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap', fontSize: 12 }}>—</span>
-              )}
-            </div>
-            {/* Edit / Delete actions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Row 1: edit / delete */}
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
               <Tooltip title="Изменить">
                 <Button
@@ -616,6 +596,23 @@ const StocksPage: React.FC = () => {
                   <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
                 </Tooltip>
               </Popconfirm>
+            </div>
+            {/* Row 2: source quote (provider currency) + refresh button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>
+                {live?.loading ? '...' : rawQuoteText ?? '—'}
+              </span>
+              {quoteStatus === 'current' && <Tag color="green" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Текущая</Tag>}
+              {quote?.conversionWarning && !live?.loading && (
+                <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
+              )}
+              <Button
+                icon={<ReloadOutlined />}
+                size="small"
+                loading={live?.loading}
+                disabled={!stock.ticker?.trim()}
+                onClick={() => handleFetchLivePrice(stock)}
+              />
             </div>
           </div>
         );

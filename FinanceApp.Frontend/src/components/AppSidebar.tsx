@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   DashboardOutlined,
   FolderOutlined,
@@ -24,6 +24,7 @@ const PORTFOLIO_KEY_PREFIX = 'portfolio-';
 const SIDEBAR_EXPANDED_WIDTH = 270;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'financeapp.sidebar.collapsed';
+const PORTFOLIOS_OPEN_STORAGE_KEY = 'financeapp.sidebar.portfolios.open';
 
 export type PortfolioSection = 'positions' | 'transactions';
 
@@ -36,21 +37,6 @@ export interface AppSidebarProps {
   /** ID of the currently viewed portfolio, if any */
   activePortfolioId?: string | number;
 }
-
-const resolveDefaultOpenKeys = (
-  selectedKeys: string[],
-  activePortfolioId?: string | number,
-  defaultOpenKeys?: string[],
-): string[] => {
-  if (defaultOpenKeys) return defaultOpenKeys;
-  const base: string[] = selectedKeys.some((k) => k.startsWith(PORTFOLIO_KEY_PREFIX))
-    ? ['portfolios']
-    : [];
-  if (activePortfolioId != null) {
-    base.push(`${PORTFOLIO_KEY_PREFIX}${activePortfolioId}`);
-  }
-  return base;
-};
 
 const labelMatches = (label: string, query: string): boolean =>
   !query || label.toLowerCase().includes(query.toLowerCase());
@@ -78,6 +64,20 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
   const [search, setSearch] = useState('');
   const isSidebarCollapsed = !isMobile && collapsed;
 
+  // Controlled portfolios open state: persisted in localStorage.
+  // On first load, default to open when on a portfolio route or when explicitly set.
+  const [portfoliosOpen, setPortfoliosOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return selectedKeys.some((k) => k.startsWith(PORTFOLIO_KEY_PREFIX));
+    }
+    try {
+      const stored = window.localStorage.getItem(PORTFOLIOS_OPEN_STORAGE_KEY);
+      if (stored !== null) return stored === '1';
+    } catch {}
+    // Fall back to route-based detection for first-ever visit
+    return selectedKeys.some((k) => k.startsWith(PORTFOLIO_KEY_PREFIX));
+  });
+
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -85,7 +85,51 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     } catch {}
   }, [collapsed]);
 
-  const resolvedDefaultOpenKeys = resolveDefaultOpenKeys(selectedKeys, activePortfolioId, defaultOpenKeys);
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(PORTFOLIOS_OPEN_STORAGE_KEY, portfoliosOpen ? '1' : '0');
+    } catch {}
+  }, [portfoliosOpen]);
+
+  // Compute controlled open keys: combine user-controlled portfoliosOpen with
+  // route-required keys (active portfolio hierarchy must always be visible).
+  const openKeys = useMemo((): string[] => {
+    const keys: string[] = [];
+    // Always open portfolios when on a portfolio route, or when user has it open.
+    if (portfoliosOpen || activePortfolioId != null) {
+      keys.push('portfolios');
+    }
+    // Keep the specific active portfolio node open.
+    if (activePortfolioId != null) {
+      keys.push(`${PORTFOLIO_KEY_PREFIX}${activePortfolioId}`);
+    }
+    // Honour any externally required keys (e.g. from defaultOpenKeys prop).
+    if (defaultOpenKeys) {
+      for (const k of defaultOpenKeys) {
+        if (!keys.includes(k)) keys.push(k);
+      }
+    }
+    return keys;
+  }, [portfoliosOpen, activePortfolioId, defaultOpenKeys]);
+
+  // Handle submenu open/close changes from Ant Design.
+  // We only care about explicit user toggles of the 'portfolios' key; other
+  // open-key changes (e.g. individual portfolio nodes) are driven by state.
+  const handleMenuOpenChange = useCallback((newOpenKeys: string[]) => {
+    const prevHasPortfolios = openKeys.includes('portfolios');
+    const nextHasPortfolios = newOpenKeys.includes('portfolios');
+    if (prevHasPortfolios && !nextHasPortfolios) {
+      // User explicitly closed the portfolios submenu.
+      // Only allow closing when NOT forced open by active route.
+      if (activePortfolioId == null) {
+        setPortfoliosOpen(false);
+      }
+    } else if (!prevHasPortfolios && nextHasPortfolios) {
+      // User explicitly opened the portfolios submenu.
+      setPortfoliosOpen(true);
+    }
+  }, [openKeys, activePortfolioId]);
 
   const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
     const pid = portfolio.id;
@@ -230,7 +274,8 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
           theme="dark"
           mode="inline"
           inlineIndent={14}
-          defaultOpenKeys={resolvedDefaultOpenKeys}
+          openKeys={isSidebarCollapsed ? [] : openKeys}
+          onOpenChange={handleMenuOpenChange}
           selectedKeys={selectedKeys}
           items={allMenuItems}
           inlineCollapsed={isSidebarCollapsed}
