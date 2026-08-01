@@ -4,6 +4,8 @@
   gap: 14px;
   align-items: flex-start;
   background: #f0f2f5;
+  /* Explicitly row so layout remains correct when Sider is inside sidebar-desktop-wrap */
+  flex-direction: row !important;
 }
 
 .app-workspace.ant-layout {
@@ -96,21 +98,30 @@
   flex: 1 1 auto;
 }
 
+/* Desktop wrapper: holds Sider + external collapse button as a column */
+.sidebar-desktop-wrap {
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
 .sidebar-collapse-btn.ant-btn {
-  margin-left: auto;
+  margin-top: 6px;
   width: 32px;
   height: 32px;
-  color: #fff !important;
-  border: 1px solid rgba(255, 255, 255, 0.82);
+  color: #073f86 !important;
+  border: 1px solid #b0bec5;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: #fff !important;
+  flex-shrink: 0;
 }
 
 .sidebar-collapse-btn.ant-btn:hover,
 .sidebar-collapse-btn.ant-btn:focus-visible {
-  color: #fff !important;
-  border-color: #fff !important;
-  background: rgba(255, 255, 255, 0.2) !important;
+  color: #073f86 !important;
+  border-color: #073f86 !important;
+  background: #e8eaf6 !important;
 }
 
 .sidebar-search-wrap {
@@ -271,13 +282,20 @@
   outline-offset: -2px;
 }
 
+/* Desktop: show the wrapper (Sider + external collapse button) */
+@media (min-width: 768px) {
+  .sidebar-desktop-wrap {
+    display: flex;
+  }
+}
+
 @media (max-width: 767px) {
   .app-shell.ant-layout {
     padding: 0;
     gap: 0;
   }
 
-  .app-sidebar.ant-layout-sider {
+  .sidebar-desktop-wrap {
     display: none !important;
   }
 

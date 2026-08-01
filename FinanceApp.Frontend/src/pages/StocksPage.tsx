@@ -61,32 +61,6 @@ const exchangeOptions: { label: string; value: StockExchange }[] = [
   { label: exchangeLabelByValue.Frankfurt, value: 'Frankfurt' },
 ];
 
-const formatPercent24h = (pct: number): string => {
-  const formatted = pct.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  return pct > 0 ? `+${formatted} %` : `${formatted} %`;
-};
-
-const getPercent24hColor = (pct: number | null | undefined): string | undefined => {
-  if (pct === null || pct === undefined || pct === 0) return undefined;
-  return pct > 0 ? COLOR_POSITIVE : COLOR_NEGATIVE;
-};
-
-const getPercent24hText = (live: LivePriceEntry | undefined): string | null => {
-  if (!live) {
-    return null;
-  }
-
-  if (live.loading) {
-    return '...';
-  }
-
-  if (live.quote?.percentChange === null || live.quote?.percentChange === undefined) {
-    return '—';
-  }
-
-  return formatPercent24h(live.quote.percentChange);
-};
-
 /**
  * A quote is considered "current" when:
  *   - the provider market state is REGULAR;
@@ -109,16 +83,14 @@ export const isQuoteCurrent = (
 
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 320;
-const CURRENT_PRICE_COL_WIDTH = 180;
 const LIVE_PRICE_COL_WIDTH = 240;
 const UPDATED_COL_WIDTH = 170;
-const ACTIONS_COL_WIDTH = 120;
+const ACTIONS_COL_WIDTH = 280;
 const TICKER_META_SPACE_WIDTH = 70;
 const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
   TICKER_COL_WIDTH
   + NAME_COL_WIDTH
-  + CURRENT_PRICE_COL_WIDTH
   + LIVE_PRICE_COL_WIDTH
   + UPDATED_COL_WIDTH
   + ACTIONS_COL_WIDTH;
@@ -199,18 +171,32 @@ const StocksPage: React.FC = () => {
     }
 
     const roundedCurrentPrice = Math.round(quote.currentPriceEur * 100) / 100;
+
+    // Persist absolute change in the same normalized/application currency (EUR).
+    // changeEur is already normalized by the backend conversion service.
+    const currentPriceChange = quote.changeEur != null
+      ? Math.round(quote.changeEur * 10000) / 10000
+      : null;
+    const currentPriceChangePercent = quote.percentChange != null
+      ? Math.round(quote.percentChange * 10000) / 10000
+      : null;
+
     // Use the provider's price timestamp when available; otherwise keep the existing stored time.
     const providerTs = quote.priceTimestampUtc;
     const tsRaw = providerTs ? Date.parse(providerTs) : NaN;
+    const currentPriceAt = isFinite(tsRaw) ? providerTs! : null;
     const updatedAt = isFinite(tsRaw) ? providerTs! : stock.updatedAt;
 
     await updateStock(stock.id, {
       ...stock,
       currentPrice: roundedCurrentPrice,
       updatedAt,
+      currentPriceChange,
+      currentPriceChangePercent,
+      currentPriceAt,
     });
 
-    return { roundedCurrentPrice, updatedAt };
+    return { roundedCurrentPrice, updatedAt, currentPriceChange, currentPriceChangePercent, currentPriceAt };
   }, []);
 
   const handleRefreshPrices = useCallback(async (silent = false) => {
@@ -398,7 +384,14 @@ const StocksPage: React.FC = () => {
         setStocks((prev) =>
           prev.map((s) =>
             s.id === stock.id
-              ? { ...s, currentPrice: persisted.roundedCurrentPrice, updatedAt: persisted.updatedAt }
+              ? {
+                  ...s,
+                  currentPrice: persisted.roundedCurrentPrice,
+                  updatedAt: persisted.updatedAt,
+                  currentPriceChange: persisted.currentPriceChange,
+                  currentPriceChangePercent: persisted.currentPriceChangePercent,
+                  currentPriceAt: persisted.currentPriceAt,
+                }
               : s
           )
         );
@@ -409,7 +402,7 @@ const StocksPage: React.FC = () => {
     }
   };
 
-  const TOTAL_COLS = 6;
+  const TOTAL_COLS = 5;
 
   const columns = [
     {
@@ -506,32 +499,7 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Текущая цена (€)',
-      dataIndex: 'currentPrice',
-      key: 'currentPrice',
-      width: CURRENT_PRICE_COL_WIDTH,
-      render: (v: number, record: TableRow) => {
-        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const stock = record as Stock;
-        const live = livePrices[stock.id];
-        const pct = live?.quote?.percentChange;
-        const pctColor = getPercent24hColor(pct);
-        const displayPrice = live?.quote?.currentPriceEur ?? v;
-        const percentText = getPercent24hText(live);
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ whiteSpace: 'nowrap' }}>€{displayPrice.toFixed(2)}</span>
-            {percentText && (
-              <span style={{ color: pctColor, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {percentText}
-              </span>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      title: 'Цена',
+      title: 'Обновление',
       key: 'livePrice',
       width: LIVE_PRICE_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
@@ -579,14 +547,12 @@ const StocksPage: React.FC = () => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         const live = livePrices[stock.id];
-        // Once a live quote has been fetched, display the provider timestamp.
-        // Before any fetch, fall back to the stored updatedAt for backward compatibility.
-        if (live !== undefined) {
-          const ts = live.quote?.priceTimestampUtc;
-          if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
-          return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm')}</span>;
-        }
-        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(stock.updatedAt).local().format('DD.MM.YYYY HH:mm')}</span>;
+        // Prefer live quote provider timestamp when a quote was fetched this session.
+        // Fall back to the persisted currentPriceAt from the database.
+        // Do NOT fall back to updatedAt or request time.
+        const ts = live?.quote?.priceTimestampUtc ?? stock.currentPriceAt ?? null;
+        if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
+        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm')}</span>;
       },
     },
     {
@@ -596,26 +562,61 @@ const StocksPage: React.FC = () => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
+
+        // Determine persisted price and change to display.
+        // Prefer values updated in this session (reflected in local stock state after persist),
+        // which fall back to what was loaded from the database.
+        const savedPrice = stock.currentPrice;
+        const savedChange = stock.currentPriceChange ?? null;
+        const savedChangePct = stock.currentPriceChangePercent ?? null;
+
+        const changeColor = savedChange == null
+          ? undefined
+          : savedChange > 0 ? COLOR_POSITIVE : savedChange < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+
+        const formatEur = (v: number) =>
+          v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formatChange = (v: number) =>
+          (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const formatPct = (v: number) =>
+          (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+
         return (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-            <Tooltip title="Изменить">
-              <Button
-                icon={<EditOutlined />}
-                size="small"
-                aria-label="Изменить"
-                onClick={() => openEditModal(stock)}
-              />
-            </Tooltip>
-            <Popconfirm
-              title="Удалить акцию?"
-              onConfirm={() => handleDelete(stock.id)}
-              okText="Да"
-              cancelText="Нет"
-            >
-              <Tooltip title="Удалить">
-                <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* Persisted saved price + change block – no separate column heading */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+                €{formatEur(savedPrice)}
+              </span>
+              {savedChange != null && savedChangePct != null ? (
+                <span style={{ color: changeColor, whiteSpace: 'nowrap', fontSize: 12 }}>
+                  {formatChange(savedChange)} ({formatPct(savedChangePct)})
+                </span>
+              ) : (
+                <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap', fontSize: 12 }}>—</span>
+              )}
+            </div>
+            {/* Edit / Delete actions */}
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <Tooltip title="Изменить">
+                <Button
+                  icon={<EditOutlined />}
+                  size="small"
+                  aria-label="Изменить"
+                  onClick={() => openEditModal(stock)}
+                />
               </Tooltip>
-            </Popconfirm>
+              <Popconfirm
+                title="Удалить акцию?"
+                onConfirm={() => handleDelete(stock.id)}
+                okText="Да"
+                cancelText="Нет"
+              >
+                <Tooltip title="Удалить">
+                  <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+                </Tooltip>
+              </Popconfirm>
+            </div>
           </div>
         );
       },

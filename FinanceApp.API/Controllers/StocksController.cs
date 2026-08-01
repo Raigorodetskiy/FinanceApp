@@ -160,11 +160,28 @@ public class StocksController : ControllerBase
         existing.Name = stock.Name;
         existing.CommonName = stock.CommonName;
         existing.Exchange = stock.Exchange;
-        existing.CurrentPrice = stock.CurrentPrice;
         existing.Wkn = stock.Wkn;
         existing.Isin = stock.Isin;
         existing.FinanzenNetSlug = stock.FinanzenNetSlug;
         existing.UpdatedAt = DateTime.UtcNow;
+
+        // When a caller supplies a full quote snapshot (change + timestamp), persist it atomically.
+        // When only the price changes (manual edit from the form), clear stale snapshot fields so
+        // the UI never shows outdated change/timestamp alongside a manually entered price.
+        if (stock.CurrentPriceChange.HasValue || stock.CurrentPriceChangePercent.HasValue || stock.CurrentPriceAt.HasValue)
+        {
+            existing.CurrentPrice = stock.CurrentPrice;
+            existing.CurrentPriceChange = stock.CurrentPriceChange;
+            existing.CurrentPriceChangePercent = stock.CurrentPriceChangePercent;
+            existing.CurrentPriceAt = stock.CurrentPriceAt;
+        }
+        else
+        {
+            existing.CurrentPrice = stock.CurrentPrice;
+            existing.CurrentPriceChange = null;
+            existing.CurrentPriceChangePercent = null;
+            existing.CurrentPriceAt = null;
+        }
 
         try
         {
