@@ -12,19 +12,22 @@ import {
   MenuUnfoldOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { Button, Drawer, Input, Layout, Menu, Tooltip } from 'antd';
+import { Button, Drawer, Grid, Input, Layout, Menu, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import type { Portfolio } from '../types';
 import './AppSidebar.css';
 
 const { Sider } = Layout;
+const { useBreakpoint } = Grid;
 const PORTFOLIO_KEY_PREFIX = 'portfolio-';
-const SIDEBAR_EXPANDED_WIDTH = 260;
+const SIDEBAR_EXPANDED_WIDTH = 270;
+const SIDEBAR_COLLAPSED_WIDTH = 64;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'financeapp.sidebar.collapsed';
 
 export type PortfolioSection = 'positions' | 'transactions';
 
-interface AppSidebarProps {
+export interface AppSidebarProps {
   portfolios: Portfolio[];
   selectedKeys: string[];
   userName?: string;
@@ -61,9 +64,26 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
   activePortfolioId,
 }) => {
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const isSidebarCollapsed = !isMobile && collapsed;
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
+    } catch {}
+  }, [collapsed]);
 
   const resolvedDefaultOpenKeys = resolveDefaultOpenKeys(selectedKeys, activePortfolioId, defaultOpenKeys);
 
@@ -184,19 +204,20 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       {/* Brand header */}
       <div className="sidebar-brand">
         <span className="sidebar-brand-icon">💹</span>
-        {!collapsed && <span className="sidebar-brand-text">FinanceApp</span>}
-        <Button
-          type="text"
-          size="small"
-          className="sidebar-collapse-btn"
-          icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-          onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Развернуть панель' : 'Свернуть панель'}
-        />
+        {!isSidebarCollapsed && <span className="sidebar-brand-text">FinanceApp</span>}
+        {!isMobile && (
+          <Button
+            type="text"
+            className="sidebar-collapse-btn"
+            icon={isSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={isSidebarCollapsed ? 'Развернуть панель' : 'Свернуть панель'}
+          />
+        )}
       </div>
 
       {/* Search */}
-      {!collapsed && (
+      {!isSidebarCollapsed && (
         <div className="sidebar-search-wrap">
           <Input
             size="small"
@@ -221,7 +242,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
           defaultOpenKeys={resolvedDefaultOpenKeys}
           selectedKeys={selectedKeys}
           items={allMenuItems}
-          inlineCollapsed={collapsed}
+          inlineCollapsed={isSidebarCollapsed}
         />
       </div>
 
@@ -234,7 +255,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
           inlineIndent={14}
           selectedKeys={[]}
           items={bottomItems}
-          inlineCollapsed={collapsed}
+          inlineCollapsed={isSidebarCollapsed}
         />
       </div>
     </div>
@@ -246,12 +267,12 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       <Sider
         className="app-sidebar"
         width={SIDEBAR_EXPANDED_WIDTH}
-        collapsedWidth={56}
-        collapsed={collapsed}
+        collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
+        collapsed={isSidebarCollapsed}
         collapsible={false}
         breakpoint="md"
         onBreakpoint={(broken) => {
-          if (broken) setCollapsed(true);
+          if (broken) setMobileOpen(false);
         }}
       >
         {sidebarContent}
@@ -268,11 +289,17 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
 
       {/* Mobile drawer */}
       <Drawer
+        rootClassName="app-sidebar-drawer"
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
         placement="left"
         width={SIDEBAR_EXPANDED_WIDTH}
-        styles={{ body: { padding: 0, background: '#1a2c4e' }, header: { display: 'none' } }}
+        title="FinanceApp"
+        styles={{
+          body: { padding: 0, background: '#073f86' },
+          header: { background: '#073f86', borderBottom: '1px solid rgba(255, 255, 255, 0.16)' },
+          content: { background: '#073f86' },
+        }}
         aria-label="Мобильная навигация"
       >
         {sidebarContent}

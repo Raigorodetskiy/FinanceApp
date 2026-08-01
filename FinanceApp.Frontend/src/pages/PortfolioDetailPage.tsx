@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Layout,
   Table,
   Button,
   Modal,
@@ -51,7 +50,7 @@ import {
   updateTransaction,
   deleteTransaction,
 } from '../services/api';
-import AppSidebar from '../components/AppSidebar';
+import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
 import type {
@@ -68,7 +67,6 @@ import type {
 
 dayjs.extend(utc);
 
-const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 type PositionChartRow = { _isPositionChartRow: true; _itemId: number; _stockId: number };
@@ -687,23 +685,21 @@ const PortfolioDetailPage: React.FC = () => {
   }, [sortedItems, expandedPositionId]);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <AppSidebar
+    <>
+      <AuthenticatedShell
         portfolios={portfolios}
         selectedKeys={[sectionKey]}
         userName={user?.username}
         onLogout={logout}
         defaultOpenKeys={sidebarOpenKeys}
         activePortfolioId={id}
-      />
-      <Layout style={{ background: '#f0f2f5' }}>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+        headerLeft={(
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>Назад</Button>
             <Title level={4} style={{ margin: 0 }}>{portfolio?.name ?? 'Портфель'}</Title>
           </div>
-        </Header>
-        <Content style={{ padding: 24 }}>
+        )}
+      >
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin size="large" /></div>
           ) : (
@@ -957,8 +953,7 @@ const PortfolioDetailPage: React.FC = () => {
               )}
             </>
           )}
-        </Content>
-      </Layout>
+      </AuthenticatedShell>
 
       {/* Position Modal */}
       <Modal
@@ -1099,7 +1094,7 @@ const PortfolioDetailPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </Layout>
+    </>
   );
 };
 

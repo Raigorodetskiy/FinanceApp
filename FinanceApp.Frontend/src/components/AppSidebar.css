@@ -1,135 +1,166 @@
-/* ── App Sidebar – Webmin-inspired compact dark-blue navigation ─── */
+.app-shell.ant-layout {
+  min-height: 100vh;
+  padding: 12px;
+  gap: 14px;
+  align-items: flex-start;
+  background: #f0f2f5;
+}
 
-/* ── Ant Design Sider overrides ─────────────────────────────────── */
+.app-workspace.ant-layout {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #fff;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.app-workspace-header.ant-layout-header {
+  height: 64px;
+  line-height: 64px;
+  padding: 0 24px;
+  background: #fff;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-workspace-header-left,
+.app-workspace-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-workspace-content.ant-layout-content {
+  min-width: 0;
+  padding: 24px;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: #fff;
+}
 
 .app-sidebar.ant-layout-sider {
-  background: #1a2c4e !important;
-  overflow: hidden;
+  background: #073f86 !important;
+  align-self: flex-start;
+  height: auto !important;
+  max-height: calc(100vh - 24px);
+  border-radius: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 0 6px 20px rgba(7, 36, 78, 0.28);
 }
 
 .app-sidebar .ant-layout-sider-children {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
+  display: block;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
 }
-
-/* ── Inner layout ──────────────────────────────────────────────── */
 
 .sidebar-inner {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: auto;
+  max-height: inherit;
   overflow: hidden;
-  background: #1a2c4e;
+  background: #073f86;
 }
-
-/* ── Brand / Header area ────────────────────────────────────────── */
 
 .sidebar-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 13px 12px 11px;
-  background: #142240;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  min-height: 52px;
-  flex-shrink: 0;
+  padding: 12px;
+  min-height: 56px;
+  background: #063774;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .sidebar-brand-icon {
   font-size: 20px;
-  flex-shrink: 0;
   line-height: 1;
 }
 
 .sidebar-brand-text {
-  color: #e8eef8;
+  color: #fff;
   font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1 1 auto;
 }
 
-.sidebar-collapse-btn {
-  flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.55) !important;
+.sidebar-collapse-btn.ant-btn {
   margin-left: auto;
-}
-
-.sidebar-collapse-btn:hover {
+  width: 32px;
+  height: 32px;
   color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
-/* ── Search ────────────────────────────────────────────────────── */
+.sidebar-collapse-btn.ant-btn:hover,
+.sidebar-collapse-btn.ant-btn:focus-visible {
+  color: #fff !important;
+  border-color: #fff !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+}
 
 .sidebar-search-wrap {
-  padding: 8px 10px 4px;
+  padding: 10px 10px 6px;
   flex-shrink: 0;
 }
 
 .sidebar-search.ant-input-affix-wrapper {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: transparent !important;
-  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  border-radius: 8px;
 }
 
 .sidebar-search.ant-input-affix-wrapper:hover,
 .sidebar-search.ant-input-affix-wrapper:focus-within {
-  border-color: rgba(110, 168, 255, 0.5) !important;
-  background: rgba(255, 255, 255, 0.11) !important;
+  border-color: #7cc5ff !important;
+  background: rgba(255, 255, 255, 0.18) !important;
 }
 
-.sidebar-search .ant-input {
-  background: transparent !important;
-  color: #d8e4f4 !important;
-  font-size: 13px;
-}
-
-.sidebar-search .ant-input::placeholder {
-  color: rgba(200, 215, 240, 0.45) !important;
-}
-
-.sidebar-search-icon {
-  color: rgba(200, 215, 240, 0.5) !important;
-}
-
+.sidebar-search .ant-input,
+.sidebar-search .ant-input::placeholder,
+.sidebar-search-icon,
 .sidebar-search .ant-input-clear-icon {
-  color: rgba(200, 215, 240, 0.5) !important;
+  color: #fff !important;
+  font-weight: 500;
 }
-
-/* ── Nav scroll area ────────────────────────────────────────────── */
 
 .sidebar-nav-scroll {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow-y: auto;
   overflow-x: hidden;
+  max-height: calc(100vh - 230px);
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
 }
 
 .sidebar-nav-scroll::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
 }
 
 .sidebar-nav-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
 }
-
-/* ── Bottom account area ────────────────────────────────────────── */
 
 .sidebar-bottom {
   flex-shrink: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  padding: 4px 0;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
-
-/* ── Shared menu overrides ──────────────────────────────────────── */
 
 .sidebar-menu.ant-menu {
   background: transparent !important;
@@ -139,27 +170,39 @@
 
 .sidebar-menu .ant-menu-item,
 .sidebar-menu .ant-menu-submenu-title {
+  position: relative;
   height: 36px !important;
   line-height: 36px !important;
-  margin: 1px 6px !important;
-  width: calc(100% - 12px) !important;
-  border-radius: 6px !important;
-  color: rgba(220, 232, 255, 0.82) !important;
+  margin: 2px 7px !important;
+  width: calc(100% - 14px) !important;
+  border-radius: 8px !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.sidebar-menu .ant-menu-title-content,
+.sidebar-menu .ant-menu-item .anticon,
+.sidebar-menu .ant-menu-submenu-title .anticon,
+.sidebar-menu .ant-menu-submenu-arrow {
+  color: #fff !important;
+}
+
+.sidebar-menu .ant-menu-submenu-arrow {
+  opacity: 0.95;
 }
 
 .sidebar-menu .ant-menu-item:hover,
 .sidebar-menu .ant-menu-submenu-title:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: #e8eef8 !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #fff !important;
 }
 
-/* Selected item */
 .sidebar-menu .ant-menu-item-selected {
-  background: rgba(64, 130, 210, 0.28) !important;
-  color: #a8d0ff !important;
+  background: rgba(138, 196, 255, 0.28) !important;
+  color: #fff !important;
+  font-weight: 700;
 }
 
-/* Selected indicator line on the left – replaces Ant Design's default right border */
 .sidebar-menu .ant-menu-item-selected::before {
   content: '';
   position: absolute;
@@ -168,67 +211,38 @@
   bottom: 6px;
   width: 3px;
   border-radius: 3px;
-  background: #4d9fff;
+  background: #42c9ff;
 }
 
 .sidebar-menu .ant-menu-item-selected::after {
   display: none !important;
 }
 
-/* Icon colors */
-.sidebar-menu .ant-menu-item .anticon,
-.sidebar-menu .ant-menu-submenu-title .anticon {
-  color: rgba(180, 205, 245, 0.7) !important;
-}
-
-.sidebar-menu .ant-menu-item-selected .anticon,
-.sidebar-menu .ant-menu-item:hover .anticon,
-.sidebar-menu .ant-menu-submenu-title:hover .anticon {
-  color: #a8d0ff !important;
-}
-
-/* Sub-menu background */
 .sidebar-menu .ant-menu-sub {
-  background: rgba(0, 0, 0, 0.15) !important;
+  background: rgba(3, 25, 56, 0.34) !important;
 }
 
-.sidebar-menu .ant-menu-submenu-arrow {
-  color: rgba(180, 205, 245, 0.5) !important;
+.sidebar-menu .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  font-weight: 700;
 }
-
-/* ── Portfolio node labels (truncate) ────────────────────────────── */
 
 .sidebar-node-label {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 140px;
+  max-width: 145px;
 }
 
-/* ── Leaf section items (selected state) ─────────────────────────── */
-
-.sidebar-menu .sidebar-leaf-item.ant-menu-item-selected {
-  background: rgba(64, 130, 210, 0.32) !important;
-}
-
-/* ── Logout item ─────────────────────────────────────────────────── */
-
+.sidebar-menu .sidebar-logout-item,
 .sidebar-menu .sidebar-logout-item .ant-menu-title-content,
-.sidebar-menu .sidebar-logout-item {
-  color: #ff7a7a !important;
+.sidebar-menu .sidebar-logout-item .anticon {
+  color: #fff !important;
 }
 
 .sidebar-menu .sidebar-logout-item:hover {
-  background: rgba(255, 80, 80, 0.12) !important;
-  color: #ff9999 !important;
+  background: rgba(255, 255, 255, 0.14) !important;
 }
-
-.sidebar-menu .sidebar-logout-item .anticon {
-  color: #ff7a7a !important;
-}
-
-/* ── Mobile toggle button ────────────────────────────────────────── */
 
 .sidebar-mobile-toggle {
   display: none !important;
@@ -236,30 +250,48 @@
   top: 10px;
   left: 10px;
   z-index: 200;
-  background: #1a2c4e !important;
-  color: #a8d0ff !important;
-  border: 1px solid rgba(110, 168, 255, 0.35) !important;
-  border-radius: 6px !important;
+  background: #073f86 !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-radius: 10px !important;
 }
 
-/* ── Responsive: hide sidebar on mobile, show drawer toggle ─────── */
+.app-sidebar-drawer .ant-drawer-header-title,
+.app-sidebar-drawer .ant-drawer-close,
+.app-sidebar-drawer .ant-drawer-title {
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.sidebar-menu .ant-menu-item:focus-visible,
+.sidebar-menu .ant-menu-submenu-title:focus-visible,
+.sidebar-collapse-btn.ant-btn:focus-visible,
+.sidebar-mobile-toggle:focus-visible {
+  outline: 2px solid #42c9ff;
+  outline-offset: -2px;
+}
 
 @media (max-width: 767px) {
+  .app-shell.ant-layout {
+    padding: 0;
+    gap: 0;
+  }
+
   .app-sidebar.ant-layout-sider {
     display: none !important;
   }
 
   .sidebar-mobile-toggle {
-    display: flex !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-workspace-header.ant-layout-header {
+    padding-left: 56px;
+  }
+
+  .app-workspace-content.ant-layout-content {
+    padding: 16px;
   }
 }
-
-/* ── Focus visible for keyboard navigation ───────────────────────── */
-
-.sidebar-menu .ant-menu-item:focus-visible,
-.sidebar-menu .ant-menu-submenu-title:focus-visible {
-  outline: 2px solid #4d9fff;
-  outline-offset: -2px;
-}
-
-
