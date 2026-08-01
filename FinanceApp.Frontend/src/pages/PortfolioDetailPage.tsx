@@ -611,7 +611,7 @@ const PortfolioDetailPage: React.FC = () => {
             </Tooltip>
             <Popconfirm title="Удалить позицию?" onConfirm={() => handleDeleteItem(r.id)} okText="Да" cancelText="Нет">
               <Tooltip title="Удалить">
-                <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+                <Button icon={<DeleteOutlined />} size="small" aria-label="Удалить" />
               </Tooltip>
             </Popconfirm>
           </div>
@@ -643,7 +643,7 @@ const PortfolioDetailPage: React.FC = () => {
         <div style={{ display: 'flex', gap: 8 }}>
           <Button icon={<EditOutlined />} size="small" onClick={() => openEditOrderModal(r)}>Изменить</Button>
           <Popconfirm title="Удалить ордер?" onConfirm={() => handleDeleteOrder(r.id)} okText="Да" cancelText="Нет">
-            <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+            <Button icon={<DeleteOutlined />} size="small">Удалить</Button>
           </Popconfirm>
         </div>
       ),
@@ -663,7 +663,7 @@ const PortfolioDetailPage: React.FC = () => {
       title: 'Удалить', key: 'delete',
       render: (_: unknown, r: Order) => (
         <Popconfirm title="Удалить ордер?" onConfirm={() => handleDeleteOrder(r.id)} okText="Да" cancelText="Нет">
-          <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
+          <Button icon={<DeleteOutlined />} size="small">Удалить</Button>
         </Popconfirm>
       ),
     },
@@ -938,7 +938,6 @@ const PortfolioDetailPage: React.FC = () => {
                                   <Button
                                     icon={<DeleteOutlined />}
                                     size="small"
-                                    danger
                                     aria-label="Удалить транзакцию"
                                   />
                                 </Tooltip>

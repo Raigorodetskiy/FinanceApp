@@ -610,7 +610,7 @@ const StocksPage: React.FC = () => {
               cancelText="Нет"
             >
               <Tooltip title="Удалить">
-                <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+                <Button icon={<DeleteOutlined />} size="small" aria-label="Удалить" />
               </Tooltip>
             </Popconfirm>
           </div>
