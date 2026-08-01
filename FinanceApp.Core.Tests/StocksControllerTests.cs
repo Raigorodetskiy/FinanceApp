@@ -149,6 +149,148 @@ public class StocksControllerTests
         Assert.Equal("APC.F", persisted.Ticker);
     }
 
+    [Fact]
+    public async Task Update_WithQuoteSnapshot_PersistsChangeAndTimestampAtomically()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 1,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple Inc.",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 190m,
+            UpdatedAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var providerTs = new DateTime(2026, 8, 1, 14, 30, 0, DateTimeKind.Utc);
+        var controller = CreateController(context);
+
+        var result = await controller.Update(existing.Id, new Stock
+        {
+            Id = existing.Id,
+            Ticker = existing.Ticker,
+            Name = existing.Name,
+            CommonName = existing.CommonName,
+            Exchange = existing.Exchange,
+            CurrentPrice = 195.40m,
+            UpdatedAt = providerTs,
+            CurrentPriceChange = 3.15m,
+            CurrentPriceChangePercent = 1.30m,
+            CurrentPriceAt = providerTs,
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(195.40m, persisted.CurrentPrice);
+        Assert.Equal(3.15m, persisted.CurrentPriceChange);
+        Assert.Equal(1.30m, persisted.CurrentPriceChangePercent);
+        Assert.Equal(providerTs, persisted.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task Update_ManualPriceEdit_ClearsStaleSnapshotFields()
+    {
+        await using var context = CreateContext();
+        var providerTs = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        var existing = new Stock
+        {
+            Id = 2,
+            Ticker = "MSFT",
+            Name = "Microsoft Corporation",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 420m,
+            UpdatedAt = providerTs,
+            CurrentPriceChange = 5m,
+            CurrentPriceChangePercent = 1.2m,
+            CurrentPriceAt = providerTs,
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+
+        // Simulate a manual price edit: no snapshot fields supplied
+        var result = await controller.Update(existing.Id, new Stock
+        {
+            Id = existing.Id,
+            Ticker = existing.Ticker,
+            Name = existing.Name,
+            CommonName = existing.CommonName,
+            Exchange = existing.Exchange,
+            CurrentPrice = 400m,
+            UpdatedAt = DateTime.UtcNow,
+            // CurrentPriceChange / CurrentPriceChangePercent / CurrentPriceAt intentionally omitted
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(400m, persisted.CurrentPrice);
+        // Stale snapshot fields must be cleared to avoid showing outdated change/timestamp
+        Assert.Null(persisted.CurrentPriceChange);
+        Assert.Null(persisted.CurrentPriceChangePercent);
+        Assert.Null(persisted.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task Create_NewStock_HasNullSnapshotFields()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "GOOG",
+            Name = "Alphabet Inc.",
+            CommonName = "Google",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 185m,
+        });
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var stock = Assert.IsType<Stock>(created.Value);
+
+        Assert.Null(stock.CurrentPriceChange);
+        Assert.Null(stock.CurrentPriceChangePercent);
+        Assert.Null(stock.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task ExistingStockRows_RemainValidAfterModelUpdate()
+    {
+        // Verifies backward compatibility: rows without snapshot fields are still valid
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 99,
+            Ticker = "IBM",
+            Name = "IBM Corp",
+            CommonName = "IBM",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 130m,
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            // Snapshot fields are null (as they would be for existing rows before migration)
+            CurrentPriceChange = null,
+            CurrentPriceChangePercent = null,
+            CurrentPriceAt = null,
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var loaded = await context.Stocks.FindAsync(99);
+        Assert.NotNull(loaded);
+        Assert.Equal(130m, loaded.CurrentPrice);
+        Assert.Null(loaded.CurrentPriceChange);
+        Assert.Null(loaded.CurrentPriceChangePercent);
+        Assert.Null(loaded.CurrentPriceAt);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

@@ -21,4 +21,25 @@ public class Stock
     /// Null means the stock is not mapped to a finanzen.net instrument.
     /// </summary>
     public string? FinanzenNetSlug { get; set; }
+
+    /// <summary>
+    /// Absolute daily change of <see cref="CurrentPrice"/> in the application/normalized currency
+    /// (e.g. EUR). Null when not yet populated or unavailable from the provider.
+    /// </summary>
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal? CurrentPriceChange { get; set; }
+
+    /// <summary>
+    /// Percentage daily change corresponding to <see cref="CurrentPrice"/>.
+    /// Null when not yet populated or unavailable from the provider.
+    /// </summary>
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal? CurrentPriceChangePercent { get; set; }
+
+    /// <summary>
+    /// UTC timestamp of the price as reported by the quote provider.
+    /// Null when not yet populated. Distinct from <see cref="UpdatedAt"/>,
+    /// which records when the row was last written to the database.
+    /// </summary>
+    public DateTime? CurrentPriceAt { get; set; }
 }

@@ -205,15 +205,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       <div className="sidebar-brand">
         <span className="sidebar-brand-icon">💹</span>
         {!isSidebarCollapsed && <span className="sidebar-brand-text">FinanceApp</span>}
-        {!isMobile && (
-          <Button
-            type="text"
-            className="sidebar-collapse-btn"
-            icon={isSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={isSidebarCollapsed ? 'Развернуть панель' : 'Свернуть панель'}
-          />
-        )}
       </div>
 
       {/* Search */}
@@ -263,20 +254,35 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
 
   return (
     <>
-      {/* Desktop sidebar via Ant Design Sider for proper Layout integration */}
-      <Sider
-        className="app-sidebar"
-        width={SIDEBAR_EXPANDED_WIDTH}
-        collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
-        collapsed={isSidebarCollapsed}
-        collapsible={false}
-        breakpoint="md"
-        onBreakpoint={(broken) => {
-          if (broken) setMobileOpen(false);
-        }}
+      {/* Desktop: Sider + external collapse button, wrapped together on the gray shell background */}
+      <div
+        className={`sidebar-desktop-wrap${isSidebarCollapsed ? ' sidebar-desktop-wrap--collapsed' : ''}`}
+        aria-hidden={isMobile}
       >
-        {sidebarContent}
-      </Sider>
+        <Sider
+          className="app-sidebar"
+          width={SIDEBAR_EXPANDED_WIDTH}
+          collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
+          collapsed={isSidebarCollapsed}
+          collapsible={false}
+          breakpoint="md"
+          onBreakpoint={(broken) => {
+            if (broken) setMobileOpen(false);
+          }}
+        >
+          {sidebarContent}
+        </Sider>
+        {/* External collapse/expand button – below the blue panel, on the gray background */}
+        {!isMobile && (
+          <Button
+            type="default"
+            className="sidebar-collapse-btn"
+            icon={isSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={isSidebarCollapsed ? 'Развернуть панель' : 'Свернуть панель'}
+          />
+        )}
+      </div>
 
       {/* Mobile hamburger – only visible on small screens */}
       <Button

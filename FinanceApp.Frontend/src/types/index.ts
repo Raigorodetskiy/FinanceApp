@@ -40,6 +40,12 @@ export interface Stock {
   isin?: string | null;
   /** Optional finanzen.net instrument slug (e.g. "microsoft-aktie"). Used for experimental pre-market enrichment. */
   finanzenNetSlug?: string | null;
+  /** Persisted absolute daily change in the application currency (EUR). Null when unavailable. */
+  currentPriceChange?: number | null;
+  /** Persisted percentage daily change. Null when unavailable. */
+  currentPriceChangePercent?: number | null;
+  /** UTC timestamp of the price as reported by the quote provider. Null when unavailable. */
+  currentPriceAt?: string | null;
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
@@ -222,6 +228,12 @@ export interface UpdateStockRequest {
   wkn?: string | null;
   isin?: string | null;
   finanzenNetSlug?: string | null;
+  /** Persisted absolute daily change in normalized/application currency. Null when unavailable. */
+  currentPriceChange?: number | null;
+  /** Persisted percentage daily change. Null when unavailable. */
+  currentPriceChangePercent?: number | null;
+  /** UTC timestamp of the price from the quote provider. Null when unavailable. */
+  currentPriceAt?: string | null;
 }
 
 export interface CreateOrderRequest {
