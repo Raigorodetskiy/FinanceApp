@@ -21,6 +21,7 @@ import type {
   UpdateOrderRequest,
   CreateTransactionRequest,
   UpdateTransactionRequest,
+  UpdatePortfolioBalanceRequest,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://173.249.42.11:5000/api';
@@ -101,6 +102,8 @@ export const getEurUsdRate = () =>
 // Finance
 export const getBalance = (portfolioId: number) =>
   api.get<PortfolioBalance>(`/Portfolios/${portfolioId}/finance/balance`);
+export const updateBalance = (portfolioId: number, data: UpdatePortfolioBalanceRequest) =>
+  api.put<PortfolioBalance>(`/Portfolios/${portfolioId}/finance/balance`, data);
 export const getTransactions = (portfolioId: number) =>
   api.get<Transaction[]>(`/Portfolios/${portfolioId}/finance/transactions`);
 export const createTransaction = (portfolioId: number, data: CreateTransactionRequest) =>

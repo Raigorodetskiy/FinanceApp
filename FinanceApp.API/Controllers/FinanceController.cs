@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using FinanceApp.Data.Data;
 using FinanceApp.Core.Models;
 using System.Security.Claims;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace FinanceApp.API.Controllers;
@@ -32,26 +33,33 @@ public class FinanceController : ControllerBase
             .FirstOrDefaultAsync(p => p.Id == portfolioId);
         if (portfolio == null) return NotFound();
 
-        var transactions = await _context.Transactions
-            .Where(t => t.PortfolioId == portfolioId)
-            .ToListAsync();
+        var transactionCashBalance = await GetTransactionCashBalance(portfolioId);
+        var cashBalance = transactionCashBalance + portfolio.CashBalanceAdjustment;
 
-        var cashBalance = transactions
-            .Sum(t => t.GetEffectiveSignedAmount());
+        return Ok(BuildBalance(portfolio, cashBalance));
+    }
 
-        var stocksValue = portfolio.Items
-            .Sum(i => i.Stock.CurrentPrice * i.Quantity);
+    [HttpPut("balance")]
+    public async Task<ActionResult<PortfolioBalance>> UpdateBalance(int portfolioId, UpdatePortfolioBalanceDto dto)
+    {
+        if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
 
-        var balance = new PortfolioBalance
-        {
-            CashBalance = cashBalance,
-            BrokerCredit = portfolio.BrokerCredit,
-            TotalBalance = cashBalance + portfolio.BrokerCredit,
-            StocksValue = stocksValue,
-            TotalPortfolioValue = stocksValue + cashBalance,
-        };
+        var portfolio = await _context.Portfolios
+            .Include(p => p.Items)
+            .ThenInclude(i => i.Stock)
+            .FirstOrDefaultAsync(p => p.Id == portfolioId);
+        if (portfolio == null) return NotFound();
 
-        return Ok(balance);
+        var transactionCashBalance = await GetTransactionCashBalance(portfolioId);
+        var normalizedCashBalance = NormalizeMoney(dto.CashBalance);
+        var normalizedBrokerCredit = NormalizeMoney(dto.BrokerCredit);
+
+        portfolio.CashBalanceAdjustment = normalizedCashBalance - transactionCashBalance;
+        portfolio.BrokerCredit = normalizedBrokerCredit;
+
+        await _context.SaveChangesAsync();
+
+        return Ok(BuildBalance(portfolio, normalizedCashBalance));
     }
 
     [HttpGet("transactions")]
@@ -70,14 +78,8 @@ public class FinanceController : ControllerBase
     {
         if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
 
-        // Validate stock for types that require it
-        if (dto.Type is TransactionType.Buy or TransactionType.Sell or TransactionType.Dividend)
-        {
-            if (dto.StockId == null)
-                return BadRequest("StockId is required for Buy, Sell, and Dividend transactions.");
-            if (!await _context.Stocks.AnyAsync(s => s.Id == dto.StockId))
-                return BadRequest("Stock not found.");
-        }
+        var validationError = await ValidateTransactionAsync(dto.Amount, dto.StockId, dto.CreatedAt);
+        if (validationError != null) return validationError;
 
         // Derive signed amount from type (enforced server-side, positive user amount)
         var signedAmount = TransactionDirection.DeriveSignedAmount(dto.Type, dto.Amount);
@@ -90,7 +92,7 @@ public class FinanceController : ControllerBase
             SignedAmount = signedAmount,
             StockId = dto.StockId,
             Description = dto.Description,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = NormalizeClientDateTime(dto.CreatedAt),
         };
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync();
@@ -114,13 +116,8 @@ public class FinanceController : ControllerBase
         if (transaction.OrderId.HasValue)
             return BadRequest("Order-linked transactions cannot be edited directly.");
 
-        if (dto.Type is TransactionType.Buy or TransactionType.Sell or TransactionType.Dividend)
-        {
-            if (dto.StockId == null)
-                return BadRequest("StockId is required for Buy, Sell, and Dividend transactions.");
-            if (!await _context.Stocks.AnyAsync(s => s.Id == dto.StockId))
-                return BadRequest("Stock not found.");
-        }
+        var validationError = await ValidateTransactionAsync(dto.Amount, dto.StockId, dto.CreatedAt);
+        if (validationError != null) return validationError;
 
         var signedAmount = TransactionDirection.DeriveSignedAmount(dto.Type, dto.Amount);
 
@@ -129,6 +126,7 @@ public class FinanceController : ControllerBase
         transaction.SignedAmount = signedAmount;
         transaction.StockId = dto.StockId;
         transaction.Description = dto.Description;
+        transaction.CreatedAt = NormalizeClientDateTime(dto.CreatedAt);
 
         await _context.SaveChangesAsync();
 
@@ -149,6 +147,61 @@ public class FinanceController : ControllerBase
         await _context.SaveChangesAsync();
         return NoContent();
     }
+
+    private async Task<decimal> GetTransactionCashBalance(int portfolioId)
+    {
+        var transactions = await _context.Transactions
+            .Where(t => t.PortfolioId == portfolioId)
+            .ToListAsync();
+
+        return transactions.Sum(t => t.GetEffectiveSignedAmount());
+    }
+
+    private PortfolioBalance BuildBalance(Portfolio portfolio, decimal cashBalance)
+    {
+        var stocksValue = portfolio.Items.Sum(i => i.Stock.CurrentPrice * i.Quantity);
+        var totalBalance = cashBalance + portfolio.BrokerCredit;
+
+        return new PortfolioBalance
+        {
+            CashBalance = cashBalance,
+            BrokerCredit = portfolio.BrokerCredit,
+            TotalBalance = totalBalance,
+            StocksValue = stocksValue,
+            TotalPortfolioValue = stocksValue + totalBalance,
+        };
+    }
+
+    private async Task<ActionResult?> ValidateTransactionAsync(
+        decimal amount,
+        int? stockId,
+        DateTime createdAt)
+    {
+        if (amount <= 0)
+            return BadRequest("Amount must be greater than zero.");
+
+        if (createdAt == default)
+            return BadRequest("CreatedAt is required.");
+
+        if (stockId.HasValue && !await _context.Stocks.AnyAsync(s => s.Id == stockId.Value))
+            return BadRequest("Stock not found.");
+
+        return null;
+    }
+
+    private static DateTime NormalizeClientDateTime(DateTime value)
+    {
+        if (value.Kind == DateTimeKind.Utc)
+            return value;
+
+        if (value.Kind == DateTimeKind.Local)
+            return value.ToUniversalTime();
+
+        return DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
+    }
+
+    private static decimal NormalizeMoney(decimal value) =>
+        Math.Round(value, Portfolio.MonetaryScale, MidpointRounding.AwayFromZero);
 
     [HttpGet("dividends")]
     public async Task<ActionResult<IEnumerable<Dividend>>> GetDividends(int portfolioId)
@@ -200,6 +253,7 @@ public class CreateTransactionDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TransactionType Type { get; set; }
     public decimal Amount { get; set; }
+    public DateTime CreatedAt { get; set; }
     public int? StockId { get; set; }
     public string? Description { get; set; }
 }
@@ -209,8 +263,18 @@ public class UpdateTransactionDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TransactionType Type { get; set; }
     public decimal Amount { get; set; }
+    public DateTime CreatedAt { get; set; }
     public int? StockId { get; set; }
     public string? Description { get; set; }
+}
+
+public class UpdatePortfolioBalanceDto
+{
+    [Range(typeof(decimal), "-9999999999999999.99", "9999999999999999.99")]
+    public decimal CashBalance { get; set; }
+
+    [Range(typeof(decimal), "-9999999999999999.99", "9999999999999999.99")]
+    public decimal BrokerCredit { get; set; }
 }
 
 public class CreateDividendDto
