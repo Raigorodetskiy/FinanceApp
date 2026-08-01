@@ -145,6 +145,72 @@ public class StockQuoteConversionServiceTests
         Assert.Equal(6.14718m, point.CloseEur);
     }
 
+    // ── Change coherence tests ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task EurQuote_ChangeEurAndPercentChangeUseConsistentBaseline()
+    {
+        // When previousClose is derived from regularMarketChange (the fix), ChangeEur
+        // and PercentChange must be coherent: ChangeEur / CurrentPriceEur * 100 ≈ PercentChange.
+        var service = CreateService();
+        var context = await service.GetConversionContextAsync("EUR", "USD");
+
+        // Simulate AMZN/FRA after the fix: previousClose = 236.46 − 2.87 = 233.59
+        const decimal currentPrice = 236.46m;
+        const decimal previousClose = 233.59m;   // derived from regularMarketChange = 2.87
+        const decimal percentChange = 1.23m;
+
+        var quote = service.BuildQuoteResponse("AMZN.F", currentPrice, previousClose, percentChange, "CLOSED", context);
+
+        // ChangeEur must be in EUR (same as CurrentPriceEur for a EUR-quoted instrument)
+        Assert.Equal(currentPrice, quote.CurrentPriceEur);
+        Assert.NotNull(quote.ChangeEur);
+
+        // The absolute change and percent change must derive from the same baseline.
+        // ChangeEur / CurrentPriceEur * 100 should be close to PercentChange.
+        var impliedPercent = quote.ChangeEur!.Value / quote.CurrentPriceEur!.Value * 100m;
+        Assert.True(Math.Abs(impliedPercent - percentChange) < 0.02m,
+            $"Implied percent {impliedPercent:F4} is not close to declared {percentChange}");
+    }
+
+    [Fact]
+    public async Task EurQuote_FraMismatchScenario_LargeChartPreviousCloseCannotOccurWithConsistentBaseline()
+    {
+        // Regression guard: when previousClose is derived from regularMarketChange (~2.87 EUR),
+        // the resulting ChangeEur must NOT produce the previously-observed ~15% mismatch.
+        var service = CreateService();
+        var context = await service.GetConversionContextAsync("EUR", "USD");
+
+        const decimal currentPrice = 236.46m;
+        // After fix: previousClose = currentPrice - regularMarketChange = 236.46 - 2.87 = 233.59
+        const decimal correctPreviousClose = 233.59m;
+        const decimal percentChange = 1.23m;
+
+        var quote = service.BuildQuoteResponse("AMZN.F", currentPrice, correctPreviousClose, percentChange, "CLOSED", context);
+
+        Assert.NotNull(quote.ChangeEur);
+        // The absolute EUR change must be small (~2.87) not large (~31.41)
+        Assert.True(Math.Abs(quote.ChangeEur!.Value) < 5m,
+            $"ChangeEur {quote.ChangeEur.Value:F2} is unexpectedly large, suggesting a wrong baseline");
+        // Verified: cannot produce ~15% when actual move is ~1.23%
+        var impliedPercent = quote.ChangeEur.Value / quote.CurrentPriceEur!.Value * 100m;
+        Assert.True(Math.Abs(impliedPercent) < 2m,
+            $"Implied percent {impliedPercent:F4} exceeds expected 1.23%");
+    }
+
+    [Fact]
+    public async Task NullChangeEur_WhenRateUnavailable()
+    {
+        // Missing baseline (no EUR conversion) must yield null ChangeEur, not a fabricated value.
+        var service = CreateService(("USD", null));
+        var context = await service.GetConversionContextAsync("USD", "USD");
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "REGULAR", context);
+
+        Assert.Null(quote.ChangeEur);
+        Assert.Null(quote.CurrentPriceEur);
+    }
+
     // ── PriceSession / IsStale / PriceTimestampUtc tests ─────────────────────
 
     [Fact]

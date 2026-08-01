@@ -575,45 +575,43 @@ const StocksPage: React.FC = () => {
           ? isQuoteCurrent(quote) ? 'current' : 'last'
           : null;
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {/* Row 1: edit / delete */}
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <Tooltip title="Изменить">
-                <Button
-                  icon={<EditOutlined />}
-                  size="small"
-                  aria-label="Изменить"
-                  onClick={() => openEditModal(stock)}
-                />
-              </Tooltip>
-              <Popconfirm
-                title="Удалить акцию?"
-                onConfirm={() => handleDelete(stock.id)}
-                okText="Да"
-                cancelText="Нет"
-              >
-                <Tooltip title="Удалить">
-                  <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
-                </Tooltip>
-              </Popconfirm>
-            </div>
-            {/* Row 2: source quote (provider currency) + refresh button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-              <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>
-                {live?.loading ? '...' : rawQuoteText ?? '—'}
-              </span>
-              {quoteStatus === 'current' && <Tag color="green" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Текущая</Tag>}
-              {quote?.conversionWarning && !live?.loading && (
-                <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
-              )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {/* 1. Source quote (provider currency) */}
+            <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>
+              {live?.loading ? '...' : rawQuoteText ?? '—'}
+            </span>
+            {quoteStatus === 'current' && <Tag color="green" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Текущая</Tag>}
+            {quote?.conversionWarning && !live?.loading && (
+              <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
+            )}
+            {/* 2. Refresh */}
+            <Button
+              icon={<ReloadOutlined />}
+              size="small"
+              loading={live?.loading}
+              disabled={!stock.ticker?.trim()}
+              onClick={() => handleFetchLivePrice(stock)}
+            />
+            {/* 3. Edit */}
+            <Tooltip title="Изменить">
               <Button
-                icon={<ReloadOutlined />}
+                icon={<EditOutlined />}
                 size="small"
-                loading={live?.loading}
-                disabled={!stock.ticker?.trim()}
-                onClick={() => handleFetchLivePrice(stock)}
+                aria-label="Изменить"
+                onClick={() => openEditModal(stock)}
               />
-            </div>
+            </Tooltip>
+            {/* 4. Delete */}
+            <Popconfirm
+              title="Удалить акцию?"
+              onConfirm={() => handleDelete(stock.id)}
+              okText="Да"
+              cancelText="Нет"
+            >
+              <Tooltip title="Удалить">
+                <Button icon={<DeleteOutlined />} size="small" danger aria-label="Удалить" />
+              </Tooltip>
+            </Popconfirm>
           </div>
         );
       },
