@@ -74,7 +74,7 @@ public class OrdersController : ControllerBase
         order.StopMarket = dto.StopMarket;
         order.Status = dto.Status;
 
-        // When status changes to Executed — update portfolio item quantity
+        // When status changes to Executed — update portfolio item quantity and create transaction
         if (previousStatus != OrderStatus.Executed && dto.Status == OrderStatus.Executed)
         {
             order.ExecutedAt = DateTime.UtcNow;
@@ -101,6 +101,32 @@ public class OrdersController : ControllerBase
                     Quantity = order.Quantity,
                     BuyPrice = order.Price,
                     BoughtAt = DateTime.UtcNow
+                });
+            }
+
+            // Create linked transaction (idempotent: OrderId has unique constraint)
+            var alreadyLinked = await _context.Transactions
+                .AnyAsync(t => t.OrderId == orderId);
+            if (!alreadyLinked)
+            {
+                var txType = order.Type == OrderType.Buy ? TransactionType.Buy : TransactionType.Sell;
+                var totalAmount = order.Price * order.Quantity;
+                var signedAmount = TransactionDirection.DeriveSignedAmount(txType, totalAmount);
+                var stockName = order.Stock?.Name ?? string.Empty;
+                var stockTicker = order.Stock?.Ticker ?? string.Empty;
+                var typeLabel = order.Type == OrderType.Buy ? "Покупка" : "Продажа";
+                var description = $"{typeLabel} — {stockTicker} · {stockName}";
+
+                _context.Transactions.Add(new Transaction
+                {
+                    PortfolioId = portfolioId,
+                    Type = txType,
+                    Amount = totalAmount,
+                    SignedAmount = signedAmount,
+                    StockId = order.StockId,
+                    OrderId = orderId,
+                    Description = description,
+                    CreatedAt = order.ExecutedAt!.Value,
                 });
             }
         }

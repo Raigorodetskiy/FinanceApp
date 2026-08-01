@@ -20,6 +20,11 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<Transaction>(entity =>
+        {
+            entity.HasIndex(x => x.OrderId).IsUnique().HasFilter("`OrderId` IS NOT NULL");
+        });
+
         modelBuilder.Entity<StockHistoricalPrice>(entity =>
         {
             entity.HasIndex(x => new { x.StockId, x.Timestamp, x.Interval }).IsUnique();

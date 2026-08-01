@@ -60,6 +60,7 @@ public class FinanceController : ControllerBase
         if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
         return await _context.Transactions
             .Where(t => t.PortfolioId == portfolioId)
+            .Include(t => t.Stock)
             .OrderByDescending(t => t.CreatedAt)
             .ToListAsync();
     }
@@ -69,16 +70,71 @@ public class FinanceController : ControllerBase
     {
         if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
 
-        var signedAmount = TransactionDirection.ResolveSignedAmount(dto.Type, dto.Amount, dto.SignedAmount);
+        // Validate stock for types that require it
+        if (dto.Type is TransactionType.Buy or TransactionType.Sell or TransactionType.Dividend)
+        {
+            if (dto.StockId == null)
+                return BadRequest("StockId is required for Buy, Sell, and Dividend transactions.");
+            if (!await _context.Stocks.AnyAsync(s => s.Id == dto.StockId))
+                return BadRequest("Stock not found.");
+        }
+
+        // Derive signed amount from type (enforced server-side, positive user amount)
+        var signedAmount = TransactionDirection.DeriveSignedAmount(dto.Type, dto.Amount);
+
         var transaction = new Transaction
         {
             PortfolioId = portfolioId,
+            Type = dto.Type,
+            Amount = dto.Amount > 0 ? dto.Amount : decimal.Abs(dto.Amount),
+            SignedAmount = signedAmount,
+            StockId = dto.StockId,
             Description = dto.Description,
             CreatedAt = DateTime.UtcNow,
         };
-        transaction.ApplySignedAmount(signedAmount, dto.Type);
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync();
+
+        if (transaction.StockId.HasValue)
+            await _context.Entry(transaction).Reference(t => t.Stock).LoadAsync();
+
+        return Ok(transaction);
+    }
+
+    [HttpPut("transactions/{id}")]
+    public async Task<ActionResult<Transaction>> UpdateTransaction(int portfolioId, int id, UpdateTransactionDto dto)
+    {
+        if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
+
+        var transaction = await _context.Transactions
+            .FirstOrDefaultAsync(t => t.Id == id && t.PortfolioId == portfolioId);
+        if (transaction == null) return NotFound();
+
+        // Prevent editing order-linked transactions (they are auto-generated)
+        if (transaction.OrderId.HasValue)
+            return BadRequest("Order-linked transactions cannot be edited directly.");
+
+        if (dto.Type is TransactionType.Buy or TransactionType.Sell or TransactionType.Dividend)
+        {
+            if (dto.StockId == null)
+                return BadRequest("StockId is required for Buy, Sell, and Dividend transactions.");
+            if (!await _context.Stocks.AnyAsync(s => s.Id == dto.StockId))
+                return BadRequest("Stock not found.");
+        }
+
+        var signedAmount = TransactionDirection.DeriveSignedAmount(dto.Type, dto.Amount);
+
+        transaction.Type = dto.Type;
+        transaction.Amount = dto.Amount > 0 ? dto.Amount : decimal.Abs(dto.Amount);
+        transaction.SignedAmount = signedAmount;
+        transaction.StockId = dto.StockId;
+        transaction.Description = dto.Description;
+
+        await _context.SaveChangesAsync();
+
+        if (transaction.StockId.HasValue)
+            await _context.Entry(transaction).Reference(t => t.Stock).LoadAsync();
+
         return Ok(transaction);
     }
 
@@ -144,7 +200,16 @@ public class CreateTransactionDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TransactionType Type { get; set; }
     public decimal Amount { get; set; }
-    public decimal? SignedAmount { get; set; }
+    public int? StockId { get; set; }
+    public string? Description { get; set; }
+}
+
+public class UpdateTransactionDto
+{
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TransactionType Type { get; set; }
+    public decimal Amount { get; set; }
+    public int? StockId { get; set; }
     public string? Description { get; set; }
 }
 

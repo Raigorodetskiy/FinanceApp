@@ -20,7 +20,7 @@ import type {
   CreateOrderRequest,
   UpdateOrderRequest,
   CreateTransactionRequest,
-  CreateDividendRequest,
+  UpdateTransactionRequest,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://173.249.42.11:5000/api';
@@ -105,11 +105,13 @@ export const getTransactions = (portfolioId: number) =>
   api.get<Transaction[]>(`/Portfolios/${portfolioId}/finance/transactions`);
 export const createTransaction = (portfolioId: number, data: CreateTransactionRequest) =>
   api.post<Transaction>(`/Portfolios/${portfolioId}/finance/transactions`, data);
+export const updateTransaction = (portfolioId: number, id: number, data: UpdateTransactionRequest) =>
+  api.put<Transaction>(`/Portfolios/${portfolioId}/finance/transactions/${id}`, data);
 export const deleteTransaction = (portfolioId: number, id: number) =>
   api.delete(`/Portfolios/${portfolioId}/finance/transactions/${id}`);
 export const getDividends = (portfolioId: number) =>
   api.get<Dividend[]>(`/Portfolios/${portfolioId}/finance/dividends`);
-export const createDividend = (portfolioId: number, data: CreateDividendRequest) =>
+export const createDividend = (portfolioId: number, data: { stockId: number; amount: number; paidAt: string }) =>
   api.post<Dividend>(`/Portfolios/${portfolioId}/finance/dividends`, data);
 export const deleteDividend = (portfolioId: number, id: number) =>
   api.delete(`/Portfolios/${portfolioId}/finance/dividends/${id}`);

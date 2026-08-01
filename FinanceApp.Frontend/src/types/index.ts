@@ -124,7 +124,7 @@ export interface Order {
   executedAt: string | null;
 }
 
-export type TransactionType = 'Deposit' | 'Withdrawal';
+export type TransactionType = 'Deposit' | 'Withdrawal' | 'Buy' | 'Sell' | 'Dividend';
 
 export interface Transaction {
   id: number;
@@ -134,6 +134,9 @@ export interface Transaction {
   signedAmount: number;
   description: string | null;
   createdAt: string;
+  stockId: number | null;
+  stock: Stock | null;
+  orderId: number | null;
 }
 
 export interface Dividend {
@@ -157,14 +160,15 @@ export interface PortfolioBalance {
 export interface CreateTransactionRequest {
   type: TransactionType;
   amount: number;
-  signedAmount?: number;
+  stockId?: number;
   description?: string;
 }
 
-export interface CreateDividendRequest {
-  stockId: number;
+export interface UpdateTransactionRequest {
+  type: TransactionType;
   amount: number;
-  paidAt: string;
+  stockId?: number;
+  description?: string;
 }
 
 export interface LoginRequest {
