@@ -177,29 +177,8 @@ public sealed class YahooQuoteService : IYahooQuoteService
                 return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider returned an invalid current price.");
             }
 
-            // Prefer regularMarketChange (the authoritative absolute daily change from Yahoo)
-            // to derive previousClose.  This guarantees that NormalizedChange / ChangeEur
-            // is exactly consistent with PercentChange (from regularMarketChangePercent),
-            // even when chartPreviousClose uses a different baseline (e.g. an adjusted or
-            // range-start price that does not match the actual previous regular-session close).
-            decimal previousClose;
-            if (TryGetDecimal(meta, "regularMarketChange", out var marketChange))
-            {
-                var derived = currentPrice - marketChange;
-                previousClose = derived > 0 ? derived : currentPrice;
-            }
-            else
-            {
-                previousClose = TryGetDecimal(meta, "chartPreviousClose", out var chartPrevClose) && chartPrevClose > 0
-                    ? chartPrevClose
-                    : TryGetDecimal(meta, "previousClose", out var prevClose) && prevClose > 0
-                        ? prevClose
-                        : currentPrice;
-            }
-
-            var percentChange = TryGetDecimal(meta, "regularMarketChangePercent", out var parsedPercent)
-                ? parsedPercent
-                : previousClose > 0 ? (currentPrice - previousClose) / previousClose * 100m : 0m;
+            var previousClose = SelectPreviousClose(meta, currentPrice);
+            var percentChange = CalculatePercentChange(currentPrice, previousClose);
 
             var currency = GetOptionalString(meta, "currency");
             var estimateCurrency = GetOptionalString(meta, "financialCurrency");
@@ -365,6 +344,35 @@ public sealed class YahooQuoteService : IYahooQuoteService
 
         return false;
     }
+
+    private static decimal SelectPreviousClose(JsonElement meta, decimal currentPrice)
+    {
+        if (TryGetDecimal(meta, "chartPreviousClose", out var chartPreviousClose) && chartPreviousClose > 0m)
+        {
+            return chartPreviousClose;
+        }
+
+        if (TryGetDecimal(meta, "previousClose", out var previousClose) && previousClose > 0m)
+        {
+            return previousClose;
+        }
+
+        if (TryGetDecimal(meta, "regularMarketChange", out var regularMarketChange))
+        {
+            var derivedPreviousClose = currentPrice - regularMarketChange;
+            if (derivedPreviousClose > 0m)
+            {
+                return derivedPreviousClose;
+            }
+        }
+
+        return currentPrice;
+    }
+
+    private static decimal CalculatePercentChange(decimal currentPrice, decimal previousClose) =>
+        previousClose > 0m
+            ? (currentPrice - previousClose) / previousClose * 100m
+            : 0m;
 
     private static string? GetOptionalString(JsonElement element, string propertyName)
     {

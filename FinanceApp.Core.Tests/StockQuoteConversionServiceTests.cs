@@ -148,54 +148,43 @@ public class StockQuoteConversionServiceTests
     // ── Change coherence tests ────────────────────────────────────────────────
 
     [Fact]
-    public async Task EurQuote_ChangeEurAndPercentChangeUseConsistentBaseline()
+    public async Task EurQuote_ResponseFieldsRemainConsistentWithSelectedBaseline()
     {
-        // When previousClose is derived from regularMarketChange (the fix), ChangeEur
-        // and PercentChange must be coherent: ChangeEur / CurrentPriceEur * 100 ≈ PercentChange.
         var service = CreateService();
         var context = await service.GetConversionContextAsync("EUR", "USD");
 
-        // Simulate AMZN/FRA after the fix: previousClose = 236.46 − 2.87 = 233.59
-        const decimal currentPrice = 236.46m;
-        const decimal previousClose = 233.59m;   // derived from regularMarketChange = 2.87
-        const decimal percentChange = 1.23m;
+        const decimal currentPrice = 236.30m;
+        const decimal previousClose = 230.60m;
+        var percentChange = (currentPrice - previousClose) / previousClose * 100m;
 
-        var quote = service.BuildQuoteResponse("AMZN.F", currentPrice, previousClose, percentChange, "CLOSED", context);
+        var quote = service.BuildQuoteResponse("AMZ.F", currentPrice, previousClose, percentChange, "CLOSED", context);
 
-        // ChangeEur must be in EUR (same as CurrentPriceEur for a EUR-quoted instrument)
+        Assert.Equal(currentPrice - previousClose, quote.RawChange);
+        Assert.Equal(currentPrice, quote.NormalizedCurrentPrice);
+        Assert.Equal(previousClose, quote.NormalizedPreviousClose);
+        Assert.Equal(currentPrice - previousClose, quote.NormalizedChange);
         Assert.Equal(currentPrice, quote.CurrentPriceEur);
-        Assert.NotNull(quote.ChangeEur);
-
-        // The absolute change and percent change must derive from the same baseline.
-        // ChangeEur / CurrentPriceEur * 100 should be close to PercentChange.
-        var impliedPercent = quote.ChangeEur!.Value / quote.CurrentPriceEur!.Value * 100m;
-        Assert.True(Math.Abs(impliedPercent - percentChange) < 0.02m,
-            $"Implied percent {impliedPercent:F4} is not close to declared {percentChange}");
+        Assert.Equal(currentPrice - previousClose, quote.ChangeEur);
+        Assert.Equal(percentChange, quote.PercentChange);
     }
 
     [Fact]
-    public async Task EurQuote_FraMismatchScenario_LargeChartPreviousCloseCannotOccurWithConsistentBaseline()
+    public async Task EurQuote_PercentChangeMatchesSelectedPreviousClose()
     {
-        // Regression guard: when previousClose is derived from regularMarketChange (~2.87 EUR),
-        // the resulting ChangeEur must NOT produce the previously-observed ~15% mismatch.
         var service = CreateService();
         var context = await service.GetConversionContextAsync("EUR", "USD");
 
-        const decimal currentPrice = 236.46m;
-        // After fix: previousClose = currentPrice - regularMarketChange = 236.46 - 2.87 = 233.59
-        const decimal correctPreviousClose = 233.59m;
-        const decimal percentChange = 1.23m;
+        const decimal currentPrice = 236.30m;
+        const decimal previousClose = 230.60m;
+        var percentChange = (currentPrice - previousClose) / previousClose * 100m;
 
-        var quote = service.BuildQuoteResponse("AMZN.F", currentPrice, correctPreviousClose, percentChange, "CLOSED", context);
+        var quote = service.BuildQuoteResponse("AMZ.F", currentPrice, previousClose, percentChange, "CLOSED", context);
 
-        Assert.NotNull(quote.ChangeEur);
-        // The absolute EUR change must be small (~2.87) not large (~31.41)
-        Assert.True(Math.Abs(quote.ChangeEur!.Value) < 5m,
-            $"ChangeEur {quote.ChangeEur.Value:F2} is unexpectedly large, suggesting a wrong baseline");
-        // Verified: cannot produce ~15% when actual move is ~1.23%
-        var impliedPercent = quote.ChangeEur.Value / quote.CurrentPriceEur!.Value * 100m;
-        Assert.True(Math.Abs(impliedPercent) < 2m,
-            $"Implied percent {impliedPercent:F4} exceeds expected 1.23%");
+        var impliedPercent = quote.RawPreviousClose > 0m
+            ? quote.RawChange / quote.RawPreviousClose * 100m
+            : 0m;
+
+        Assert.Equal(impliedPercent, quote.PercentChange);
     }
 
     [Fact]

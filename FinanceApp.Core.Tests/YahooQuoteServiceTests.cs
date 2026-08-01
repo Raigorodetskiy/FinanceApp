@@ -44,7 +44,7 @@ public class YahooQuoteServiceTests
         Assert.Equal("RHM.DE", result.Quote!.Symbol);
         Assert.Equal(520.5m, result.Quote.CurrentPrice);
         Assert.Equal(514.0m, result.Quote.PreviousClose);
-        Assert.Equal(1.26m, result.Quote.PercentChange);
+        Assert.Equal((520.5m - 514.0m) / 514.0m * 100m, result.Quote.PercentChange);
         Assert.Equal("EUR", result.Quote.Currency);
         Assert.Equal("EUR", result.Quote.EstimateCurrency);
         Assert.Equal("REGULAR", result.Quote.MarketState);
@@ -414,23 +414,25 @@ public class YahooQuoteServiceTests
         Assert.Equal("REGULAR", result.Quote!.MarketState);
     }
 
-    // ── regularMarketChange baseline consistency tests ────────────────────────
+    // ── previous-close baseline precedence tests ──────────────────────────────
 
     [Fact]
-    public async Task GetQuoteAsync_RegularMarketChangePresent_PreviousCloseIsDerivedFromIt()
+    public async Task GetQuoteAsync_AmzFrankfurtRegression_UsesChartPreviousCloseAndCalculatedPercent()
     {
-        // regularMarketChange = 2.87 → previousClose = 236.46 − 2.87 = 233.59
-        // chartPreviousClose = 205.05 is intentionally far off to prove it is NOT used.
+        const decimal currentPrice = 236.30m;
+        const decimal chartPreviousClose = 230.60m;
+        const decimal regularMarketChangePercent = 15.833333333333333333333333330m;
+
         var response = """
             {
               "chart": {
                 "result": [{
                   "meta": {
                     "currency": "EUR",
-                    "regularMarketPrice": 236.46,
-                    "regularMarketChange": 2.87,
-                    "chartPreviousClose": 205.05,
-                    "regularMarketChangePercent": 1.23,
+                    "regularMarketPrice": 236.30,
+                    "regularMarketChange": 32.30,
+                    "regularMarketChangePercent": 15.833333333333333333333333330,
+                    "chartPreviousClose": 230.60,
                     "marketState": "CLOSED"
                   }
                 }]
@@ -441,30 +443,96 @@ public class YahooQuoteServiceTests
         handler.EnqueueJson(response);
 
         var service = CreateService(handler);
-        var result = await service.GetQuoteAsync("AMZN.F");
+        var result = await service.GetQuoteAsync("AMZ.F");
 
         Assert.True(result.IsSuccess);
         var quote = result.Quote!;
-        Assert.Equal(236.46m, quote.CurrentPrice);
-        // PreviousClose must be derived from regularMarketChange, not chartPreviousClose
-        Assert.Equal(236.46m - 2.87m, quote.PreviousClose);
-        Assert.NotEqual(205.05m, quote.PreviousClose);
-        Assert.Equal(1.23m, quote.PercentChange);
+        Assert.Equal(currentPrice, quote.CurrentPrice);
+        Assert.Equal(chartPreviousClose, quote.PreviousClose);
+        Assert.NotEqual(currentPrice - 32.30m, quote.PreviousClose);
+        Assert.Equal(5.70m, quote.CurrentPrice - quote.PreviousClose);
+
+        var expectedPercentChange = (currentPrice - chartPreviousClose) / chartPreviousClose * 100m;
+        Assert.Equal(expectedPercentChange, quote.PercentChange);
+        Assert.NotEqual(regularMarketChangePercent, quote.PercentChange);
     }
 
     [Fact]
-    public async Task GetQuoteAsync_NoRegularMarketChange_FallsBackToChartPreviousClose()
+    public async Task GetQuoteAsync_ChartPreviousCloseTakesPrecedenceOverConflictingProviderFields()
     {
-        // Without regularMarketChange, chartPreviousClose should still be used as before.
         var response = """
             {
               "chart": {
                 "result": [{
                   "meta": {
                     "currency": "EUR",
-                    "regularMarketPrice": 520.5,
-                    "chartPreviousClose": 514.0,
-                    "regularMarketChangePercent": 1.26,
+                    "regularMarketPrice": 105.0,
+                    "chartPreviousClose": 101.0,
+                    "previousClose": 99.0,
+                    "regularMarketChange": 9.0,
+                    "regularMarketChangePercent": 9.375,
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("TEST.F");
+
+        Assert.True(result.IsSuccess);
+        var quote = result.Quote!;
+        Assert.Equal(101.0m, quote.PreviousClose);
+        Assert.Equal((105.0m - 101.0m) / 101.0m * 100m, quote.PercentChange);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_PreviousCloseIsUsedWhenChartPreviousCloseIsMissingOrInvalid()
+    {
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "USD",
+                    "regularMarketPrice": 120.0,
+                    "chartPreviousClose": 0,
+                    "previousClose": 118.5,
+                    "regularMarketChange": 20.0,
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("TEST");
+
+        Assert.True(result.IsSuccess);
+        var quote = result.Quote!;
+        Assert.Equal(118.5m, quote.PreviousClose);
+        Assert.Equal((120.0m - 118.5m) / 118.5m * 100m, quote.PercentChange);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_RegularMarketChangeIsUsedOnlyWhenPreviousCloseFieldsAreUnavailable()
+    {
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "USD",
+                    "regularMarketPrice": 100.0,
+                    "chartPreviousClose": -1.0,
+                    "previousClose": 0,
+                    "regularMarketChange": 5.0,
                     "marketState": "REGULAR"
                   }
                 }]
@@ -475,32 +543,28 @@ public class YahooQuoteServiceTests
         handler.EnqueueJson(response);
 
         var service = CreateService(handler);
-        var result = await service.GetQuoteAsync("RHM.DE");
+        var result = await service.GetQuoteAsync("TEST");
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(514.0m, result.Quote!.PreviousClose);
+        var quote = result.Quote!;
+        Assert.Equal(95.0m, quote.PreviousClose);
+        Assert.Equal((100.0m - 95.0m) / 95.0m * 100m, quote.PercentChange);
     }
 
     [Fact]
-    public async Task GetQuoteAsync_RegularMarketChangePresent_AbsoluteAndPercentChangeDeriveFromSameBaseline()
+    public async Task GetQuoteAsync_InvalidDerivedBaseline_FallsBackToCurrentPrice()
     {
-        // Simulates the FRA/AMZN mismatch scenario: chartPreviousClose implies ~15% change
-        // while regularMarketChange and regularMarketChangePercent agree on ~1.23%.
-        // Verifies that, after the fix, PreviousClose is consistent with PercentChange.
-        const decimal currentPrice = 236.46m;
-        const decimal regularMarketChange = 2.87m;
-        const decimal regularMarketChangePercent = 1.23m;
-
-        var response = $$"""
+        var response = """
             {
               "chart": {
                 "result": [{
                   "meta": {
-                    "currency": "EUR",
-                    "regularMarketPrice": {{currentPrice}},
-                    "regularMarketChange": {{regularMarketChange}},
-                    "chartPreviousClose": 205.05,
-                    "regularMarketChangePercent": {{regularMarketChangePercent}},
+                    "currency": "USD",
+                    "regularMarketPrice": 100.0,
+                    "chartPreviousClose": -1.0,
+                    "previousClose": -2.0,
+                    "regularMarketChange": 150.0,
+                    "regularMarketChangePercent": -60.0,
                     "marketState": "CLOSED"
                   }
                 }]
@@ -511,20 +575,12 @@ public class YahooQuoteServiceTests
         handler.EnqueueJson(response);
 
         var service = CreateService(handler);
-        var result = await service.GetQuoteAsync("AMZN.F");
+        var result = await service.GetQuoteAsync("TEST");
 
         Assert.True(result.IsSuccess);
         var quote = result.Quote!;
-
-        var expectedPreviousClose = currentPrice - regularMarketChange; // 233.59
-        Assert.Equal(expectedPreviousClose, quote.PreviousClose);
-
-        // Absolute change derived from the same baseline must be consistent with PercentChange:
-        // absoluteChange / previousClose * 100 ≈ regularMarketChangePercent
-        var impliedPercent = (quote.CurrentPrice - quote.PreviousClose) / quote.PreviousClose * 100m;
-        // Allow a small rounding tolerance
-        Assert.True(Math.Abs(impliedPercent - regularMarketChangePercent) < 0.02m,
-            $"Implied percent {impliedPercent:F4} is not close to declared {regularMarketChangePercent}");
+        Assert.Equal(100.0m, quote.PreviousClose);
+        Assert.Equal(0m, quote.PercentChange);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
