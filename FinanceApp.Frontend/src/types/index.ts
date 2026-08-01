@@ -175,7 +175,8 @@ export interface UpdateTransactionRequest {
 
 export interface UpdatePortfolioBalanceRequest {
   cashBalance: number;
-  brokerCredit: number;
+  /** @deprecated Broker credit no longer affects totals. Omit from new requests. */
+  brokerCredit?: number;
 }
 
 export interface LoginRequest {

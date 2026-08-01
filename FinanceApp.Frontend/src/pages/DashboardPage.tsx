@@ -90,10 +90,10 @@ const DashboardPage: React.FC = () => {
         userName={user?.username}
         onLogout={logout}
       />
-      <Layout>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Layout style={{ background: '#f0f2f5' }}>
+        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
           <Title level={4} style={{ margin: 0 }}>
-            Dashboard
+            Главная
           </Title>
           <Button
             type="primary"
