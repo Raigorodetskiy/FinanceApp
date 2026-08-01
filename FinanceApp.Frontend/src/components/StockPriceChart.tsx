@@ -12,6 +12,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { getStockHistory } from '../services/api';
+import {
+  getStockPriceChartSummary,
+} from './stockPriceChartSummary';
 import type {
   StockHistoryPoint,
   StockHistoryRange,
@@ -64,6 +67,7 @@ export interface StockPriceChartProps {
   isin?: string | null;
   liveQuote?: StockQuoteResponse | null;
   storedPriceEur?: number | null;
+  storedPriceChangeEur?: number | null;
 }
 
 const formatSigned = (value: number, suffix = '') =>
@@ -89,6 +93,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   isin,
   liveQuote,
   storedPriceEur,
+  storedPriceChangeEur,
 }) => {
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -216,14 +221,28 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     return formatCurrencyValue(currentPriceDisplayValue, displayCurrencyCode);
   }, [currentPriceDisplayValue, displayCurrencyCode, historyHasEurConversion, liveQuote]);
 
-  const periodChangeValue =
-    currentPriceDisplayValue != null && firstHistoryClose != null
-      ? currentPriceDisplayValue - firstHistoryClose
-      : null;
-  const periodChangePercent =
-    periodChangeValue != null && firstHistoryClose != null && firstHistoryClose !== 0
-      ? (periodChangeValue / firstHistoryClose) * 100
-      : null;
+  const periodSummary = useMemo(
+    () => getStockPriceChartSummary({
+      historyRange,
+      currentPriceDisplayValue,
+      firstHistoryClose,
+      historyHasEurConversion,
+      liveQuote,
+      storedPriceEur,
+      storedPriceChangeEur,
+    }),
+    [
+      currentPriceDisplayValue,
+      firstHistoryClose,
+      historyHasEurConversion,
+      historyRange,
+      liveQuote,
+      storedPriceChangeEur,
+      storedPriceEur,
+    ],
+  );
+  const periodChangeValue = periodSummary.changeValue;
+  const periodChangePercent = periodSummary.changePercent;
   const performanceColor =
     periodChangeValue == null
       ? undefined
@@ -359,6 +378,16 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                       Нормализовано: {normalizedQuoteText}
                     </div>
                   )}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
+                    {periodSummary.baselineLabel}
+                  </div>
+                  <div style={{ color: COLOR_SECONDARY_TEXT, fontSize: 16, fontWeight: 600 }}>
+                    {periodSummary.baselineValue == null
+                      ? '—'
+                      : formatCurrencyValue(periodSummary.baselineValue, displayCurrencyCode)}
+                  </div>
                 </div>
                 <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
                   {periodChangeValue == null

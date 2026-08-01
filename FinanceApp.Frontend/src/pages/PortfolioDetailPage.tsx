@@ -510,6 +510,7 @@ const PortfolioDetailPage: React.FC = () => {
                 wkn={item?.stock?.wkn ?? null}
                 isin={item?.stock?.isin ?? null}
                 storedPriceEur={item?.stock?.currentPrice ?? null}
+                storedPriceChangeEur={item?.stock?.currentPriceChange ?? null}
               />
             ),
             props: { colSpan: TOTAL_POS_COLS },
