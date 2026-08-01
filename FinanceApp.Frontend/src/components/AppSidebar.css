@@ -124,31 +124,6 @@
   background: #e8eaf6 !important;
 }
 
-.sidebar-search-wrap {
-  padding: 10px 10px 6px;
-  flex-shrink: 0;
-}
-
-.sidebar-search.ant-input-affix-wrapper {
-  background: rgba(255, 255, 255, 0.12) !important;
-  border: 1px solid rgba(255, 255, 255, 0.24) !important;
-  border-radius: 8px;
-}
-
-.sidebar-search.ant-input-affix-wrapper:hover,
-.sidebar-search.ant-input-affix-wrapper:focus-within {
-  border-color: #7cc5ff !important;
-  background: rgba(255, 255, 255, 0.18) !important;
-}
-
-.sidebar-search .ant-input,
-.sidebar-search .ant-input::placeholder,
-.sidebar-search-icon,
-.sidebar-search .ant-input-clear-icon {
-  color: #fff !important;
-  font-weight: 500;
-}
-
 .sidebar-nav-scroll {
   flex: 0 1 auto;
   overflow: visible;

@@ -10,9 +10,8 @@ import {
   WalletOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
-import { Button, Drawer, Grid, Input, Layout, Menu, Tooltip } from 'antd';
+import { Button, Drawer, Grid, Layout, Menu, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import type { Portfolio } from '../types';
@@ -38,9 +37,6 @@ export interface AppSidebarProps {
   activePortfolioId?: string | number;
 }
 
-const labelMatches = (label: string, query: string): boolean =>
-  !query || label.toLowerCase().includes(query.toLowerCase());
-
 const AppSidebar: React.FC<AppSidebarProps> = ({
   portfolios,
   selectedKeys,
@@ -61,7 +57,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     }
   });
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [search, setSearch] = useState('');
   const isSidebarCollapsed = !isMobile && collapsed;
 
   // Controlled portfolios open state: persisted in localStorage.
@@ -133,7 +128,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
     const pid = portfolio.id;
-    const children = [
+    return [
       {
         key: `${PORTFOLIO_KEY_PREFIX}${pid}-positions`,
         className: 'sidebar-leaf-item',
@@ -149,15 +144,10 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
         onClick: () => { navigate(`/portfolios/${pid}?section=transactions`); setMobileOpen(false); },
       },
     ];
-    if (!search) return children;
-    return children.filter((c) => labelMatches(c.label as string, search));
   };
 
   const allMenuItems: MenuProps['items'] = useMemo(() => {
-    const q = search.trim();
-
     const portfolioChildren: NonNullable<MenuProps['items']> = portfolios
-      .filter((p) => !q || labelMatches(p.name, q) || labelMatches('Позиции', q) || labelMatches('Транзакции', q))
       .map((portfolio) => {
         const pid = portfolio.id;
         const isActive = activePortfolioId != null && String(portfolio.id) === String(activePortfolioId);
@@ -190,38 +180,28 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
         };
       });
 
-    const items: NonNullable<MenuProps['items']> = [];
-
-    if (labelMatches('Главная', q)) {
-      items.push({
+    return [
+      {
         key: 'dashboard',
         icon: <DashboardOutlined />,
         label: 'Главная',
         onClick: () => { navigate('/'); setMobileOpen(false); },
-      });
-    }
-
-    if (!q || portfolioChildren.length > 0 || labelMatches('Портфели', q)) {
-      items.push({
+      },
+      {
         key: 'portfolios',
         icon: <FolderOutlined />,
         label: 'Портфели',
         children: portfolioChildren,
-      });
-    }
-
-    if (labelMatches('Акции', q)) {
-      items.push({
+      },
+      {
         key: 'stocks',
         icon: <StockOutlined />,
         label: 'Акции',
         onClick: () => { navigate('/stocks'); setMobileOpen(false); },
-      });
-    }
-
-    return items;
+      },
+    ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [portfolios, activePortfolioId, search]);
+  }, [portfolios, activePortfolioId]);
 
   const bottomItems: NonNullable<MenuProps['items']> = [
     {
@@ -250,22 +230,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
         <span className="sidebar-brand-icon">💹</span>
         {!isSidebarCollapsed && <span className="sidebar-brand-text">FinanceApp</span>}
       </div>
-
-      {/* Search */}
-      {!isSidebarCollapsed && (
-        <div className="sidebar-search-wrap">
-          <Input
-            size="small"
-            prefix={<SearchOutlined className="sidebar-search-icon" />}
-            placeholder="Поиск…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            allowClear
-            className="sidebar-search"
-            aria-label="Поиск по навигации"
-          />
-        </div>
-      )}
 
       {/* Main nav */}
       <div className="sidebar-nav-scroll">
