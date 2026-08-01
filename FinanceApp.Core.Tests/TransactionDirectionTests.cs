@@ -49,4 +49,39 @@ public class TransactionDirectionTests
 
         Assert.Equal(-42.15m, signedAmount);
     }
+
+    // ── DeriveSignedAmount (new server-side sign enforcement) ─────────────────
+
+    [Theory]
+    [InlineData(TransactionType.Deposit, 100, 100)]
+    [InlineData(TransactionType.Withdrawal, 100, -100)]
+    [InlineData(TransactionType.Buy, 500, -500)]
+    [InlineData(TransactionType.Sell, 500, 500)]
+    [InlineData(TransactionType.Dividend, 50, 50)]
+    public void DeriveSignedAmount_EnforcesSignSemanticsForAllTypes(
+        TransactionType type, decimal positiveAmount, decimal expectedSigned)
+    {
+        var signed = TransactionDirection.DeriveSignedAmount(type, positiveAmount);
+        Assert.Equal(expectedSigned, signed);
+    }
+
+    [Theory]
+    [InlineData(TransactionType.Deposit)]
+    [InlineData(TransactionType.Sell)]
+    [InlineData(TransactionType.Dividend)]
+    public void DeriveSignedAmount_PositiveForIncomeTypes(TransactionType type)
+    {
+        var signed = TransactionDirection.DeriveSignedAmount(type, 123.45m);
+        Assert.True(signed > 0);
+    }
+
+    [Theory]
+    [InlineData(TransactionType.Withdrawal)]
+    [InlineData(TransactionType.Buy)]
+    public void DeriveSignedAmount_NegativeForOutflowTypes(TransactionType type)
+    {
+        var signed = TransactionDirection.DeriveSignedAmount(type, 123.45m);
+        Assert.True(signed < 0);
+    }
 }
+

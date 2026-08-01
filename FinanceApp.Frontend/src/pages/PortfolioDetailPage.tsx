@@ -18,7 +18,6 @@ import {
   Tooltip,
   message,
   Input,
-  DatePicker,
 } from 'antd';
 import {
   PlusOutlined,
@@ -30,6 +29,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   getPortfolio,
   getStocks,
@@ -44,10 +44,8 @@ import {
   getBalance,
   getTransactions,
   createTransaction,
+  updateTransaction,
   deleteTransaction,
-  getDividends,
-  createDividend,
-  deleteDividend,
 } from '../services/api';
 import AppSidebar from '../components/AppSidebar';
 import StockPriceChart from '../components/StockPriceChart';
@@ -60,9 +58,11 @@ import type {
   OrderType,
   OrderStatus,
   Transaction,
-  Dividend,
+  TransactionType,
   PortfolioBalance,
 } from '../types';
+
+dayjs.extend(utc);
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -78,30 +78,40 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = { Pending: 'Ожида�
 const ORDER_STATUS_COLORS: Record<OrderStatus, string> = { Pending: 'gold', Executed: 'green', Cancelled: 'red' };
 const ORDER_TYPE_COLORS: Record<OrderType, string> = { Buy: 'blue', Sell: 'volcano' };
 
-const hasStoredSignedAmount = (transaction: Transaction) =>
-  transaction.signedAmount !== 0 || transaction.amount === 0;
+const TX_TYPE_LABELS: Record<TransactionType, string> = {
+  Deposit: 'Пополнение',
+  Withdrawal: 'Вывод',
+  Buy: 'Покупка',
+  Sell: 'Продажа',
+  Dividend: 'Дивиденды',
+};
 
-const getEffectiveSignedAmount = (transaction: Transaction) =>
-  hasStoredSignedAmount(transaction)
-    ? transaction.signedAmount
-    : (transaction.type === 'Deposit' ? transaction.amount : -transaction.amount);
+const TX_TYPE_COLORS: Record<TransactionType, string> = {
+  Deposit: 'green',
+  Withdrawal: 'red',
+  Buy: 'blue',
+  Sell: 'cyan',
+  Dividend: 'purple',
+};
 
-const isIncomingTransaction = (transaction: Transaction) =>
-  getEffectiveSignedAmount(transaction) >= 0;
+const TX_TYPES_WITH_STOCK: TransactionType[] = ['Buy', 'Sell', 'Dividend'];
 
-const getTransactionLabel = (transaction: Transaction) =>
-  isIncomingTransaction(transaction) ? 'Пополнение' : 'Вывод';
+const getEffectiveSignedAmount = (t: Transaction) => {
+  if (t.signedAmount !== 0 || t.amount === 0) return t.signedAmount;
+  return t.type === 'Deposit' ? t.amount : -t.amount;
+};
 
-const getTransactionTagColor = (transaction: Transaction) =>
-  isIncomingTransaction(transaction) ? 'green' : 'red';
-
-const getTransactionDisplayAmount = (transaction: Transaction) =>
-  Math.abs(getEffectiveSignedAmount(transaction));
+const getTransactionDescription = (t: Transaction): string => {
+  if (t.stock) {
+    return `${TX_TYPE_LABELS[t.type]} — ${t.stock.ticker} · ${t.stock.name}`;
+  }
+  return t.description ?? TX_TYPE_LABELS[t.type];
+};
 
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  // Supported sections: positions | orders | balance | transactions | dividends
+  // Supported sections: positions | transactions
   const section = searchParams.get('section') ?? 'positions';
 
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -113,19 +123,16 @@ const PortfolioDetailPage: React.FC = () => {
   // Finance state
   const [balance, setBalance] = useState<PortfolioBalance | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [dividends, setDividends] = useState<Dividend[]>([]);
+  const [txTypeFilter, setTxTypeFilter] = useState<TransactionType | 'all'>('all');
   const [financeLoaded, setFinanceLoaded] = useState(false);
 
   // Transaction modal
   const [txModalOpen, setTxModalOpen] = useState(false);
-  const [txType, setTxType] = useState<'Deposit' | 'Withdrawal'>('Deposit');
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [txSubmitting, setTxSubmitting] = useState(false);
   const [txForm] = Form.useForm();
-
-  // Dividend modal
-  const [divModalOpen, setDivModalOpen] = useState(false);
-  const [divSubmitting, setDivSubmitting] = useState(false);
-  const [divForm] = Form.useForm();
+  const txTypeWatch: TransactionType = Form.useWatch('type', txForm) ?? 'Deposit';
+  const needsStock = TX_TYPES_WITH_STOCK.includes(txTypeWatch);
 
   // Position modal
   const [posModalOpen, setPosModalOpen] = useState(false);
@@ -171,29 +178,24 @@ const PortfolioDetailPage: React.FC = () => {
   const fetchFinanceData = useCallback(async () => {
     if (!id) return;
     try {
-      const [balanceRes, txRes, divRes] = await Promise.all([
+      const [balanceRes, txRes] = await Promise.all([
         getBalance(Number(id)),
         getTransactions(Number(id)),
-        getDividends(Number(id)),
       ]);
       setBalance(balanceRes.data);
       setTransactions(txRes.data);
-      setDividends(divRes.data);
       setFinanceLoaded(true);
     } catch {
       message.error('Ошибка загрузки финансовых данных');
     }
   }, [id]);
 
-  // Load finance data when navigating to a finance section
   useEffect(() => {
-    const isFinanceSection = section === 'balance' || section === 'transactions' || section === 'dividends';
-    if (isFinanceSection && !financeLoaded) {
+    if (section === 'transactions' && !financeLoaded) {
       fetchFinanceData();
     }
   }, [section, id, financeLoaded, fetchFinanceData]);
 
-  // Reset expanded chart when switching portfolio or section
   useEffect(() => {
     setExpandedPositionId(null);
   }, [id, section]);
@@ -264,6 +266,8 @@ const PortfolioDetailPage: React.FC = () => {
         message.success('Ордер создан');
       }
       setOrderModalOpen(false); orderForm.resetFields(); fetchData();
+      // Also refresh finance if we're on transactions section (executed order creates tx)
+      if (financeLoaded) fetchFinanceData();
     } catch { message.error('Ошибка сохранения ордера'); }
     finally { setOrderSubmitting(false); }
   };
@@ -273,7 +277,6 @@ const PortfolioDetailPage: React.FC = () => {
     catch { message.error('Ошибка удаления ордера'); }
   };
 
-  // Indicator: order should have triggered based on current price
   const isTriggered = (order: Order): string | null => {
     const currentPrice = order.stock?.currentPrice;
     if (!currentPrice || order.status !== 'Pending') return null;
@@ -290,21 +293,40 @@ const PortfolioDetailPage: React.FC = () => {
     return null;
   };
 
-  // ── Finance handlers ───────────────────────────────────────
-  const openDepositModal = () => { setTxType('Deposit'); txForm.resetFields(); setTxModalOpen(true); };
-  const openWithdrawModal = () => { setTxType('Withdrawal'); txForm.resetFields(); setTxModalOpen(true); };
-  const handleTxSubmit = async (values: { amount: number; description?: string }) => {
+  // ── Transactions ────────────────────────────────────────────
+  const openNewTxModal = () => {
+    setEditingTx(null);
+    txForm.resetFields();
+    txForm.setFieldsValue({ type: 'Deposit' });
+    setTxModalOpen(true);
+  };
+  const openEditTxModal = (tx: Transaction) => {
+    setEditingTx(tx);
+    txForm.setFieldsValue({
+      type: tx.type,
+      amount: tx.amount,
+      stockId: tx.stockId ?? undefined,
+      description: tx.description ?? undefined,
+    });
+    setTxModalOpen(true);
+  };
+  const handleTxSubmit = async (values: { type: TransactionType; amount: number; stockId?: number; description?: string }) => {
     if (!id) return;
     setTxSubmitting(true);
     try {
-      const normalizedAmount = Math.abs(values.amount);
-      await createTransaction(Number(id), {
-        type: txType,
-        amount: normalizedAmount,
-        signedAmount: txType === 'Deposit' ? normalizedAmount : -normalizedAmount,
+      const payload = {
+        type: values.type,
+        amount: Math.abs(values.amount),
+        stockId: values.stockId,
         description: values.description,
-      });
-      message.success(txType === 'Deposit' ? 'Пополнение добавлено' : 'Вывод добавлен');
+      };
+      if (editingTx) {
+        await updateTransaction(Number(id), editingTx.id, payload);
+        message.success('Транзакция обновлена');
+      } else {
+        await createTransaction(Number(id), payload);
+        message.success('Транзакция добавлена');
+      }
       setTxModalOpen(false); txForm.resetFields(); fetchFinanceData();
     } catch { message.error('Ошибка сохранения транзакции'); }
     finally { setTxSubmitting(false); }
@@ -313,23 +335,6 @@ const PortfolioDetailPage: React.FC = () => {
     if (!id) return;
     try { await deleteTransaction(Number(id), txId); message.success('Транзакция удалена'); fetchFinanceData(); }
     catch { message.error('Ошибка удаления транзакции'); }
-  };
-
-  const openAddDivModal = () => { divForm.resetFields(); setDivModalOpen(true); };
-  const handleDivSubmit = async (values: { stockId: number; amount: number; paidAt: dayjs.Dayjs }) => {
-    if (!id) return;
-    setDivSubmitting(true);
-    try {
-      await createDividend(Number(id), { stockId: values.stockId, amount: values.amount, paidAt: values.paidAt.toISOString() });
-      message.success('Дивиденд добавлен');
-      setDivModalOpen(false); divForm.resetFields(); fetchFinanceData();
-    } catch { message.error('Ошибка добавления дивиденда'); }
-    finally { setDivSubmitting(false); }
-  };
-  const handleDeleteDiv = async (divId: number) => {
-    if (!id) return;
-    try { await deleteDividend(Number(id), divId); message.success('Дивиденд удалён'); fetchFinanceData(); }
-    catch { message.error('Ошибка удаления дивиденда'); }
   };
 
   // ── Summary ────────────────────────────────────────────────
@@ -359,9 +364,13 @@ const PortfolioDetailPage: React.FC = () => {
 
   const summary = computeSummary(items);
 
-  // ── Derived order lists ───────────────────────────────────────────────
   const pendingOrders = orders.filter((o) => o.status === 'Pending');
   const executedOrders = orders.filter((o) => o.status === 'Executed' || o.status === 'Cancelled');
+
+  const filteredTransactions = useMemo(() => {
+    if (txTypeFilter === 'all') return transactions;
+    return transactions.filter((t) => t.type === txTypeFilter);
+  }, [transactions, txTypeFilter]);
 
   // ── Columns ────────────────────────────────────────────────
   const positionColumns = [
@@ -398,21 +407,14 @@ const PortfolioDetailPage: React.FC = () => {
             aria-controls={`pos-chart-panel-${item.id}`}
             aria-label={isExpanded ? `Закрыть график цены: ${ticker}` : `Открыть график цены: ${ticker}`}
             style={{
-              padding: 0,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              color: isExpanded ? '#1677ff' : 'inherit',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
+              padding: 0, background: 'none', border: 'none', cursor: 'pointer',
+              fontWeight: 600, color: isExpanded ? '#1677ff' : 'inherit',
+              display: 'inline-flex', alignItems: 'center', gap: 4,
             }}
           >
             <CaretRightFilled
               style={{
-                fontSize: 10,
-                transition: 'transform 0.2s',
+                fontSize: 10, transition: 'transform 0.2s',
                 transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                 color: '#1677ff',
               }}
@@ -423,40 +425,35 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'Название',
-      key: 'name',
+      title: 'Название', key: 'name',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return (record as PortfolioItem).stock?.name ?? '—';
       },
     },
     {
-      title: 'Кол-во',
-      key: 'quantity',
+      title: 'Кол-во', key: 'quantity',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return (record as PortfolioItem).quantity.toFixed(2);
       },
     },
     {
-      title: 'Цена покупки',
-      key: 'buyPrice',
+      title: 'Цена покупки', key: 'buyPrice',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return `€${(record as PortfolioItem).buyPrice.toFixed(2)}`;
       },
     },
     {
-      title: 'Тек. цена',
-      key: 'currentPrice',
+      title: 'Тек. цена', key: 'currentPrice',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return `€${(record as PortfolioItem).stock.currentPrice.toFixed(2)}`;
       },
     },
     {
-      title: 'Тек. стоимость',
-      key: 'currentValue',
+      title: 'Тек. стоимость', key: 'currentValue',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -464,8 +461,7 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'P&L (€)',
-      key: 'pnlEur',
+      title: 'P&L (€)', key: 'pnlEur',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -474,8 +470,7 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'P&L (%)',
-      key: 'pnlPct',
+      title: 'P&L (%)', key: 'pnlPct',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -484,8 +479,7 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'Действия',
-      key: 'actions',
+      title: 'Действия', key: 'actions',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -505,7 +499,6 @@ const PortfolioDetailPage: React.FC = () => {
     },
   ];
 
-  // Pending orders — full details + alerts
   const pendingOrderColumns = [
     {
       title: '', key: 'alert', width: 32,
@@ -536,7 +529,6 @@ const PortfolioDetailPage: React.FC = () => {
     },
   ];
 
-  // Executed/Cancelled orders — compact view
   const executedOrderColumns = [
     { title: 'Дата исполнения', dataIndex: 'executedAt', key: 'executedAt', render: (v: string | null) => v ? dayjs.utc(v).local().format('DD.MM.YYYY') : '—' },
     { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
@@ -556,8 +548,9 @@ const PortfolioDetailPage: React.FC = () => {
     },
   ];
 
-  // Derive selectedKey and sidebarOpenKeys from current section
+  // ── Derived keys ───────────────────────────────────────────
   const sectionKey = `portfolio-${id}-${section}`;
+  const sidebarOpenKeys = ['portfolios', `portfolio-${id}`];
 
   // Position table data with inline chart rows
   const positionTableData: PositionTableRow[] = useMemo(() => {
@@ -570,12 +563,6 @@ const PortfolioDetailPage: React.FC = () => {
     }
     return rows;
   }, [sortedItems, expandedPositionId]);
-  const isFinanceSection = section === 'balance' || section === 'transactions' || section === 'dividends';
-  const sidebarOpenKeys = [
-    'portfolios',
-    `portfolio-${id}`,
-    ...(isFinanceSection ? [`portfolio-${id}-finance`] : []),
-  ];
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -625,182 +612,221 @@ const PortfolioDetailPage: React.FC = () => {
                 </Col>
               </Row>
 
-              {/* ── Positions ─────────────────────────────────────── */}
+              {/* ── Positions (with Orders as tab) ─────────────── */}
               {section === 'positions' && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={openAddPosModal}>Добавить позицию</Button>
-                  </div>
-                  <Table
-                    className="positions-table"
-                    dataSource={positionTableData}
-                    columns={positionColumns}
-                    rowKey={(record: PositionTableRow) =>
-                      isPositionChartRow(record)
-                        ? `pos-chart-${record._itemId}`
-                        : String((record as PortfolioItem).id)
-                    }
-                    rowClassName={(record: PositionTableRow) =>
-                      isPositionChartRow(record) ? 'chart-panel-row' : ''
-                    }
-                    scroll={{ x: true }}
-                    pagination={{ pageSize: 20 }}
-                  />
-                </>
-              )}
-
-              {/* ── Orders ────────────────────────────────────────── */}
-              {section === 'orders' && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={openAddOrderModal}>Создать ордер</Button>
-                  </div>
-                  <Tabs
-                    defaultActiveKey="pending"
-                    items={[
-                      {
-                        key: 'pending',
-                        label: (
-                          <span>
-                            Ожидающие
-                            {pendingOrders.length > 0 && (
-                              <Tag color="gold" style={{ marginLeft: 6 }}>{pendingOrders.length}</Tag>
-                            )}
-                          </span>
-                        ),
-                        children: (
-                          <Table
-                            dataSource={pendingOrders}
-                            columns={pendingOrderColumns}
-                            rowKey="id"
-                            scroll={{ x: true }}
-                            pagination={{ pageSize: 20 }}
-                            locale={{ emptyText: 'Нет ожидающих ордеров' }}
-                          />
-                        ),
-                      },
-                      {
-                        key: 'executed',
-                        label: (
-                          <span>
-                            Выполненные
-                            {executedOrders.length > 0 && (
-                              <Tag color="green" style={{ marginLeft: 6 }}>{executedOrders.length}</Tag>
-                            )}
-                          </span>
-                        ),
-                        children: (
-                          <Table
-                            dataSource={executedOrders}
-                            columns={executedOrderColumns}
-                            rowKey="id"
-                            scroll={{ x: true }}
-                            pagination={{ pageSize: 20 }}
-                            locale={{ emptyText: 'Нет выполненных ордеров' }}
-                          />
-                        ),
-                      },
-                    ]}
-                  />
-                </>
-              )}
-
-              {/* ── Balance ───────────────────────────────────────── */}
-              {section === 'balance' && (
-                financeLoaded && balance ? (
-                  <>
-                    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                      <Col xs={24} sm={12} lg={8}>
-                        <Card><Text type="secondary">Денежный баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.cashBalance.toFixed(2)}</Title></Card>
-                      </Col>
-                      <Col xs={24} sm={12} lg={8}>
-                        <Card><Text type="secondary">Кредит брокера</Text><Title level={4} style={{ margin: 0 }}>€{balance.brokerCredit.toFixed(2)}</Title></Card>
-                      </Col>
-                      <Col xs={24} sm={12} lg={8}>
-                        <Card><Text type="secondary">Общий баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalBalance.toFixed(2)}</Title></Card>
-                      </Col>
-                      <Col xs={24} sm={12} lg={8}>
-                        <Card><Text type="secondary">Стоимость акций</Text><Title level={4} style={{ margin: 0 }}>€{balance.stocksValue.toFixed(2)}</Title></Card>
-                      </Col>
-                      <Col xs={24} sm={12} lg={8}>
-                        <Card><Text type="secondary">Итого портфель</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalPortfolioValue.toFixed(2)}</Title></Card>
-                      </Col>
-                    </Row>
+                <Tabs
+                  defaultActiveKey="positions"
+                  tabBarExtraContent={
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
-                      <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
+                      <Button type="primary" icon={<PlusOutlined />} onClick={openAddPosModal}>
+                        Добавить позицию
+                      </Button>
+                      <Button icon={<PlusOutlined />} onClick={openAddOrderModal}>
+                        Создать ордер
+                      </Button>
                     </div>
-                  </>
-                ) : (
-                  <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin /></div>
-                )
+                  }
+                  items={[
+                    {
+                      key: 'positions',
+                      label: 'Позиции',
+                      children: (
+                        <Table
+                          className="positions-table"
+                          dataSource={positionTableData}
+                          columns={positionColumns}
+                          rowKey={(record: PositionTableRow) =>
+                            isPositionChartRow(record)
+                              ? `pos-chart-${record._itemId}`
+                              : String((record as PortfolioItem).id)
+                          }
+                          rowClassName={(record: PositionTableRow) =>
+                            isPositionChartRow(record) ? 'chart-panel-row' : ''
+                          }
+                          scroll={{ x: true }}
+                          pagination={{ pageSize: 20 }}
+                        />
+                      ),
+                    },
+                    {
+                      key: 'orders',
+                      label: (
+                        <span>
+                          Ордера
+                          {pendingOrders.length > 0 && (
+                            <Tag color="gold" style={{ marginLeft: 6 }}>{pendingOrders.length}</Tag>
+                          )}
+                        </span>
+                      ),
+                      children: (
+                        <Tabs
+                          defaultActiveKey="pending"
+                          items={[
+                            {
+                              key: 'pending',
+                              label: (
+                                <span>
+                                  Ожидающие
+                                  {pendingOrders.length > 0 && (
+                                    <Tag color="gold" style={{ marginLeft: 6 }}>{pendingOrders.length}</Tag>
+                                  )}
+                                </span>
+                              ),
+                              children: (
+                                <Table
+                                  dataSource={pendingOrders}
+                                  columns={pendingOrderColumns}
+                                  rowKey="id"
+                                  scroll={{ x: true }}
+                                  pagination={{ pageSize: 20 }}
+                                  locale={{ emptyText: 'Нет ожидающих ордеров' }}
+                                />
+                              ),
+                            },
+                            {
+                              key: 'executed',
+                              label: (
+                                <span>
+                                  Выполненные
+                                  {executedOrders.length > 0 && (
+                                    <Tag color="green" style={{ marginLeft: 6 }}>{executedOrders.length}</Tag>
+                                  )}
+                                </span>
+                              ),
+                              children: (
+                                <Table
+                                  dataSource={executedOrders}
+                                  columns={executedOrderColumns}
+                                  rowKey="id"
+                                  scroll={{ x: true }}
+                                  pagination={{ pageSize: 20 }}
+                                  locale={{ emptyText: 'Нет выполненных ордеров' }}
+                                />
+                              ),
+                            },
+                          ]}
+                        />
+                      ),
+                    },
+                  ]}
+                />
               )}
 
               {/* ── Transactions ──────────────────────────────────── */}
               {section === 'transactions' && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={openDepositModal}>Пополнить</Button>
-                    <Button icon={<PlusOutlined />} onClick={openWithdrawModal}>Вывести</Button>
-                  </div>
-                  <Table
-                    dataSource={transactions}
-                    rowKey="id"
-                    scroll={{ x: true }}
-                    pagination={{ pageSize: 20 }}
-                    columns={[
-                      { title: 'Дата', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
-                      {
-                        title: 'Тип', dataIndex: 'type', key: 'type',
-                        render: (_: string, transaction: Transaction) => (
-                          <Tag color={getTransactionTagColor(transaction)}>{getTransactionLabel(transaction)}</Tag>
-                        ),
-                      },
-                      {
-                        title: 'Сумма', dataIndex: 'amount', key: 'amount',
-                        render: (_: number, transaction: Transaction) => `€${getTransactionDisplayAmount(transaction).toFixed(2)}`,
-                      },
-                      { title: 'Описание', dataIndex: 'description', key: 'description', render: (v: string | null) => v ?? '—' },
-                      {
-                        title: 'Удалить', key: 'delete',
-                        render: (_: unknown, r: Transaction) => (
-                          <Popconfirm title="Удалить транзакцию?" onConfirm={() => handleDeleteTx(r.id)} okText="Да" cancelText="Нет">
-                            <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
-                          </Popconfirm>
-                        ),
-                      },
-                    ]}
-                  />
-                </>
-              )}
+                financeLoaded ? (
+                  <>
+                    {/* Balance summary */}
+                    {balance && (
+                      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                        <Col xs={24} sm={12} lg={8}>
+                          <Card><Text type="secondary">Денежный баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.cashBalance.toFixed(2)}</Title></Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={8}>
+                          <Card><Text type="secondary">Кредит брокера</Text><Title level={4} style={{ margin: 0 }}>€{balance.brokerCredit.toFixed(2)}</Title></Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={8}>
+                          <Card><Text type="secondary">Общий баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalBalance.toFixed(2)}</Title></Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={8}>
+                          <Card><Text type="secondary">Стоимость акций</Text><Title level={4} style={{ margin: 0 }}>€{balance.stocksValue.toFixed(2)}</Title></Card>
+                        </Col>
+                        <Col xs={24} sm={12} lg={8}>
+                          <Card><Text type="secondary">Итого портфель</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalPortfolioValue.toFixed(2)}</Title></Card>
+                        </Col>
+                      </Row>
+                    )}
 
-              {/* ── Dividends ─────────────────────────────────────── */}
-              {section === 'dividends' && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={openAddDivModal}>Добавить дивиденд</Button>
-                  </div>
-                  <Table
-                    dataSource={dividends}
-                    rowKey="id"
-                    scroll={{ x: true }}
-                    pagination={{ pageSize: 20 }}
-                    columns={[
-                      { title: 'Дата выплаты', dataIndex: 'paidAt', key: 'paidAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY') },
-                      { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Dividend) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
-                      { title: 'Название', key: 'name', render: (_: unknown, r: Dividend) => r.stock?.name ?? '—' },
-                      { title: 'Сумма', dataIndex: 'amount', key: 'amount', render: (v: number) => `€${v.toFixed(2)}` },
-                      {
-                        title: 'Удалить', key: 'delete',
-                        render: (_: unknown, r: Dividend) => (
-                          <Popconfirm title="Удалить дивиденд?" onConfirm={() => handleDeleteDiv(r.id)} okText="Да" cancelText="Нет">
-                            <Button icon={<DeleteOutlined />} size="small" danger>Удалить</Button>
-                          </Popconfirm>
-                        ),
-                      },
-                    ]}
-                  />
-                </>
+                    {/* Toolbar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+                      <Select
+                        value={txTypeFilter}
+                        onChange={(v) => setTxTypeFilter(v)}
+                        style={{ minWidth: 180 }}
+                        options={[
+                          { value: 'all', label: 'Все типы' },
+                          { value: 'Deposit', label: 'Пополнение' },
+                          { value: 'Withdrawal', label: 'Вывод' },
+                          { value: 'Buy', label: 'Покупка' },
+                          { value: 'Sell', label: 'Продажа' },
+                          { value: 'Dividend', label: 'Дивиденды' },
+                        ]}
+                      />
+                      <Button type="primary" icon={<PlusOutlined />} onClick={openNewTxModal}>
+                        Новая транзакция
+                      </Button>
+                    </div>
+
+                    {/* Transaction journal */}
+                    <Table
+                      dataSource={filteredTransactions}
+                      rowKey="id"
+                      scroll={{ x: true }}
+                      pagination={{ pageSize: 20 }}
+                      columns={[
+                        {
+                          title: 'Дата', dataIndex: 'createdAt', key: 'createdAt',
+                          render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm'),
+                          sorter: (a: Transaction, b: Transaction) =>
+                            dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
+                          defaultSortOrder: 'descend',
+                        },
+                        {
+                          title: 'Тип', dataIndex: 'type', key: 'type',
+                          render: (v: TransactionType) => (
+                            <Tag color={TX_TYPE_COLORS[v]}>{TX_TYPE_LABELS[v]}</Tag>
+                          ),
+                        },
+                        {
+                          title: 'Сумма', key: 'amount',
+                          render: (_: unknown, t: Transaction) => {
+                            const signed = getEffectiveSignedAmount(t);
+                            const color = signed >= 0 ? '#3f8600' : '#cf1322';
+                            return <span style={{ color }}>{signed >= 0 ? '+' : ''}€{Math.abs(signed).toFixed(2)}</span>;
+                          },
+                        },
+                        {
+                          title: 'Описание', key: 'description',
+                          render: (_: unknown, t: Transaction) => getTransactionDescription(t),
+                        },
+                        {
+                          title: 'Действия', key: 'actions',
+                          render: (_: unknown, t: Transaction) => (
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {!t.orderId && (
+                                <Tooltip title="Редактировать">
+                                  <Button
+                                    icon={<EditOutlined />}
+                                    size="small"
+                                    aria-label="Редактировать транзакцию"
+                                    onClick={() => openEditTxModal(t)}
+                                  />
+                                </Tooltip>
+                              )}
+                              <Popconfirm
+                                title="Удалить транзакцию?"
+                                onConfirm={() => handleDeleteTx(t.id)}
+                                okText="Да"
+                                cancelText="Нет"
+                              >
+                                <Tooltip title="Удалить">
+                                  <Button
+                                    icon={<DeleteOutlined />}
+                                    size="small"
+                                    danger
+                                    aria-label="Удалить транзакцию"
+                                  />
+                                </Tooltip>
+                              </Popconfirm>
+                            </div>
+                          ),
+                        },
+                      ]}
+                    />
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin /></div>
+                )
               )}
             </>
           )}
@@ -901,47 +927,44 @@ const PortfolioDetailPage: React.FC = () => {
 
       {/* Transaction Modal */}
       <Modal
-        title={txType === 'Deposit' ? 'Пополнить баланс' : 'Вывести средства'}
+        title={editingTx ? 'Редактировать транзакцию' : 'Новая транзакция'}
         open={txModalOpen}
-        onCancel={() => { setTxModalOpen(false); txForm.resetFields(); }}
+        onCancel={() => { setTxModalOpen(false); txForm.resetFields(); setEditingTx(null); }}
         footer={null}
       >
-        <Form form={txForm} layout="vertical" onFinish={handleTxSubmit}>
-          <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
-            <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} prefix="€" />
+        <Form form={txForm} layout="vertical" onFinish={handleTxSubmit} initialValues={{ type: 'Deposit' }}>
+          <Form.Item label="Тип" name="type" rules={[{ required: true, message: 'Выберите тип' }]}>
+            <Select>
+              <Select.Option value="Deposit">Пополнение</Select.Option>
+              <Select.Option value="Withdrawal">Вывод</Select.Option>
+              <Select.Option value="Buy">Покупка</Select.Option>
+              <Select.Option value="Sell">Продажа</Select.Option>
+              <Select.Option value="Dividend">Дивиденды</Select.Option>
+            </Select>
           </Form.Item>
+          <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
+            <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} prefix="€" placeholder="Положительная сумма" />
+          </Form.Item>
+          {needsStock && (
+            <Form.Item
+              label="Акция"
+              name="stockId"
+              rules={[{ required: needsStock, message: 'Выберите акцию' }]}
+            >
+              <Select placeholder="Выберите акцию" showSearch optionFilterProp="children">
+                {stocks.map((s) => (
+                  <Select.Option key={s.id} value={s.id}>{s.ticker} — {s.name}</Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
           <Form.Item label="Описание" name="description">
             <Input placeholder="Необязательно" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={txSubmitting} block>
-              {txType === 'Deposit' ? 'Пополнить' : 'Вывести'}
+              {editingTx ? 'Сохранить' : 'Добавить'}
             </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Dividend Modal */}
-      <Modal
-        title="Добавить дивиденд"
-        open={divModalOpen}
-        onCancel={() => { setDivModalOpen(false); divForm.resetFields(); }}
-        footer={null}
-      >
-        <Form form={divForm} layout="vertical" onFinish={handleDivSubmit}>
-          <Form.Item label="Акция" name="stockId" rules={[{ required: true, message: 'Выберите акцию' }]}>
-            <Select placeholder="Выберите акцию" showSearch optionFilterProp="children">
-              {stocks.map((s) => <Select.Option key={s.id} value={s.id}>{s.ticker} — {s.name}</Select.Option>)}
-            </Select>
-          </Form.Item>
-          <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
-            <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} prefix="€" />
-          </Form.Item>
-          <Form.Item label="Дата выплаты" name="paidAt" rules={[{ required: true, message: 'Укажите дату выплаты' }]}>
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={divSubmitting} block>Добавить</Button>
           </Form.Item>
         </Form>
       </Modal>

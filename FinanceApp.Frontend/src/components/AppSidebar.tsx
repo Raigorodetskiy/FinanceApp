@@ -9,7 +9,7 @@ import './AppSidebar.css';
 const { Sider } = Layout;
 const PORTFOLIO_KEY_PREFIX = 'portfolio-';
 
-export type PortfolioSection = 'positions' | 'orders' | 'balance' | 'transactions' | 'dividends';
+export type PortfolioSection = 'positions' | 'transactions';
 
 interface AppSidebarProps {
   portfolios: Portfolio[];
@@ -32,13 +32,6 @@ const resolveDefaultOpenKeys = (
     : [];
   if (activePortfolioId != null) {
     base.push(`${PORTFOLIO_KEY_PREFIX}${activePortfolioId}`);
-    // Open finance submenu if a finance subsection is active
-    const financeKey = `${PORTFOLIO_KEY_PREFIX}${activePortfolioId}-finance`;
-    if (selectedKeys.some((k) => k === `${PORTFOLIO_KEY_PREFIX}${activePortfolioId}-balance`
-      || k === `${PORTFOLIO_KEY_PREFIX}${activePortfolioId}-transactions`
-      || k === `${PORTFOLIO_KEY_PREFIX}${activePortfolioId}-dividends`)) {
-      base.push(financeKey);
-    }
   }
   return base;
 };
@@ -69,37 +62,11 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
         onClick: () => navigate(`/portfolios/${pid}?section=positions`),
       },
       {
-        key: `${PORTFOLIO_KEY_PREFIX}${pid}-orders`,
+        key: `${PORTFOLIO_KEY_PREFIX}${pid}-transactions`,
         className: 'portfolio-section-node',
-        icon: <UnorderedListOutlined />,
-        label: 'Ордера',
-        onClick: () => navigate(`/portfolios/${pid}?section=orders`),
-      },
-      {
-        key: `${PORTFOLIO_KEY_PREFIX}${pid}-finance`,
-        className: 'portfolio-section-node portfolio-section-node--submenu',
         icon: <WalletOutlined />,
-        label: 'Финансы',
-        children: [
-          {
-            key: `${PORTFOLIO_KEY_PREFIX}${pid}-balance`,
-            className: 'portfolio-finance-node',
-            label: 'Баланс',
-            onClick: () => navigate(`/portfolios/${pid}?section=balance`),
-          },
-          {
-            key: `${PORTFOLIO_KEY_PREFIX}${pid}-transactions`,
-            className: 'portfolio-finance-node',
-            label: 'Транзакции',
-            onClick: () => navigate(`/portfolios/${pid}?section=transactions`),
-          },
-          {
-            key: `${PORTFOLIO_KEY_PREFIX}${pid}-dividends`,
-            className: 'portfolio-finance-node',
-            label: 'Дивиденды',
-            onClick: () => navigate(`/portfolios/${pid}?section=dividends`),
-          },
-        ],
+        label: 'Транзакции',
+        onClick: () => navigate(`/portfolios/${pid}?section=transactions`),
       },
     ];
   };
