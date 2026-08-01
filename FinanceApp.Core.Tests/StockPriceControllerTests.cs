@@ -165,6 +165,85 @@ public class StockPriceControllerTests
         Assert.Equal(520m, response.CurrentPriceEur);
     }
 
+    // ── Frankfurt provider-symbol resolution tests ────────────────────────────
+
+    /// <summary>
+    /// Requirement 6: Frankfurt current-quote path invokes Yahoo with the resolved .F symbol.
+    /// Bare "AMZN" with exchange FRA must call Yahoo as "AMZN.F".
+    /// </summary>
+    [Fact]
+    public async Task GetPrice_Frankfurt_BareAmznTicker_InvokesYahooWithDotFSymbol()
+    {
+        var yahooService = new CapturingYahooQuoteService(
+            YahooQuoteResult.Success(new YahooQuoteData(
+                "AMZN.F", 236.46m, 233.59m, 1.23m, "EUR", "EUR", "CLOSED")));
+
+        await CreateController(yahooService: yahooService)
+            .GetPrice("AMZN", StockExchanges.Frankfurt, null);
+
+        Assert.Equal("AMZN.F", yahooService.LastRequestedSymbol);
+    }
+
+    /// <summary>
+    /// The response Symbol field must reflect the resolved provider symbol (AMZN.F),
+    /// not the bare stored ticker (AMZN), so clients can distinguish the venue.
+    /// </summary>
+    [Fact]
+    public async Task GetPrice_Frankfurt_BareAmznTicker_ResponseSymbolIsResolvedDotF()
+    {
+        var yahooService = new CapturingYahooQuoteService(
+            YahooQuoteResult.Success(new YahooQuoteData(
+                "AMZN.F", 236.46m, 233.59m, 1.23m, "EUR", "EUR", "CLOSED")));
+
+        var actionResult = await CreateController(yahooService: yahooService)
+            .GetPrice("AMZN", StockExchanges.Frankfurt, null);
+
+        var ok = Assert.IsType<OkObjectResult>(actionResult);
+        var response = Assert.IsType<StockQuoteResponse>(ok.Value);
+        Assert.Equal("AMZN.F", response.Symbol);
+    }
+
+    /// <summary>
+    /// Requirement 9 regression: the bare AMZN US/USD payload must not be selected
+    /// for a stock stored as ticker=AMZN, exchange=FRA.  Before the fix, Yahoo was
+    /// called with "AMZN" (US NASDAQ listing); after the fix it must be "AMZN.F".
+    /// </summary>
+    [Fact]
+    public async Task GetPrice_Frankfurt_BareAmznTicker_DoesNotRequestUsListingFromYahoo()
+    {
+        var yahooService = new CapturingYahooQuoteService(
+            YahooQuoteResult.Success(new YahooQuoteData(
+                "AMZN.F", 236.46m, 233.59m, 1.23m, "EUR", "EUR", "CLOSED")));
+
+        await CreateController(yahooService: yahooService)
+            .GetPrice("AMZN", StockExchanges.Frankfurt, null);
+
+        // Must NOT request bare "AMZN" (which resolves to US/NASDAQ USD data)
+        Assert.NotEqual("AMZN", yahooService.LastRequestedSymbol);
+        // Must request the Frankfurt-listed symbol
+        Assert.Equal("AMZN.F", yahooService.LastRequestedSymbol);
+    }
+
+    /// <summary>
+    /// When the caller already supplies the resolved symbol (AMZN.F), it must be used
+    /// as-is – the resolver must not append ".F" a second time.
+    /// </summary>
+    [Fact]
+    public async Task GetPrice_Frankfurt_AlreadyDotFTicker_SymbolPassedToYahooUnchanged()
+    {
+        var yahooService = new CapturingYahooQuoteService(
+            YahooQuoteResult.Success(new YahooQuoteData(
+                "AMZN.F", 236.46m, 233.59m, 1.23m, "EUR", "EUR", "CLOSED")));
+
+        var actionResult = await CreateController(yahooService: yahooService)
+            .GetPrice("AMZN.F", StockExchanges.Frankfurt, null);
+
+        Assert.Equal("AMZN.F", yahooService.LastRequestedSymbol);
+        var ok = Assert.IsType<OkObjectResult>(actionResult);
+        var response = Assert.IsType<StockQuoteResponse>(ok.Value);
+        Assert.Equal("AMZN.F", response.Symbol);
+    }
+
     private static StockPriceController CreateController(
         FinnhubQuoteResult? finnhubResult = null,
         YahooQuoteResult? yahooResult = null,
@@ -275,5 +354,24 @@ public class StockPriceControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(FinanzenNetQuoteResult.Failure(
                 StatusCodes.Status503ServiceUnavailable, "Disabled"));
+    }
+
+    /// <summary>
+    /// Yahoo quote service stub that captures the symbol argument passed to it,
+    /// enabling assertions on which provider symbol was actually requested.
+    /// </summary>
+    private sealed class CapturingYahooQuoteService : IYahooQuoteService
+    {
+        private readonly YahooQuoteResult _result;
+
+        public CapturingYahooQuoteService(YahooQuoteResult result) => _result = result;
+
+        public string? LastRequestedSymbol { get; private set; }
+
+        public Task<YahooQuoteResult> GetQuoteAsync(string symbol, CancellationToken cancellationToken = default)
+        {
+            LastRequestedSymbol = symbol;
+            return Task.FromResult(_result);
+        }
     }
 }

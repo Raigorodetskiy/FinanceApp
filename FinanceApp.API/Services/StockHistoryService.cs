@@ -63,19 +63,21 @@ public class StockHistoryService : IStockHistoryService
             return;
         }
 
-        var monthly = await FetchCandlesAsync(stock.Ticker, "1mo", "5y", cancellationToken);
+        var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+
+        var monthly = await FetchCandlesAsync(providerSymbol, "1mo", "5y", cancellationToken);
         await UpsertCandlesAsync(stock.Id, "1mo", monthly, cancellationToken);
 
-        var weekly = await FetchCandlesAsync(stock.Ticker, "1wk", "1y", cancellationToken);
+        var weekly = await FetchCandlesAsync(providerSymbol, "1wk", "1y", cancellationToken);
         await UpsertCandlesAsync(stock.Id, "1wk", weekly, cancellationToken);
 
-        var daily = await FetchCandlesAsync(stock.Ticker, "1d", "1y", cancellationToken);
+        var daily = await FetchCandlesAsync(providerSymbol, "1d", "1y", cancellationToken);
         await UpsertCandlesAsync(stock.Id, "1d", daily, cancellationToken);
 
-        var hourly = await FetchCandlesAsync(stock.Ticker, "1h", "7d", cancellationToken);
+        var hourly = await FetchCandlesAsync(providerSymbol, "1h", "7d", cancellationToken);
         await UpsertCandlesAsync(stock.Id, "1h", hourly, cancellationToken);
 
-        var fiveMinute = await FetchCandlesAsync(stock.Ticker, "5m", "1d", cancellationToken);
+        var fiveMinute = await FetchCandlesAsync(providerSymbol, "5m", "1d", cancellationToken);
         var tenMinute = AggregateToTenMinute(fiveMinute);
         await UpsertCandlesAsync(stock.Id, "10m", tenMinute, cancellationToken);
     }
