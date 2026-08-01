@@ -160,15 +160,22 @@ export interface PortfolioBalance {
 export interface CreateTransactionRequest {
   type: TransactionType;
   amount: number;
-  stockId?: number;
+  createdAt: string;
+  stockId?: number | null;
   description?: string;
 }
 
 export interface UpdateTransactionRequest {
   type: TransactionType;
   amount: number;
-  stockId?: number;
+  createdAt: string;
+  stockId?: number | null;
   description?: string;
+}
+
+export interface UpdatePortfolioBalanceRequest {
+  cashBalance: number;
+  brokerCredit: number;
 }
 
 export interface LoginRequest {

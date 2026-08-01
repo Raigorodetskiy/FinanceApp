@@ -7,6 +7,7 @@ import {
   Form,
   InputNumber,
   Select,
+  DatePicker,
   Spin,
   Typography,
   Card,
@@ -26,9 +27,11 @@ import {
   DeleteOutlined,
   BellOutlined,
   CaretRightFilled,
+  CheckOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
   getPortfolio,
@@ -42,6 +45,7 @@ import {
   updateOrder,
   deleteOrder,
   getBalance,
+  updateBalance,
   getTransactions,
   createTransaction,
   updateTransaction,
@@ -94,7 +98,7 @@ const TX_TYPE_COLORS: Record<TransactionType, string> = {
   Dividend: 'purple',
 };
 
-const TX_TYPES_WITH_STOCK: TransactionType[] = ['Buy', 'Sell', 'Dividend'];
+type BalanceField = 'cashBalance' | 'brokerCredit';
 
 const getEffectiveSignedAmount = (t: Transaction) => {
   if (t.signedAmount !== 0 || t.amount === 0) return t.signedAmount;
@@ -107,6 +111,8 @@ const getTransactionDescription = (t: Transaction): string => {
   }
   return t.description ?? TX_TYPE_LABELS[t.type];
 };
+
+const formatCurrency = (value: number) => `${value < 0 ? '-€' : '€'}${Math.abs(value).toFixed(2)}`;
 
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -131,8 +137,9 @@ const PortfolioDetailPage: React.FC = () => {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [txSubmitting, setTxSubmitting] = useState(false);
   const [txForm] = Form.useForm();
-  const txTypeWatch: TransactionType = Form.useWatch('type', txForm) ?? 'Deposit';
-  const needsStock = TX_TYPES_WITH_STOCK.includes(txTypeWatch);
+  const [balanceEditField, setBalanceEditField] = useState<BalanceField | null>(null);
+  const [balanceDraft, setBalanceDraft] = useState({ cashBalance: 0, brokerCredit: 0 });
+  const [balanceSubmitting, setBalanceSubmitting] = useState(false);
 
   // Position modal
   const [posModalOpen, setPosModalOpen] = useState(false);
@@ -199,6 +206,15 @@ const PortfolioDetailPage: React.FC = () => {
   useEffect(() => {
     setExpandedPositionId(null);
   }, [id, section]);
+
+  useEffect(() => {
+    if (balance) {
+      setBalanceDraft({
+        cashBalance: balance.cashBalance,
+        brokerCredit: balance.brokerCredit,
+      });
+    }
+  }, [balance]);
 
   // ── Positions ──────────────────────────────────────────────
   const openAddPosModal = () => { setEditingItem(null); posForm.resetFields(); setPosModalOpen(true); };
@@ -297,7 +313,7 @@ const PortfolioDetailPage: React.FC = () => {
   const openNewTxModal = () => {
     setEditingTx(null);
     txForm.resetFields();
-    txForm.setFieldsValue({ type: 'Deposit' });
+   txForm.setFieldsValue({ type: 'Deposit', createdAt: dayjs() });
     setTxModalOpen(true);
   };
   const openEditTxModal = (tx: Transaction) => {
@@ -305,24 +321,26 @@ const PortfolioDetailPage: React.FC = () => {
     txForm.setFieldsValue({
       type: tx.type,
       amount: tx.amount,
-      stockId: tx.stockId ?? undefined,
-      description: tx.description ?? undefined,
-    });
-    setTxModalOpen(true);
+     createdAt: dayjs.utc(tx.createdAt).local(),
+     stockId: tx.stockId ?? undefined,
+     description: tx.description ?? undefined,
+   });
+   setTxModalOpen(true);
   };
-  const handleTxSubmit = async (values: { type: TransactionType; amount: number; stockId?: number; description?: string }) => {
-    if (!id) return;
-    setTxSubmitting(true);
-    try {
-      const payload = {
-        type: values.type,
-        amount: Math.abs(values.amount),
-        stockId: values.stockId,
-        description: values.description,
-      };
-      if (editingTx) {
-        await updateTransaction(Number(id), editingTx.id, payload);
-        message.success('Транзакция обновлена');
+  const handleTxSubmit = async (values: { type: TransactionType; amount: number; createdAt: Dayjs; stockId?: number; description?: string }) => {
+   if (!id) return;
+   setTxSubmitting(true);
+   try {
+     const payload = {
+       type: values.type,
+       amount: Math.abs(values.amount),
+       createdAt: values.createdAt.toISOString(),
+       stockId: values.stockId ?? null,
+       description: values.description,
+     };
+     if (editingTx) {
+       await updateTransaction(Number(id), editingTx.id, payload);
+       message.success('Транзакция обновлена');
       } else {
         await createTransaction(Number(id), payload);
         message.success('Транзакция добавлена');
@@ -330,6 +348,51 @@ const PortfolioDetailPage: React.FC = () => {
       setTxModalOpen(false); txForm.resetFields(); fetchFinanceData();
     } catch { message.error('Ошибка сохранения транзакции'); }
     finally { setTxSubmitting(false); }
+  };
+  const startBalanceEdit = (field: BalanceField) => {
+    if (!balance) return;
+    setBalanceDraft({
+      cashBalance: balance.cashBalance,
+      brokerCredit: balance.brokerCredit,
+    });
+    setBalanceEditField(field);
+  };
+  const cancelBalanceEdit = () => {
+    if (balance) {
+      setBalanceDraft({
+        cashBalance: balance.cashBalance,
+        brokerCredit: balance.brokerCredit,
+      });
+    }
+    setBalanceEditField(null);
+  };
+  const handleBalanceDraftChange = (field: BalanceField, value: number | null) => {
+    setBalanceDraft((current) => ({
+      ...current,
+      [field]: value ?? 0,
+    }));
+  };
+  const handleBalanceSave = async () => {
+    if (!id || !balanceEditField) return;
+    if (!Number.isFinite(balanceDraft.cashBalance) || !Number.isFinite(balanceDraft.brokerCredit)) {
+      message.error('Введите корректное число');
+      return;
+    }
+
+    setBalanceSubmitting(true);
+    try {
+      await updateBalance(Number(id), {
+        cashBalance: balanceDraft.cashBalance,
+        brokerCredit: balanceDraft.brokerCredit,
+      });
+      message.success('Баланс обновлён');
+      setBalanceEditField(null);
+      await fetchFinanceData();
+    } catch {
+      message.error('Ошибка сохранения баланса');
+    } finally {
+      setBalanceSubmitting(false);
+    }
   };
   const handleDeleteTx = async (txId: number) => {
     if (!id) return;
@@ -371,6 +434,70 @@ const PortfolioDetailPage: React.FC = () => {
     if (txTypeFilter === 'all') return transactions;
     return transactions.filter((t) => t.type === txTypeFilter);
   }, [transactions, txTypeFilter]);
+  const stockOptions = useMemo(
+    () => stocks.map((s) => ({ value: s.id, label: `${s.ticker} — ${s.name}` })),
+    [stocks],
+  );
+  const previewTotalBalance = balanceDraft.cashBalance + balanceDraft.brokerCredit;
+  const previewStocksValue = balance?.stocksValue ?? 0;
+  const previewTotalPortfolioValue = previewStocksValue + previewTotalBalance;
+
+  const renderBalanceRow = (field: BalanceField, label: string) => {
+    const isEditing = balanceEditField === field;
+
+    return (
+      <div
+        key={field}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <div>
+          <Text type="secondary">{label}</Text>
+          {!isEditing && <div><Text strong style={{ fontSize: 18 }}>{formatCurrency(balanceDraft[field])}</Text></div>}
+        </div>
+        {isEditing ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <InputNumber
+              value={balanceDraft[field]}
+              onChange={(value) => handleBalanceDraftChange(field, value)}
+              step={0.01}
+              precision={2}
+              size="small"
+              style={{ width: 140 }}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<CheckOutlined />}
+              loading={balanceSubmitting}
+              aria-label={`Сохранить ${label.toLowerCase()}`}
+              onClick={handleBalanceSave}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              disabled={balanceSubmitting}
+              aria-label={`Отменить редактирование ${label.toLowerCase()}`}
+              onClick={cancelBalanceEdit}
+            />
+          </div>
+        ) : (
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined />}
+            aria-label={`Редактировать ${label.toLowerCase()}`}
+            onClick={() => startBalanceEdit(field)}
+          />
+        )}
+      </div>
+    );
+  };
 
   // ── Columns ────────────────────────────────────────────────
   const positionColumns = [
@@ -586,31 +713,32 @@ const PortfolioDetailPage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}><Spin size="large" /></div>
           ) : (
             <>
-              {/* Summary cards — shown on all sections */}
-              <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-                <Col xs={24} sm={12} lg={6}>
-                  <Card><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>€{summary.totalValue.toFixed(2)}</Title></Card>
-                </Col>
-                <Col xs={24} sm={12} lg={6}>
-                  <Card>
-                    <Text type="secondary">Общий P&L (€)</Text>
-                    <Title level={4} style={{ margin: 0, color: summary.totalPnlEur >= 0 ? '#3f8600' : '#cf1322' }}>
-                      {summary.totalPnlEur >= 0 ? '+' : ''}€{summary.totalPnlEur.toFixed(2)}
-                    </Title>
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} lg={6}>
-                  <Card>
-                    <Text type="secondary">Общий P&L (%)</Text>
-                    <Title level={4} style={{ margin: 0, color: summary.totalPnlPct >= 0 ? '#3f8600' : '#cf1322' }}>
-                      {summary.totalPnlPct >= 0 ? '+' : ''}{summary.totalPnlPct.toFixed(2)}%
-                    </Title>
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} lg={6}>
-                  <Card><Text type="secondary">Позиций</Text><Title level={4} style={{ margin: 0 }}>{summary.count}</Title></Card>
-                </Col>
-              </Row>
+              {section === 'positions' && (
+                <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>{formatCurrency(summary.totalValue)}</Title></Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card>
+                      <Text type="secondary">Общий P&L (€)</Text>
+                      <Title level={4} style={{ margin: 0, color: summary.totalPnlEur >= 0 ? '#3f8600' : '#cf1322' }}>
+                        {summary.totalPnlEur >= 0 ? '+' : ''}{formatCurrency(summary.totalPnlEur)}
+                      </Title>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card>
+                      <Text type="secondary">Общий P&L (%)</Text>
+                      <Title level={4} style={{ margin: 0, color: summary.totalPnlPct >= 0 ? '#3f8600' : '#cf1322' }}>
+                        {summary.totalPnlPct >= 0 ? '+' : ''}{summary.totalPnlPct.toFixed(2)}%
+                      </Title>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card><Text type="secondary">Позиций</Text><Title level={4} style={{ margin: 0 }}>{summary.count}</Title></Card>
+                  </Col>
+                </Row>
+              )}
 
               {/* ── Positions (with Orders as tab) ─────────────── */}
               {section === 'positions' && (
@@ -719,20 +847,37 @@ const PortfolioDetailPage: React.FC = () => {
                     {/* Balance summary */}
                     {balance && (
                       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-                        <Col xs={24} sm={12} lg={8}>
-                          <Card><Text type="secondary">Денежный баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.cashBalance.toFixed(2)}</Title></Card>
+                        <Col xs={24} md={12} lg={8}>
+                          <Card>
+                            <Text type="secondary">Итого портфель</Text>
+                            <Title level={4} style={{ margin: 0 }}>
+                              {formatCurrency(balanceEditField ? previewTotalPortfolioValue : balance.totalPortfolioValue)}
+                            </Title>
+                          </Card>
                         </Col>
-                        <Col xs={24} sm={12} lg={8}>
-                          <Card><Text type="secondary">Кредит брокера</Text><Title level={4} style={{ margin: 0 }}>€{balance.brokerCredit.toFixed(2)}</Title></Card>
+                        <Col xs={24} md={12} lg={8}>
+                          <Card>
+                            <Text type="secondary">Стоимость акций</Text>
+                            <Title level={4} style={{ margin: 0 }}>{formatCurrency(balance.stocksValue)}</Title>
+                          </Card>
                         </Col>
-                        <Col xs={24} sm={12} lg={8}>
-                          <Card><Text type="secondary">Общий баланс</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalBalance.toFixed(2)}</Title></Card>
-                        </Col>
-                        <Col xs={24} sm={12} lg={8}>
-                          <Card><Text type="secondary">Стоимость акций</Text><Title level={4} style={{ margin: 0 }}>€{balance.stocksValue.toFixed(2)}</Title></Card>
-                        </Col>
-                        <Col xs={24} sm={12} lg={8}>
-                          <Card><Text type="secondary">Итого портфель</Text><Title level={4} style={{ margin: 0 }}>€{balance.totalPortfolioValue.toFixed(2)}</Title></Card>
+                        <Col xs={24} md={24} lg={8}>
+                          <Card>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                              {renderBalanceRow('cashBalance', 'Денежный баланс')}
+                              {renderBalanceRow('brokerCredit', 'Кредит брокера')}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                                <div>
+                                  <Text type="secondary">Общий баланс</Text>
+                                  <div>
+                                    <Text strong style={{ fontSize: 18 }}>
+                                      {formatCurrency(balanceEditField ? previewTotalBalance : balance.totalBalance)}
+                                    </Text>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </Card>
                         </Col>
                       </Row>
                     )}
@@ -932,7 +1077,7 @@ const PortfolioDetailPage: React.FC = () => {
         onCancel={() => { setTxModalOpen(false); txForm.resetFields(); setEditingTx(null); }}
         footer={null}
       >
-        <Form form={txForm} layout="vertical" onFinish={handleTxSubmit} initialValues={{ type: 'Deposit' }}>
+        <Form form={txForm} layout="vertical" onFinish={handleTxSubmit} initialValues={{ type: 'Deposit', createdAt: dayjs() }}>
           <Form.Item label="Тип" name="type" rules={[{ required: true, message: 'Выберите тип' }]}>
             <Select>
               <Select.Option value="Deposit">Пополнение</Select.Option>
@@ -943,21 +1088,25 @@ const PortfolioDetailPage: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item label="Сумма (€)" name="amount" rules={[{ required: true, message: 'Введите сумму' }]}>
-            <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} prefix="€" placeholder="Положительная сумма" />
+            <InputNumber min={0.01} step={0.01} precision={2} style={{ width: '100%' }} prefix="€" placeholder="Положительная сумма" />
           </Form.Item>
-          {needsStock && (
-            <Form.Item
-              label="Акция"
-              name="stockId"
-              rules={[{ required: needsStock, message: 'Выберите акцию' }]}
-            >
-              <Select placeholder="Выберите акцию" showSearch optionFilterProp="children">
-                {stocks.map((s) => (
-                  <Select.Option key={s.id} value={s.id}>{s.ticker} — {s.name}</Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-          )}
+          <Form.Item label="Дата" name="createdAt" rules={[{ required: true, message: 'Выберите дату и время' }]}>
+            <DatePicker
+              showTime={{ format: 'HH:mm' }}
+              format="DD.MM.YYYY HH:mm"
+              style={{ width: '100%' }}
+              placeholder="Выберите дату и время"
+            />
+          </Form.Item>
+          <Form.Item label="Акция" name="stockId">
+            <Select
+              allowClear
+              placeholder="Необязательно"
+              showSearch
+              optionFilterProp="label"
+              options={stockOptions}
+            />
+          </Form.Item>
           <Form.Item label="Описание" name="description">
             <Input placeholder="Необязательно" />
           </Form.Item>

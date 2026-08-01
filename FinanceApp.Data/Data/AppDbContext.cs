@@ -23,6 +23,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Transaction>(entity =>
         {
             entity.HasIndex(x => x.OrderId).IsUnique().HasFilter("`OrderId` IS NOT NULL");
+            entity.HasOne(x => x.Stock)
+                .WithMany()
+                .HasForeignKey(x => x.StockId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<StockHistoricalPrice>(entity =>
