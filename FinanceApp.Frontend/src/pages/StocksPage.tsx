@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Layout,
   Table,
   Button,
   Modal,
@@ -32,7 +31,7 @@ import {
   getPortfolios,
   getStockPrice,
 } from '../services/api';
-import AppSidebar from '../components/AppSidebar';
+import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockQuoteResponse, StockExchange } from '../types';
@@ -40,7 +39,6 @@ import { groupStocks } from '../utils/stockGrouping';
 
 dayjs.extend(utc);
 
-const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
@@ -674,18 +672,18 @@ const StocksPage: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <AppSidebar
+    <>
+      <AuthenticatedShell
         portfolios={portfolios}
         selectedKeys={['stocks']}
         userName={user?.username}
         onLogout={logout}
-      />
-      <Layout style={{ background: '#f0f2f5' }}>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+        headerLeft={(
           <Title level={4} style={{ margin: 0 }}>
             Акции
           </Title>
+        )}
+        headerRight={(
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               Авто-обновление через {formatCountdown(countdown)}
@@ -705,22 +703,20 @@ const StocksPage: React.FC = () => {
               Добавить акцию
             </Button>
           </div>
-        </Header>
-        <Content style={{ padding: 24 }}>
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <Spin size="large" />
-            </div>
-          ) : (
-            <>
-              {renderGroup('Портфель', portfolioGroup, portfolioRows)}
-              {renderGroup('FRA', fraGroup, fraRows)}
-              {renderGroup('NYSE', nyseGroup, nyseRows)}
-            </>
-          )}
-        </Content>
-      </Layout>
-
+        )}
+      >
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+            <Spin size="large" />
+          </div>
+        ) : (
+          <>
+            {renderGroup('Портфель', portfolioGroup, portfolioRows)}
+            {renderGroup('FRA', fraGroup, fraRows)}
+            {renderGroup('NYSE', nyseGroup, nyseRows)}
+          </>
+        )}
+      </AuthenticatedShell>
       <Modal
         title={editingStock ? 'Редактировать акцию' : 'Добавить акцию'}
         open={modalOpen}
@@ -848,7 +844,7 @@ const StocksPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </Layout>
+    </>
   );
 };
 

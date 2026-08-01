@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Layout,
   Button,
   Card,
   Row,
@@ -25,11 +24,10 @@ import {
   createPortfolio,
   deletePortfolio,
 } from '../services/api';
-import AppSidebar from '../components/AppSidebar';
+import AuthenticatedShell from '../components/AuthenticatedShell';
 import { useAuth } from '../contexts/AuthContext';
 import type { Portfolio } from '../types';
 
-const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
 const DashboardPage: React.FC = () => {
@@ -83,18 +81,18 @@ const DashboardPage: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <AppSidebar
+    <>
+      <AuthenticatedShell
         portfolios={portfolios}
         selectedKeys={['dashboard']}
         userName={user?.username}
         onLogout={logout}
-      />
-      <Layout style={{ background: '#f0f2f5' }}>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+        headerLeft={(
           <Title level={4} style={{ margin: 0 }}>
             Главная
           </Title>
+        )}
+        headerRight={(
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -102,64 +100,62 @@ const DashboardPage: React.FC = () => {
           >
             Создать портфель
           </Button>
-        </Header>
-        <Content style={{ padding: 24 }}>
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <Spin size="large" />
-            </div>
-          ) : (
-            <Row gutter={[16, 16]}>
-              {portfolios.map((portfolio) => (
-                <Col xs={24} sm={12} lg={8} key={portfolio.id}>
-                  <Card
-                    title={portfolio.name}
-                    actions={[
-                      <Button
-                        key="open"
-                        type="link"
-                        icon={<FolderOpenOutlined />}
-                        onClick={() => navigate(`/portfolios/${portfolio.id}`)}
-                      >
-                        Открыть
-                      </Button>,
-                      <Popconfirm
-                        key="delete"
-                        title="Удалить портфель?"
-                        onConfirm={() => handleDelete(portfolio.id)}
-                        okText="Да"
-                        cancelText="Нет"
-                      >
-                        <Button type="link" danger icon={<DeleteOutlined />}>
-                          Удалить
-                        </Button>
-                      </Popconfirm>,
-                    ]}
-                  >
-                    <Text type="secondary">
-                      Позиций: {portfolio.items?.length ?? 0}
-                    </Text>
-                    <br />
-                    <Text type="secondary">
-                      Создан: {dayjs(portfolio.createdAt).format('DD.MM.YYYY')}
-                    </Text>
-                  </Card>
-                </Col>
-              ))}
-              {portfolios.length === 0 && (
-                <Col span={24}>
-                  <Card>
-                    <Text type="secondary">
-                      Портфелей пока нет. Создайте первый!
-                    </Text>
-                  </Card>
-                </Col>
-              )}
-            </Row>
-          )}
-        </Content>
-      </Layout>
-
+        )}
+      >
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+            <Spin size="large" />
+          </div>
+        ) : (
+          <Row gutter={[16, 16]}>
+            {portfolios.map((portfolio) => (
+              <Col xs={24} sm={12} lg={8} key={portfolio.id}>
+                <Card
+                  title={portfolio.name}
+                  actions={[
+                    <Button
+                      key="open"
+                      type="link"
+                      icon={<FolderOpenOutlined />}
+                      onClick={() => navigate(`/portfolios/${portfolio.id}`)}
+                    >
+                      Открыть
+                    </Button>,
+                    <Popconfirm
+                      key="delete"
+                      title="Удалить портфель?"
+                      onConfirm={() => handleDelete(portfolio.id)}
+                      okText="Да"
+                      cancelText="Нет"
+                    >
+                      <Button type="link" danger icon={<DeleteOutlined />}>
+                        Удалить
+                      </Button>
+                    </Popconfirm>,
+                  ]}
+                >
+                  <Text type="secondary">
+                    Позиций: {portfolio.items?.length ?? 0}
+                  </Text>
+                  <br />
+                  <Text type="secondary">
+                    Создан: {dayjs(portfolio.createdAt).format('DD.MM.YYYY')}
+                  </Text>
+                </Card>
+              </Col>
+            ))}
+            {portfolios.length === 0 && (
+              <Col span={24}>
+                <Card>
+                  <Text type="secondary">
+                    Портфелей пока нет. Создайте первый!
+                  </Text>
+                </Card>
+              </Col>
+            )}
+          </Row>
+        )}
+      </AuthenticatedShell>
       <Modal
         title="Создать портфель"
         open={modalOpen}
@@ -181,7 +177,7 @@ const DashboardPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </Layout>
+    </>
   );
 };
 
