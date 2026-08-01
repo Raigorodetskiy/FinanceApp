@@ -432,6 +432,7 @@ const StocksPage: React.FC = () => {
                 isin={stock?.isin ?? null}
                 liveQuote={live?.quote ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
+                storedPriceChangeEur={stock?.currentPriceChange ?? null}
               />
             ),
             props: { colSpan: TOTAL_COLS },
