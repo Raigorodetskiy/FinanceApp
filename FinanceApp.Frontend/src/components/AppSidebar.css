@@ -3,7 +3,7 @@
   padding: 12px;
   gap: 14px;
   align-items: flex-start;
-  background: #999999;
+  background: #4B9CD7;
   /* Explicitly row so layout remains correct when Sider is inside sidebar-desktop-wrap */
   flex-direction: row !important;
 }
@@ -50,9 +50,9 @@
   background: #073f86 !important;
   align-self: flex-start;
   height: auto !important;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 6px 20px rgba(7, 36, 78, 0.28);
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none;
 }
 
 .app-sidebar .ant-layout-sider-children {
@@ -67,6 +67,9 @@
   flex-direction: column;
   height: auto;
   background: #073f86;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(7, 36, 78, 0.28);
 }
 
 .sidebar-brand {
@@ -99,6 +102,7 @@
   display: none;
   flex-direction: column;
   align-items: flex-end;
+  align-self: flex-start;
   flex-shrink: 0;
 }
 
@@ -255,6 +259,12 @@
 .app-sidebar-drawer .ant-drawer-title {
   color: #fff !important;
   font-weight: 700;
+}
+
+/* Inside the mobile Drawer, sidebar-inner fills the panel directly; no rounded corners or external shadow needed. */
+.app-sidebar-drawer .sidebar-inner {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .sidebar-menu .ant-menu-item:focus-visible,
