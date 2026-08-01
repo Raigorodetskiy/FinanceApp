@@ -64,6 +64,11 @@ public class StockPriceController : ControllerBase
             return BadRequest("Invalid finanzen.net slug. Only lowercase letters, digits, and hyphens are allowed.");
         }
 
+        // Resolve the provider symbol for the given exchange.
+        // Bare Frankfurt tickers (no period) get ".F" appended so Yahoo returns the
+        // correct Frankfurt-listed instrument rather than the US-market listing.
+        var providerSymbol = StockExchanges.ResolveProviderSymbol(symbol, normalizedExchange);
+
         try
         {
             string? currency;
@@ -77,7 +82,7 @@ public class StockPriceController : ControllerBase
 
             if (normalizedExchange == StockExchanges.Frankfurt)
             {
-                var quoteResult = await _yahooQuoteService.GetQuoteAsync(symbol, cancellationToken);
+                var quoteResult = await _yahooQuoteService.GetQuoteAsync(providerSymbol, cancellationToken);
                 if (!quoteResult.IsSuccess || quoteResult.Quote is null)
                 {
                     return StatusCode(quoteResult.StatusCode, quoteResult.ErrorMessage ?? "Could not fetch current quote.");
@@ -166,7 +171,7 @@ public class StockPriceController : ControllerBase
                 cancellationToken);
 
             return Ok(_stockQuoteConversionService.BuildQuoteResponse(
-                symbol,
+                providerSymbol,
                 currentPrice,
                 previousClose,
                 percentChange,
