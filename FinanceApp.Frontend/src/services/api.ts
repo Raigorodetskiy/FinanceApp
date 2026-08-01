@@ -24,7 +24,7 @@ import type {
   UpdatePortfolioBalanceRequest,
 } from '../types';
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://173.249.42.11:5000/api';
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 const api = axios.create({
   baseURL: API_BASE,

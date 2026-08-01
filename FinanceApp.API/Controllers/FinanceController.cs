@@ -52,10 +52,14 @@ public class FinanceController : ControllerBase
 
         var transactionCashBalance = await GetTransactionCashBalance(portfolioId);
         var normalizedCashBalance = NormalizeMoney(dto.CashBalance);
-        var normalizedBrokerCredit = NormalizeMoney(dto.BrokerCredit);
 
         portfolio.CashBalanceAdjustment = normalizedCashBalance - transactionCashBalance;
-        portfolio.BrokerCredit = normalizedBrokerCredit;
+
+        // Preserve stored broker credit only when explicitly provided by legacy clients.
+        if (dto.BrokerCredit.HasValue)
+        {
+            portfolio.BrokerCredit = NormalizeMoney(dto.BrokerCredit.Value);
+        }
 
         await _context.SaveChangesAsync();
 
@@ -160,15 +164,16 @@ public class FinanceController : ControllerBase
     private PortfolioBalance BuildBalance(Portfolio portfolio, decimal cashBalance)
     {
         var stocksValue = portfolio.Items.Sum(i => i.Stock.CurrentPrice * i.Quantity);
-        var totalBalance = cashBalance + portfolio.BrokerCredit;
 
         return new PortfolioBalance
         {
             CashBalance = cashBalance,
+            // Retained for backward-compatible deserialization; not included in totals.
             BrokerCredit = portfolio.BrokerCredit,
-            TotalBalance = totalBalance,
+            // TotalBalance no longer includes broker credit.
+            TotalBalance = cashBalance,
             StocksValue = stocksValue,
-            TotalPortfolioValue = stocksValue + totalBalance,
+            TotalPortfolioValue = stocksValue + cashBalance,
         };
     }
 
@@ -273,8 +278,12 @@ public class UpdatePortfolioBalanceDto
     [Range(typeof(decimal), "-9999999999999999.99", "9999999999999999.99")]
     public decimal CashBalance { get; set; }
 
+    /// <summary>
+    /// Deprecated: broker credit is no longer included in portfolio totals.
+    /// Accepted for backward compatibility but has no effect on calculations.
+    /// </summary>
     [Range(typeof(decimal), "-9999999999999999.99", "9999999999999999.99")]
-    public decimal BrokerCredit { get; set; }
+    public decimal? BrokerCredit { get; set; }
 }
 
 public class CreateDividendDto

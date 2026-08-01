@@ -98,7 +98,7 @@ const TX_TYPE_COLORS: Record<TransactionType, string> = {
   Dividend: 'purple',
 };
 
-type BalanceField = 'cashBalance' | 'brokerCredit';
+type BalanceField = 'cashBalance';
 
 const getEffectiveSignedAmount = (t: Transaction) => {
   if (t.signedAmount !== 0 || t.amount === 0) return t.signedAmount;
@@ -138,7 +138,7 @@ const PortfolioDetailPage: React.FC = () => {
   const [txSubmitting, setTxSubmitting] = useState(false);
   const [txForm] = Form.useForm();
   const [balanceEditField, setBalanceEditField] = useState<BalanceField | null>(null);
-  const [balanceDraft, setBalanceDraft] = useState({ cashBalance: 0, brokerCredit: 0 });
+  const [balanceDraft, setBalanceDraft] = useState({ cashBalance: 0 });
   const [balanceSubmitting, setBalanceSubmitting] = useState(false);
 
   // Position modal
@@ -211,7 +211,6 @@ const PortfolioDetailPage: React.FC = () => {
     if (balance) {
       setBalanceDraft({
         cashBalance: balance.cashBalance,
-        brokerCredit: balance.brokerCredit,
       });
     }
   }, [balance]);
@@ -353,7 +352,6 @@ const PortfolioDetailPage: React.FC = () => {
     if (!balance) return;
     setBalanceDraft({
       cashBalance: balance.cashBalance,
-      brokerCredit: balance.brokerCredit,
     });
     setBalanceEditField(field);
   };
@@ -361,7 +359,6 @@ const PortfolioDetailPage: React.FC = () => {
     if (balance) {
       setBalanceDraft({
         cashBalance: balance.cashBalance,
-        brokerCredit: balance.brokerCredit,
       });
     }
     setBalanceEditField(null);
@@ -374,7 +371,7 @@ const PortfolioDetailPage: React.FC = () => {
   };
   const handleBalanceSave = async () => {
     if (!id || !balanceEditField) return;
-    if (!Number.isFinite(balanceDraft.cashBalance) || !Number.isFinite(balanceDraft.brokerCredit)) {
+    if (!Number.isFinite(balanceDraft.cashBalance)) {
       message.error('Введите корректное число');
       return;
     }
@@ -383,7 +380,6 @@ const PortfolioDetailPage: React.FC = () => {
     try {
       await updateBalance(Number(id), {
         cashBalance: balanceDraft.cashBalance,
-        brokerCredit: balanceDraft.brokerCredit,
       });
       message.success('Баланс обновлён');
       setBalanceEditField(null);
@@ -438,9 +434,8 @@ const PortfolioDetailPage: React.FC = () => {
     () => stocks.map((s) => ({ value: s.id, label: `${s.ticker} — ${s.name}` })),
     [stocks],
   );
-  const previewTotalBalance = balanceDraft.cashBalance + balanceDraft.brokerCredit;
   const previewStocksValue = balance?.stocksValue ?? 0;
-  const previewTotalPortfolioValue = previewStocksValue + previewTotalBalance;
+  const previewTotalPortfolioValue = previewStocksValue + balanceDraft.cashBalance;
 
   const renderBalanceRow = (field: BalanceField, label: string) => {
     const isEditing = balanceEditField === field;
@@ -701,8 +696,8 @@ const PortfolioDetailPage: React.FC = () => {
         defaultOpenKeys={sidebarOpenKeys}
         activePortfolioId={id}
       />
-      <Layout>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Layout style={{ background: '#f0f2f5' }}>
+        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>Назад</Button>
             <Title level={4} style={{ margin: 0 }}>{portfolio?.name ?? 'Портфель'}</Title>
@@ -847,7 +842,7 @@ const PortfolioDetailPage: React.FC = () => {
                     {/* Balance summary */}
                     {balance && (
                       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-                        <Col xs={24} md={12} lg={8}>
+                        <Col xs={24} sm={8}>
                           <Card>
                             <Text type="secondary">Итого портфель</Text>
                             <Title level={4} style={{ margin: 0 }}>
@@ -855,28 +850,15 @@ const PortfolioDetailPage: React.FC = () => {
                             </Title>
                           </Card>
                         </Col>
-                        <Col xs={24} md={12} lg={8}>
+                        <Col xs={24} sm={8}>
                           <Card>
                             <Text type="secondary">Стоимость акций</Text>
                             <Title level={4} style={{ margin: 0 }}>{formatCurrency(balance.stocksValue)}</Title>
                           </Card>
                         </Col>
-                        <Col xs={24} md={24} lg={8}>
+                        <Col xs={24} sm={8}>
                           <Card>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                              {renderBalanceRow('cashBalance', 'Денежный баланс')}
-                              {renderBalanceRow('brokerCredit', 'Кредит брокера')}
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                                <div>
-                                  <Text type="secondary">Общий баланс</Text>
-                                  <div>
-                                    <Text strong style={{ fontSize: 18 }}>
-                                      {formatCurrency(balanceEditField ? previewTotalBalance : balance.totalBalance)}
-                                    </Text>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
+                            {renderBalanceRow('cashBalance', 'Денежный баланс')}
                           </Card>
                         </Col>
                       </Row>
