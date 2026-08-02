@@ -43,7 +43,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      window.location.href = '/financeapp/login';
     }
     return Promise.reject(error);
   }
