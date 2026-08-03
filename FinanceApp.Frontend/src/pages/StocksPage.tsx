@@ -38,6 +38,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockQuoteResponse, StockExchange } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
+import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 
 dayjs.extend(utc);
 
@@ -48,7 +49,6 @@ const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
-const STOCK_TEXT_LOCALE = 'ru-RU';
 const DEFAULT_STOCK_EXCHANGE: StockExchange = 'NYSE';
 const exchangeLabelByValue: Record<StockExchange, string> = {
   NYSE: 'NYSE',
@@ -126,7 +126,9 @@ export const isQuoteCurrent = (
 
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
-const SAVED_PRICE_COL_WIDTH = 200;
+const SAVED_PRICE_COL_WIDTH = 130;
+const CHANGE_EUR_COL_WIDTH = 110;
+const CHANGE_PCT_COL_WIDTH = 100;
 const UPDATED_COL_WIDTH = 170;
 const ACTIONS_COL_WIDTH = 310;
 const TICKER_META_SPACE_WIDTH = 70;
@@ -135,6 +137,8 @@ const STOCKS_TABLE_SCROLL_X =
   TICKER_COL_WIDTH
   + NAME_COL_WIDTH
   + SAVED_PRICE_COL_WIDTH
+  + CHANGE_EUR_COL_WIDTH
+  + CHANGE_PCT_COL_WIDTH
   + UPDATED_COL_WIDTH
   + ACTIONS_COL_WIDTH;
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
@@ -445,14 +449,10 @@ const StocksPage: React.FC = () => {
     }
   };
 
-  const TOTAL_COLS = 5;
+  const TOTAL_COLS = 7;
 
-  const formatEur = (v: number) =>
-    v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const formatChange = (v: number) =>
-    (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const formatPct = (v: number) =>
-    (v > 0 ? '+' : '') + v.toLocaleString(STOCK_TEXT_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+  const formatEur = (v: number) => fmtCur(v, '€');
+  const formatPct = (v: number | null | undefined) => formatPercent(v);
 
   const columns = [
     {
@@ -557,30 +557,44 @@ const StocksPage: React.FC = () => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const savedPrice = stock.currentPrice;
-        const savedChange = stock.currentPriceChange ?? null;
-        const savedChangePct = stock.currentPriceChangePercent ?? null;
-        const changeColor =
-          savedChange == null
-            ? '#8c8c8c'
-            : savedChange > 0
-              ? COLOR_POSITIVE
-              : savedChange < 0
-                ? COLOR_NEGATIVE
-                : '#8c8c8c';
         return (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap', minWidth: 0 }}>
-            <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
-              €{formatEur(savedPrice)}
-            </span>
-            {savedChange != null && savedChangePct != null ? (
-              <span style={{ color: changeColor, whiteSpace: 'nowrap', fontSize: 12 }}>
-                {formatChange(savedChange)} ({formatPct(savedChangePct)})
-              </span>
-            ) : (
-              <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap', fontSize: 12 }}>—</span>
-            )}
-          </div>
+          <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+            {formatEur(stock.currentPrice)}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Изменение (€)',
+      key: 'changeEur',
+      width: CHANGE_EUR_COL_WIDTH,
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const change = stock.currentPriceChange ?? null;
+        const color =
+          change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+        return (
+          <span style={{ color, whiteSpace: 'nowrap' }}>
+            {fmtCur(change, '€', { signed: true })}
+          </span>
+        );
+      },
+    },
+    {
+      title: 'Изменение (%)',
+      key: 'changePct',
+      width: CHANGE_PCT_COL_WIDTH,
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const pct = stock.currentPriceChangePercent ?? null;
+        const color =
+          pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+        return (
+          <span style={{ color, whiteSpace: 'nowrap' }}>
+            {formatPct(pct)}
+          </span>
         );
       },
     },
