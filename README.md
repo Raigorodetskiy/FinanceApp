@@ -138,7 +138,7 @@ To enable locally (never in tracked `appsettings.json`), use user secrets or `ap
 A finanzen.net instrument slug is the path segment after `/aktien/` in the stock's URL.
 For example, `https://www.finanzen.net/aktien/microsoft-aktie` → slug is `microsoft-aktie`.
 
-Add the slug to a stock via the **Stocks** form in the UI (field: **finanzen.net Slug**), or directly in the database. Valid slugs contain only lowercase letters, digits, and hyphens, and must start with a letter or digit.
+Add the slug to a stock via the **Stocks** form in the UI (field: **finanzen.net Slug**), or directly in the database. Valid slugs contain only lowercase letters, digits, hyphens, and underscores, and must start with a letter or digit. For example, `https://www.finanzen.net/aktien/western_digital-aktie` → slug is `western_digital-aktie`.
 
 The `finanzenNetSlug` field is nullable. Stocks without a slug are unaffected by this provider.
 

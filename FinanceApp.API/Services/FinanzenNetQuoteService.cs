@@ -130,12 +130,12 @@ public interface IFinanzenNetQuoteService
 public sealed class FinanzenNetQuoteService : IFinanzenNetQuoteService
 {
     /// <summary>
-    /// Slug validation pattern. Only lowercase letters, digits, and hyphens.
+    /// Slug validation pattern. Only lowercase letters, digits, hyphens, and underscores.
     /// Must start with a letter or digit. Max 120 characters.
     /// No slashes, dots, or other characters that could cause URL/path injection.
     /// </summary>
     private static readonly Regex SlugPattern =
-        new(@"^[a-z0-9][a-z0-9\-]{0,119}$", RegexOptions.Compiled);
+        new(@"^[a-z0-9][a-z0-9_-]{0,119}$", RegexOptions.Compiled);
 
     /// <summary>
     /// German pre-market labels recognized by the parser.
@@ -201,7 +201,7 @@ public sealed class FinanzenNetQuoteService : IFinanzenNetQuoteService
         {
             return FinanzenNetQuoteResult.Failure(
                 StatusCodes.Status400BadRequest,
-                "Invalid finanzen.net slug. Only lowercase letters, digits, and hyphens are allowed.");
+                "Invalid finanzen.net slug. Only lowercase letters, digits, hyphens, and underscores are allowed.");
         }
 
         var cacheKey = $"finanzennet:premarket:{slug}";

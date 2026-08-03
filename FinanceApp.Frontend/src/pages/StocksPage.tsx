@@ -37,6 +37,7 @@ import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockQuoteResponse, StockExchange } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
+import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 
 dayjs.extend(utc);
 
@@ -849,20 +850,20 @@ const StocksPage: React.FC = () => {
           <Form.Item
             label="finanzen.net Slug"
             name="finanzenNetSlug"
-            tooltip="Экспериментальное поле. Например: microsoft-aktie. Только строчные буквы, цифры и дефисы. Оставьте пустым, если не нужно."
+            tooltip="Часть URL после /aktien/. Например: western_digital-aktie. Разрешены строчные буквы, цифры, дефисы и подчёркивания. Оставьте пустым, если не нужно."
             rules={[
               {
                 validator: (_, value: string | undefined) => {
                   const v = (value ?? '').trim().toLowerCase();
                   if (v.length === 0) return Promise.resolve();
-                  if (/^[a-z0-9][a-z0-9-]{0,119}$/.test(v)) return Promise.resolve();
-                  return Promise.reject(new Error('Только строчные буквы, цифры и дефисы; начинается с буквы или цифры'));
+                  if (isValidFinanzenNetSlug(v)) return Promise.resolve();
+                  return Promise.reject(new Error('Разрешены строчные буквы, цифры, дефисы и подчёркивания; первый символ — буква или цифра'));
                 },
               },
             ]}
           >
             <Input
-              placeholder="microsoft-aktie"
+              placeholder="western_digital-aktie"
               maxLength={120}
               onChange={(e) => {
                 form.setFieldValue('finanzenNetSlug', e.target.value.toLowerCase());

@@ -30,6 +30,8 @@ public class FinanzenNetQuoteServiceTests
     [InlineData("a", true)]
     [InlineData("abc123", true)]
     [InlineData("rheinmetall-ag-aktie", true)]
+    [InlineData("western_digital-aktie", true)]        // underscore is now valid
+    [InlineData("some_slug_with_underscores", true)]    // multiple underscores valid
     public void IsValidSlug_ValidSlugs_ReturnsTrue(string slug, bool expected)
     {
         Assert.Equal(expected, FinanzenNetQuoteService.IsValidSlug(slug));
@@ -44,6 +46,7 @@ public class FinanzenNetQuoteServiceTests
     [InlineData("microsoft aktie", false)]            // space
     [InlineData("microsoft.aktie", false)]            // dot
     [InlineData("-microsoft-aktie", false)]           // starts with hyphen
+    [InlineData("_microsoft-aktie", false)]           // starts with underscore
     public void IsValidSlug_InvalidSlugs_ReturnsFalse(string? slug, bool expected)
     {
         Assert.Equal(expected, FinanzenNetQuoteService.IsValidSlug(slug));
@@ -456,6 +459,22 @@ public class FinanzenNetQuoteServiceTests
 
         var bad = Assert.IsType<BadRequestObjectResult>(actionResult);
         Assert.NotNull(bad.Value);
+    }
+
+    [Fact]
+    public async Task Controller_UnderscoreSlug_IsAccepted()
+    {
+        var finnhubResult = FinnhubQuoteResult.Success(new FinnhubQuoteData(
+            "WDC", 50m, 49m, 45m, 1.0m, 1720000000, "USD", "USD", "US", "NASDAQ", "REGULAR"));
+
+        var controller = CreateController(
+            finnhubResult: finnhubResult,
+            yahooResult: YahooQuoteResult.Failure(502, "not used"));
+
+        var actionResult = await controller.GetPrice("WDC", StockExchanges.Nyse, "western_digital-aktie");
+
+        // Should not return BadRequest for a valid underscore slug
+        Assert.IsNotType<BadRequestObjectResult>(actionResult);
     }
 
     [Fact]

@@ -30,9 +30,17 @@ describe('isValidFinanzenNetSlug', () => {
   });
 
   it('rejects a slug with special characters', () => {
-    expect(isValidFinanzenNetSlug('microsoft_aktie')).toBe(false);
     expect(isValidFinanzenNetSlug('microsoft.aktie')).toBe(false);
     expect(isValidFinanzenNetSlug('microsoft/aktie')).toBe(false);
+  });
+
+  it('accepts a slug with underscores', () => {
+    expect(isValidFinanzenNetSlug('western_digital-aktie')).toBe(true);
+    expect(isValidFinanzenNetSlug('some_slug_with_underscores')).toBe(true);
+  });
+
+  it('rejects a slug that starts with an underscore', () => {
+    expect(isValidFinanzenNetSlug('_microsoft-aktie')).toBe(false);
   });
 
   it('rejects an empty string', () => {
@@ -53,6 +61,12 @@ describe('isValidFinanzenNetSlug', () => {
 });
 
 describe('buildFinanzenNetUrl', () => {
+  it('constructs the correct URL for a slug with underscores', () => {
+    expect(buildFinanzenNetUrl('western_digital-aktie')).toBe(
+      'https://www.finanzen.net/aktien/western_digital-aktie',
+    );
+  });
+
   it('constructs the correct URL for a valid slug', () => {
     expect(buildFinanzenNetUrl('microsoft-aktie')).toBe(
       'https://www.finanzen.net/aktien/microsoft-aktie',

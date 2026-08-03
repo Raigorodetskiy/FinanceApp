@@ -383,6 +383,46 @@ public class StocksControllerTests
         Assert.IsType<NotFoundResult>(result);
     }
 
+    [Fact]
+    public async Task Create_WithUnderscoreSlug_Accepted()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "WDC",
+            Name = "Western Digital",
+            CommonName = "Western Digital",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 50m,
+            FinanzenNetSlug = "western_digital-aktie"
+        });
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var stock = Assert.IsType<Stock>(created.Value);
+        Assert.Equal("western_digital-aktie", stock.FinanzenNetSlug);
+    }
+
+    [Fact]
+    public async Task Create_WithSlashInSlug_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "WDC",
+            Name = "Western Digital",
+            CommonName = "Western Digital",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 50m,
+            FinanzenNetSlug = "invalid/slug"
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
