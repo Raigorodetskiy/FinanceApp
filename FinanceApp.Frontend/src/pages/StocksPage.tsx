@@ -582,7 +582,7 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Изменение (%)',
+      title: '(%)',
       key: 'changePct',
       width: CHANGE_PCT_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
