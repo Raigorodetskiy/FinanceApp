@@ -1,11 +1,10 @@
-.stock-price-chart-segmented .ant-segmented-item-selected .ant-segmented-item-label {
-  border-bottom: 3px solid #1677ff;
-  padding-bottom: 1px;
+.stock-price-chart-segmented .ant-segmented-item {
+  box-sizing: border-box;
+  border-bottom: 3px solid transparent;
 }
 
-.stock-price-chart-segmented .ant-segmented-item .ant-segmented-item-label {
-  border-bottom: 3px solid transparent;
-  padding-bottom: 1px;
+.stock-price-chart-segmented .ant-segmented-item-selected {
+  border-bottom-color: #1677ff !important;
 }
 
 .stock-price-chart-summary-header {
