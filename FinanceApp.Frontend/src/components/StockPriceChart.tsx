@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Segmented, Spin, Typography, Empty, Alert, message } from 'antd';
+import { Segmented, Spin, Typography, Empty, Alert, Button, Tooltip, message } from 'antd';
+import { LinkOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
@@ -15,12 +16,14 @@ import { getStockHistory } from '../services/api';
 import {
   getStockPriceChartSummary,
 } from './stockPriceChartSummary';
+import { buildFinanzenNetUrl } from '../utils/finanzenNet';
 import type {
   StockHistoryPoint,
   StockHistoryRange,
   StockHistoryResponse,
   StockQuoteResponse,
 } from '../types';
+import './StockPriceChart.css';
 
 dayjs.extend(utc);
 
@@ -65,6 +68,7 @@ export interface StockPriceChartProps {
   name: string;
   wkn?: string | null;
   isin?: string | null;
+  finanzenNetSlug?: string | null;
   liveQuote?: StockQuoteResponse | null;
   storedPriceEur?: number | null;
   storedPriceChangeEur?: number | null;
@@ -91,6 +95,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   name,
   wkn,
   isin,
+  finanzenNetSlug,
   liveQuote,
   storedPriceEur,
   storedPriceChangeEur,
@@ -98,6 +103,8 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyResponse, setHistoryResponse] = useState<StockHistoryResponse | null>(null);
+
+  const finanzenNetUrl = useMemo(() => buildFinanzenNetUrl(finanzenNetSlug), [finanzenNetSlug]);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -321,6 +328,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           История цены: {ticker} — {name}
         </Text>
         <Segmented
+          className="stock-price-chart-segmented"
           value={historyRange}
           onChange={(value) => setHistoryRange(value as StockHistoryRange)}
           options={[
@@ -354,9 +362,40 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 background: '#fff',
               }}
             >
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Изменение за период (к текущей цене)
-              </Text>
+              <div className="stock-price-chart-summary-header">
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Изменение за период (к текущей цене)
+                </Text>
+                <Tooltip
+                  title={
+                    finanzenNetUrl
+                      ? 'Открыть страницу инструмента на finanzen.net'
+                      : 'Для открытия finanzen.net укажите finanzen.net Slug в настройках акции'
+                  }
+                >
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<LinkOutlined />}
+                    disabled={!finanzenNetUrl}
+                    aria-label="Открыть на finanzen.net"
+                    style={{ padding: '0 4px', height: 'auto', fontSize: 12 }}
+                    onClick={() => {
+                      if (!finanzenNetUrl) return;
+                      const popup = window.open(
+                        finanzenNetUrl,
+                        'finanzen_net_popup',
+                        'noopener,noreferrer,width=1200,height=800,resizable=yes,scrollbars=yes',
+                      );
+                      if (popup) {
+                        popup.opener = null;
+                      }
+                    }}
+                  >
+                    finanzen.net
+                  </Button>
+                </Tooltip>
+              </div>
               <div
                 style={{
                   display: 'flex',
