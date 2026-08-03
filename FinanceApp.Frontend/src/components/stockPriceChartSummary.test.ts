@@ -76,6 +76,58 @@ describe('getStockPriceChartSummary', () => {
     expect(summary.baselineLabel).toBe(SELECTED_PERIOD_BASELINE_LABEL);
   });
 
+  it('prefers the live previous-close baseline for today over the first candle', () => {
+    const summary = getStockPriceChartSummary({
+      historyRange: 'today',
+      currentPriceDisplayValue: 453.79,
+      firstHistoryClose: 446.91,
+      historyHasEurConversion: true,
+      liveQuote: {
+        currentPriceEur: 453.79,
+        changeEur: -18.54,
+        normalizedCurrentPrice: 453.79,
+        normalizedChange: -18.54,
+        normalizedPreviousClose: 472.33,
+      },
+    });
+
+    expect(summary.baselineValue).toBeCloseTo(472.33, 10);
+    expect(summary.changeValue).toBeCloseTo(-18.54, 10);
+    expect(summary.changePercent).toBeCloseTo((-18.54 / 472.33) * 100, 10);
+    expect(summary.baselineLabel).toBe(PREVIOUS_CLOSE_BASELINE_LABEL);
+  });
+
+  it('uses the stored previous-close baseline for today when the live quote baseline is unavailable', () => {
+    const summary = getStockPriceChartSummary({
+      historyRange: 'today',
+      currentPriceDisplayValue: 453.79,
+      firstHistoryClose: 446.91,
+      historyHasEurConversion: true,
+      liveQuote: null,
+      storedPriceEur: 453.79,
+      storedPriceChangeEur: -18.54,
+    });
+
+    expect(summary.baselineValue).toBeCloseTo(472.33, 10);
+    expect(summary.changeValue).toBeCloseTo(-18.54, 10);
+    expect(summary.changePercent).toBeCloseTo((-18.54 / 472.33) * 100, 10);
+    expect(summary.baselineLabel).toBe(PREVIOUS_CLOSE_BASELINE_LABEL);
+  });
+
+  it('falls back to the first history close for today when no previous-close baseline exists', () => {
+    const summary = getStockPriceChartSummary({
+      historyRange: 'today',
+      currentPriceDisplayValue: 453.79,
+      firstHistoryClose: 446.91,
+      historyHasEurConversion: true,
+    });
+
+    expect(summary.baselineValue).toBeCloseTo(446.91, 10);
+    expect(summary.changeValue).toBeCloseTo(6.88, 10);
+    expect(summary.changePercent).toBeCloseTo((6.88 / 446.91) * 100, 10);
+    expect(summary.baselineLabel).toBe(SELECTED_PERIOD_BASELINE_LABEL);
+  });
+
   it('keeps other ranges anchored to the first history point even when a live previous close exists', () => {
     const summary = getStockPriceChartSummary({
       historyRange: '1w',

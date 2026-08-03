@@ -88,7 +88,7 @@ export const getStockPriceChartSummary = ({
   let baselineValue = fallbackBaseline;
   let baselineSource: BaselineSource = 'selected-period';
 
-  if (historyRange === '24h') {
+  if (historyRange === '24h' || historyRange === 'today') {
     const sessionBaseline =
       getLiveSessionBaseline(liveQuote, historyHasEurConversion)
       ?? getStoredSessionBaseline(storedPriceEur, storedPriceChangeEur, historyHasEurConversion);
