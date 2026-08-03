@@ -291,6 +291,98 @@ public class StocksControllerTests
         Assert.Null(loaded.CurrentPriceAt);
     }
 
+    [Fact]
+    public async Task Delete_ReferencedStock_ReturnsConflictAndDoesNotDelete()
+    {
+        await using var context = CreateContext();
+        var user = new User
+        {
+            Id = 10,
+            Username = "user",
+            Email = "user@example.com",
+            PasswordHash = "hash",
+            CreatedAt = DateTime.UtcNow
+        };
+        var stock = new Stock
+        {
+            Id = 20,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var portfolio = new Portfolio
+        {
+            Id = 30,
+            Name = "Main",
+            UserId = user.Id,
+            User = user,
+            CreatedAt = DateTime.UtcNow
+        };
+        var item = new PortfolioItem
+        {
+            Id = 40,
+            PortfolioId = portfolio.Id,
+            Portfolio = portfolio,
+            StockId = stock.Id,
+            Stock = stock,
+            Quantity = 1m,
+            BuyPrice = 100m,
+            BoughtAt = DateTime.UtcNow
+        };
+
+        context.Users.Add(user);
+        context.Stocks.Add(stock);
+        context.Portfolios.Add(portfolio);
+        context.PortfolioItems.Add(item);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Delete(stock.Id);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Equal("Невозможно удалить акцию: она используется как минимум в одном портфеле.", conflict.Value);
+        Assert.True(await context.Stocks.AnyAsync(s => s.Id == stock.Id));
+    }
+
+    [Fact]
+    public async Task Delete_UnreferencedStock_ReturnsNoContentAndDeletes()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Id = 50,
+            Ticker = "MSFT",
+            Name = "Microsoft Corporation",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 200m,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Delete(stock.Id);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.False(await context.Stocks.AnyAsync(s => s.Id == stock.Id));
+    }
+
+    [Fact]
+    public async Task Delete_MissingStock_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Delete(999);
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

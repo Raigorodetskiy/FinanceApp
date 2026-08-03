@@ -14,6 +14,7 @@ import {
   Tag,
   Tooltip,
 } from 'antd';
+import axios from 'axios';
 import {
   PlusOutlined,
   EditOutlined,
@@ -60,6 +61,47 @@ const exchangeOptions: { label: string; value: StockExchange }[] = [
   { label: exchangeLabelByValue.NYSE, value: 'NYSE' },
   { label: exchangeLabelByValue.Frankfurt, value: 'Frankfurt' },
 ];
+export const STOCK_DELETE_TOOLTIP = 'Удалить';
+export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить, пока она находится в портфеле';
+const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления акции';
+
+export const getStockDeleteErrorMessage = (err: unknown): string => {
+  if (axios.isAxiosError(err) && typeof err.response?.data === 'string' && err.response.data.trim().length > 0) {
+    return err.response.data;
+  }
+
+  return STOCK_DELETE_GENERIC_ERROR;
+};
+
+type StockDeleteActionProps = {
+  isProtected: boolean;
+  onDelete: () => void;
+};
+
+export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtected, onDelete }) => {
+  const buttonWithTooltip = (
+    <Tooltip title={isProtected ? PROTECTED_STOCK_DELETE_TOOLTIP : STOCK_DELETE_TOOLTIP}>
+      <span>
+        <Button icon={<DeleteOutlined />} size="small" aria-label="Удалить" disabled={isProtected} />
+      </span>
+    </Tooltip>
+  );
+
+  if (isProtected) {
+    return buttonWithTooltip;
+  }
+
+  return (
+    <Popconfirm
+      title="Удалить акцию?"
+      onConfirm={onDelete}
+      okText="Да"
+      cancelText="Нет"
+    >
+      {buttonWithTooltip}
+    </Popconfirm>
+  );
+};
 
 /**
  * A quote is considered "current" when:
@@ -361,8 +403,8 @@ const StocksPage: React.FC = () => {
       await deleteStock(id);
       message.success('Акция удалена');
       fetchData();
-    } catch {
-      message.error('Ошибка удаления акции');
+    } catch (err: unknown) {
+      message.error(getStockDeleteErrorMessage(err));
     }
   };
 
@@ -565,6 +607,7 @@ const StocksPage: React.FC = () => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
         const live = livePrices[stock.id];
+        const isProtectedStock = portfolioStockIds.has(stock.id);
         const quote = live?.quote ?? null;
         const rawQuoteText = quote
           ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
@@ -604,16 +647,7 @@ const StocksPage: React.FC = () => {
               />
             </Tooltip>
             {/* 4. Delete */}
-            <Popconfirm
-              title="Удалить акцию?"
-              onConfirm={() => handleDelete(stock.id)}
-              okText="Да"
-              cancelText="Нет"
-            >
-              <Tooltip title="Удалить">
-                <Button icon={<DeleteOutlined />} size="small" aria-label="Удалить" />
-              </Tooltip>
-            </Popconfirm>
+            <StockDeleteAction isProtected={isProtectedStock} onDelete={() => handleDelete(stock.id)} />
           </div>
         );
       },
