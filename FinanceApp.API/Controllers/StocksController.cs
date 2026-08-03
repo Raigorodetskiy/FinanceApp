@@ -200,6 +200,13 @@ public class StocksController : ControllerBase
     {
         var stock = await _context.Stocks.FindAsync(id);
         if (stock == null) return NotFound();
+
+        var isReferenced = await _context.PortfolioItems.AnyAsync(item => item.StockId == id);
+        if (isReferenced)
+        {
+            return Conflict("Невозможно удалить акцию: она используется как минимум в одном портфеле.");
+        }
+
         _context.Stocks.Remove(stock);
         await _context.SaveChangesAsync();
         return NoContent();
