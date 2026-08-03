@@ -19,6 +19,7 @@ import {
   message,
   Input,
 } from 'antd';
+import { formatCurrency as fmtCur } from '../utils/currency';
 import {
   PlusOutlined,
   ArrowLeftOutlined,
@@ -110,7 +111,7 @@ const getTransactionDescription = (t: Transaction): string => {
   return t.description ?? TX_TYPE_LABELS[t.type];
 };
 
-const formatCurrency = (value: number) => `${value < 0 ? '-€' : '€'}${Math.abs(value).toFixed(2)}`;
+const formatCurrency = (value: number) => fmtCur(value, '€');
 
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -564,14 +565,14 @@ const PortfolioDetailPage: React.FC = () => {
       title: 'Цена покупки', key: 'buyPrice',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        return `€${(record as PortfolioItem).buyPrice.toFixed(2)}`;
+        return fmtCur((record as PortfolioItem).buyPrice, '€');
       },
     },
     {
       title: 'Тек. цена', key: 'currentPrice',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        return `€${(record as PortfolioItem).stock.currentPrice.toFixed(2)}`;
+        return fmtCur((record as PortfolioItem).stock.currentPrice, '€');
       },
     },
     {
@@ -579,7 +580,7 @@ const PortfolioDetailPage: React.FC = () => {
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
-        return `€${(r.stock.currentPrice * r.quantity).toFixed(2)}`;
+        return fmtCur(r.stock.currentPrice * r.quantity, '€');
       },
     },
     {
@@ -588,7 +589,7 @@ const PortfolioDetailPage: React.FC = () => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
         const pnl = (r.stock.currentPrice - r.buyPrice) * r.quantity;
-        return <span style={{ color: pnl >= 0 ? '#3f8600' : '#cf1322' }}>{pnl >= 0 ? '+' : ''}€{pnl.toFixed(2)}</span>;
+        return <span style={{ color: pnl >= 0 ? '#3f8600' : '#cf1322' }}>{fmtCur(pnl, '€', { signed: true })}</span>;
       },
     },
     {
@@ -633,10 +634,10 @@ const PortfolioDetailPage: React.FC = () => {
     { title: 'Название', key: 'name', render: (_: unknown, r: Order) => r.stock?.name ?? '—' },
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
     { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
-    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => `€${v.toFixed(2)}` },
-    { title: 'Stop Loss', dataIndex: 'stopLoss', key: 'stopLoss', render: (v: number | null) => v != null ? `€${v.toFixed(2)}` : '—' },
-    { title: 'Stop Market', dataIndex: 'stopMarket', key: 'stopMarket', render: (v: number | null) => v != null ? `€${v.toFixed(2)}` : '—' },
-    { title: 'Тек. цена', key: 'currentPrice', render: (_: unknown, r: Order) => `€${r.stock?.currentPrice?.toFixed(2) ?? '—'}` },
+    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => fmtCur(v, '€') },
+    { title: 'Stop Loss', dataIndex: 'stopLoss', key: 'stopLoss', render: (v: number | null) => fmtCur(v, '€') },
+    { title: 'Stop Market', dataIndex: 'stopMarket', key: 'stopMarket', render: (v: number | null) => fmtCur(v, '€') },
+    { title: 'Тек. цена', key: 'currentPrice', render: (_: unknown, r: Order) => fmtCur(r.stock?.currentPrice ?? null, '€') },
     { title: 'Создан', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
     {
       title: 'Действия', key: 'actions',
@@ -658,8 +659,8 @@ const PortfolioDetailPage: React.FC = () => {
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
     { title: 'Статус', dataIndex: 'status', key: 'status', render: (v: OrderStatus) => <Tag color={ORDER_STATUS_COLORS[v]}>{ORDER_STATUS_LABELS[v]}</Tag> },
     { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
-    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => `€${v.toFixed(2)}` },
-    { title: 'Итого', key: 'total', render: (_: unknown, r: Order) => `€${(r.price * r.quantity).toFixed(2)}` },
+    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => fmtCur(v, '€') },
+    { title: 'Итого', key: 'total', render: (_: unknown, r: Order) => fmtCur(r.price * r.quantity, '€') },
     {
       title: 'Удалить', key: 'delete',
       render: (_: unknown, r: Order) => (
@@ -908,7 +909,7 @@ const PortfolioDetailPage: React.FC = () => {
                           render: (_: unknown, t: Transaction) => {
                             const signed = getEffectiveSignedAmount(t);
                             const color = signed >= 0 ? '#3f8600' : '#cf1322';
-                            return <span style={{ color }}>{signed >= 0 ? '+' : ''}€{Math.abs(signed).toFixed(2)}</span>;
+                            return <span style={{ color }}>{fmtCur(signed, '€', { signed: true })}</span>;
                           },
                         },
                         {
