@@ -39,7 +39,7 @@ public class StocksController : ControllerBase
 
         if (!FinanzenNetQuoteService.IsValidSlug(slug))
         {
-            return BadRequest("FinanzenNetSlug darf nur Kleinbuchstaben, Ziffern und Bindestriche enthalten und muss mit einem Buchstaben oder einer Ziffer beginnen.");
+            return BadRequest("FinanzenNetSlug darf nur Kleinbuchstaben, Ziffern, Bindestriche und Unterstriche enthalten und muss mit einem Buchstaben oder einer Ziffer beginnen.");
         }
 
         return null;

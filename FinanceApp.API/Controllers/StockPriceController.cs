@@ -61,7 +61,7 @@ public class StockPriceController : ControllerBase
         if (!string.IsNullOrWhiteSpace(finanzenNetSlug) &&
             !FinanzenNetQuoteService.IsValidSlug(finanzenNetSlug))
         {
-            return BadRequest("Invalid finanzen.net slug. Only lowercase letters, digits, and hyphens are allowed.");
+            return BadRequest("Invalid finanzen.net slug. Only lowercase letters, digits, hyphens, and underscores are allowed.");
         }
 
         // Resolve the provider symbol for the given exchange.
