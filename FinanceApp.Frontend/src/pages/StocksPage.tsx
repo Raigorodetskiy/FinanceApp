@@ -430,6 +430,7 @@ const StocksPage: React.FC = () => {
                 name={stock?.name ?? ''}
                 wkn={stock?.wkn ?? null}
                 isin={stock?.isin ?? null}
+                finanzenNetSlug={stock?.finanzenNetSlug ?? null}
                 liveQuote={live?.quote ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
                 storedPriceChangeEur={stock?.currentPriceChange ?? null}

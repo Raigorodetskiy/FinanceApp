@@ -509,6 +509,7 @@ const PortfolioDetailPage: React.FC = () => {
                 name={item?.stock?.name ?? ''}
                 wkn={item?.stock?.wkn ?? null}
                 isin={item?.stock?.isin ?? null}
+                finanzenNetSlug={item?.stock?.finanzenNetSlug ?? null}
                 storedPriceEur={item?.stock?.currentPrice ?? null}
                 storedPriceChangeEur={item?.stock?.currentPriceChange ?? null}
               />
