@@ -67,3 +67,9 @@ body {
   padding-left: 6px !important;
   padding-right: 6px !important;
 }
+
+.ant-table-wrapper.stocks-table th.stock-api-area-compact-col,
+.ant-table-wrapper.stocks-table td.stock-api-area-compact-col {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
