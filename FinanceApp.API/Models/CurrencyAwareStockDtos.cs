@@ -85,3 +85,11 @@ public sealed class StockHistoryPointResponse
     public decimal? CloseEur { get; init; }
     public long Volume { get; init; }
 }
+
+public sealed class UpdateStockQuoteRequest
+{
+    public decimal CurrentPrice { get; init; }
+    public decimal? CurrentPriceChange { get; init; }
+    public decimal? CurrentPriceChangePercent { get; init; }
+    public DateTime? CurrentPriceAt { get; init; }
+}

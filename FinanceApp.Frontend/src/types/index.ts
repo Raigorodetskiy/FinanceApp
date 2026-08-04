@@ -242,6 +242,13 @@ export interface UpdateStockRequest {
   currentPriceAt?: string | null;
 }
 
+export interface UpdateStockQuoteRequest {
+  currentPrice: number;
+  currentPriceChange: number | null;
+  currentPriceChangePercent: number | null;
+  currentPriceAt: string | null;
+}
+
 export interface CreateOrderRequest {
   stockId: number;
   type: OrderType;

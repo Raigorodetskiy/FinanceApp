@@ -458,6 +458,160 @@ public class StocksControllerTests
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
+    [Fact]
+    public async Task UpdateQuote_UpdatesOnlyQuoteFields_DoesNotTouchIdentity()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 101,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 180m,
+            Wkn = "865985",
+            Isin = "US0378331005",
+            FinanzenNetSlug = "apple-aktie",
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var providerTs = new DateTime(2026, 8, 1, 14, 30, 0, DateTimeKind.Utc);
+        var controller = CreateController(context);
+
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 195.50m,
+            CurrentPriceChange = 3.25m,
+            CurrentPriceChangePercent = 1.69m,
+            CurrentPriceAt = providerTs,
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(195.50m, persisted.CurrentPrice);
+        Assert.Equal(3.25m, persisted.CurrentPriceChange);
+        Assert.Equal(1.69m, persisted.CurrentPriceChangePercent);
+        Assert.Equal(providerTs, persisted.CurrentPriceAt);
+
+        // Identity fields must NOT be modified
+        Assert.Equal("AAPL", persisted.Ticker);
+        Assert.Equal("Apple Inc.", persisted.Name);
+        Assert.Equal("Apple", persisted.CommonName);
+        Assert.Equal(StockExchanges.Nyse, persisted.Exchange);
+        Assert.Equal("865985", persisted.Wkn);
+        Assert.Equal("US0378331005", persisted.Isin);
+        Assert.Equal("apple-aktie", persisted.FinanzenNetSlug);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_MissingStock_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.UpdateQuote(999, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 100m,
+        });
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_NullableFields_CanBeNull()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 102,
+            Ticker = "MSFT",
+            Name = "Microsoft Corporation",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 400m,
+            CurrentPriceChange = 5m,
+            CurrentPriceChangePercent = 1.25m,
+            CurrentPriceAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 410m,
+            CurrentPriceChange = null,
+            CurrentPriceChangePercent = null,
+            CurrentPriceAt = null,
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(410m, persisted.CurrentPrice);
+        Assert.Null(persisted.CurrentPriceChange);
+        Assert.Null(persisted.CurrentPriceChangePercent);
+        Assert.Null(persisted.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_RaceCondition_DoesNotRevertIdentityEditedAfterQuoteFetch()
+    {
+        // Simulates: 1) quote fetch starts, 2) user edits ticker/exchange, 3) old quote response arrives
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 103,
+            Ticker = "OLD.F",
+            Name = "Old Name",
+            CommonName = "Old",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 100m,
+            UpdatedAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+
+        // Step 2: user edits ticker and exchange (general PUT)
+        var editResult = await controller.Update(existing.Id, new Stock
+        {
+            Id = existing.Id,
+            Ticker = "NEW",
+            Name = "New Name",
+            CommonName = "New",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        Assert.IsType<NoContentResult>(editResult);
+
+        // Step 3: stale quote request completes — uses quote-only endpoint
+        var quoteResult = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 102m,
+            CurrentPriceChange = 2m,
+            CurrentPriceChangePercent = 2.0m,
+            CurrentPriceAt = new DateTime(2026, 8, 1, 14, 30, 0, DateTimeKind.Utc),
+        });
+        Assert.IsType<NoContentResult>(quoteResult);
+
+        var persisted = await context.Stocks.SingleAsync();
+        // Price was updated by the quote
+        Assert.Equal(102m, persisted.CurrentPrice);
+        // Identity fields reflect the user's edit, NOT the stale quote snapshot
+        Assert.Equal("NEW", persisted.Ticker);
+        Assert.Equal(StockExchanges.Nyse, persisted.Exchange);
+        Assert.Equal("New Name", persisted.Name);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
