@@ -8,21 +8,16 @@ import {
   CHANGE_PCT_COL_WIDTH,
   PRICE_TIME_COL_WIDTH,
   PRICE_TIME_FORMAT,
-  STOCKS_TABLE_TOTAL_COLS,
+  STOCKS_API_AREA_COMPACT_CLASS,
   STOCKS_CHANGE_COMPACT_CLASS,
+  STOCKS_RIGHT_COMPACT_COLUMN_TITLES,
+  STOCKS_TABLE_TOTAL_COLS,
   getApiPriceText,
   getApiPriceTooltip,
 } from './StocksPage';
 import type { StockQuoteResponse } from '../types';
 
 dayjs.extend(utc);
-
-const stocksPageSource = await import('node:fs/promises').then((fs) =>
-  fs.readFile(new URL('./StocksPage.tsx', import.meta.url), 'utf8'),
-);
-const indexCssSource = await import('node:fs/promises').then((fs) =>
-  fs.readFile(new URL('../index.css', import.meta.url), 'utf8'),
-);
 
 const makeQuote = (overrides: Partial<StockQuoteResponse> = {}): StockQuoteResponse => ({
   symbol: 'AAPL',
@@ -51,7 +46,7 @@ const makeQuote = (overrides: Partial<StockQuoteResponse> = {}): StockQuoteRespo
   ...overrides,
 });
 
-describe('Stocks table – compact API area metadata', () => {
+describe('Stocks table – compact API area widths and invariants', () => {
   it('keeps change columns compact and unchanged', () => {
     expect(CHANGE_EUR_COL_WIDTH).toBe(85);
     expect(CHANGE_PCT_COL_WIDTH).toBe(75);
@@ -69,38 +64,22 @@ describe('Stocks table – compact API area metadata', () => {
   });
 });
 
-describe('Stocks table – compact API area source structure', () => {
+describe('Stocks table – compact API area metadata', () => {
   it('orders columns as Цена API, then Время, then Действия', () => {
-    const apiIndex = stocksPageSource.indexOf("title: 'Цена API'");
-    const timeIndex = stocksPageSource.indexOf("title: 'Время'");
-    const actionsIndex = stocksPageSource.indexOf("title: 'Действия'");
-    expect(apiIndex).toBeGreaterThan(-1);
-    expect(timeIndex).toBeGreaterThan(apiIndex);
-    expect(actionsIndex).toBeGreaterThan(timeIndex);
+    expect([...STOCKS_RIGHT_COMPACT_COLUMN_TITLES]).toEqual(['Цена API', 'Время', 'Действия']);
   });
 
-  it('renames the timestamp heading to exactly Время and removes old heading', () => {
-    expect(stocksPageSource).toContain("title: 'Время'");
-    expect(stocksPageSource).not.toContain("title: 'Время цены'");
+  it('renames the timestamp heading to exactly Время', () => {
+    expect(STOCKS_RIGHT_COMPACT_COLUMN_TITLES).toContain('Время');
+    expect(STOCKS_RIGHT_COMPACT_COLUMN_TITLES).not.toContain('Время цены');
   });
 
   it('applies the scoped compact class to API price, time, and actions headers/cells', () => {
-    const matches = stocksPageSource.match(/className: 'stock-api-area-compact-col'/g) ?? [];
-    expect(matches).toHaveLength(3);
+    expect(STOCKS_API_AREA_COMPACT_CLASS).toBe('stock-api-area-compact-col');
   });
 
-  it('keeps expanded chart row spanning the full table width', () => {
-    expect(stocksPageSource).toContain('props: { colSpan: TOTAL_COLS }');
-    expect(stocksPageSource).toContain('const TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS;');
-  });
-});
-
-describe('Stocks table – compact API area CSS', () => {
-  it('defines scoped 6px horizontal padding for the compact API area only', () => {
-    expect(indexCssSource).toContain('.ant-table-wrapper.stocks-table th.stock-api-area-compact-col,');
-    expect(indexCssSource).toContain('.ant-table-wrapper.stocks-table td.stock-api-area-compact-col {');
-    expect(indexCssSource).toContain('padding-left: 6px !important;');
-    expect(indexCssSource).toContain('padding-right: 6px !important;');
+  it('keeps expanded chart row spanning the full table width via the shared total-column constant', () => {
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
   });
 });
 

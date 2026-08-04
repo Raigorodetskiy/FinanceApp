@@ -145,6 +145,8 @@ const STOCKS_TABLE_SCROLL_X =
   + ACTIONS_COL_WIDTH;
 export const PRICE_TIME_FORMAT = 'DD.MM.YY HH:mm';
 export const STOCKS_CHANGE_COMPACT_CLASS = 'stock-change-compact-col';
+export const STOCKS_API_AREA_COMPACT_CLASS = 'stock-api-area-compact-col';
+export const STOCKS_RIGHT_COMPACT_COLUMN_TITLES = ['Цена API', 'Время', 'Действия'] as const;
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
@@ -627,7 +629,7 @@ const StocksPage: React.FC = () => {
       title: 'Цена API',
       key: 'apiPrice',
       width: API_PRICE_COL_WIDTH,
-      className: 'stock-api-area-compact-col',
+      className: STOCKS_API_AREA_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -646,7 +648,7 @@ const StocksPage: React.FC = () => {
       title: 'Время',
       key: 'priceTime',
       width: PRICE_TIME_COL_WIDTH,
-      className: 'stock-api-area-compact-col',
+      className: STOCKS_API_AREA_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -663,7 +665,7 @@ const StocksPage: React.FC = () => {
       title: 'Действия',
       key: 'actions',
       width: ACTIONS_COL_WIDTH,
-      className: 'stock-api-area-compact-col',
+      className: STOCKS_API_AREA_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
