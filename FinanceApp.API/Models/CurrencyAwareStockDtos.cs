@@ -59,6 +59,14 @@ public sealed class StockHistoryResponse
     public IReadOnlyList<StockHistoryPointResponse> Points { get; init; } = Array.Empty<StockHistoryPointResponse>();
 }
 
+
+public sealed class StockHistoryRefreshResponse
+{
+    public int StockId { get; init; }
+    public int DeletedPoints { get; init; }
+    public int ImportedPoints { get; init; }
+}
+
 public sealed class StockHistoryPointResponse
 {
     public DateTime Timestamp { get; init; }

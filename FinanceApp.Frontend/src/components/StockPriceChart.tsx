@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Segmented, Spin, Typography, Empty, Alert, Button, Tooltip, message } from 'antd';
-import { LinkOutlined } from '@ant-design/icons';
+import { Segmented, Spin, Typography, Empty, Alert, Button, Tooltip, message, Popconfirm } from 'antd';
+import { LinkOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
@@ -12,7 +12,7 @@ import {
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { getStockHistory } from '../services/api';
+import { getStockHistory, refreshStockHistory } from '../services/api';
 import {
   getStockPriceChartSummary,
 } from './stockPriceChartSummary';
@@ -102,26 +102,55 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
 }) => {
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [historyResponse, setHistoryResponse] = useState<StockHistoryResponse | null>(null);
 
   const finanzenNetUrl = useMemo(() => buildFinanzenNetUrl(finanzenNetSlug), [finanzenNetSlug]);
 
-  useEffect(() => {
-    const fetchHistory = async () => {
-      setHistoryLoading(true);
-      try {
-        const res = await getStockHistory(stockId, historyRange);
-        setHistoryResponse(res.data);
-      } catch {
-        setHistoryResponse(null);
-        message.error('Ошибка загрузки исторических данных');
-      } finally {
-        setHistoryLoading(false);
-      }
-    };
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await getStockHistory(stockId, historyRange);
+      setHistoryResponse(res.data);
+    } catch {
+      setHistoryResponse(null);
+      message.error('Ошибка загрузки исторических данных');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyRange, stockId]);
 
+  useEffect(() => {
     fetchHistory();
-  }, [stockId, historyRange]);
+  }, [fetchHistory]);
+
+  const handleRefreshHistory = useCallback(async () => {
+    if (historyRefreshing) {
+      return;
+    }
+
+    setHistoryRefreshing(true);
+    try {
+      const refreshRes = await refreshStockHistory(stockId);
+      await fetchHistory();
+      const { deletedPoints, importedPoints } = refreshRes.data;
+      message.success(`История перезагружена: удалено ${deletedPoints}, загружено ${importedPoints}`);
+    } catch (error: unknown) {
+      const errorMessage =
+        error != null &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response != null &&
+        typeof error.response === 'object' &&
+        'data' in error.response &&
+        typeof error.response.data === 'string'
+          ? error.response.data
+          : 'Не удалось перезагрузить историю';
+      message.error(errorMessage);
+    } finally {
+      setHistoryRefreshing(false);
+    }
+  }, [fetchHistory, historyRefreshing, stockId]);
 
   const historyData = historyResponse?.points ?? [];
   const historyHasEurConversion = historyResponse?.rateToEur != null;
@@ -327,22 +356,41 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         <Text strong style={{ fontSize: 15 }}>
           История цены: {ticker} — {name}
         </Text>
-        <Segmented
-          className="stock-price-chart-segmented"
-          value={historyRange}
-          onChange={(value) => setHistoryRange(value as StockHistoryRange)}
-          options={[
-            { label: '5 лет', value: '5y' },
-            { label: '3 года', value: '3y' },
-            { label: '1 год', value: '1y' },
-            { label: '6 мес.', value: '6m' },
-            { label: '3 мес.', value: '3m' },
-            { label: '1 мес.', value: '1m' },
-            { label: '1 нед.', value: '1w' },
-            { label: '24 ч.', value: '24h' },
-            { label: 'Сегодня', value: 'today' },
-          ]}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Popconfirm
+            title="Перезагрузить историю?"
+            description="Все сохранённые исторические данные по этой акции будут удалены и загружены заново по текущему тикеру и бирже."
+            okText="Перезагрузить"
+            cancelText="Отмена"
+            onConfirm={handleRefreshHistory}
+            disabled={historyRefreshing}
+          >
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={historyRefreshing}
+              disabled={historyRefreshing}
+            >
+              Перезагрузить историю
+            </Button>
+          </Popconfirm>
+          <Segmented
+            className="stock-price-chart-segmented"
+            value={historyRange}
+            onChange={(value) => setHistoryRange(value as StockHistoryRange)}
+            options={[
+              { label: '5 лет', value: '5y' },
+              { label: '3 года', value: '3y' },
+              { label: '1 год', value: '1y' },
+              { label: '6 мес.', value: '6m' },
+              { label: '3 мес.', value: '3m' },
+              { label: '1 мес.', value: '1m' },
+              { label: '1 нед.', value: '1w' },
+              { label: '24 ч.', value: '24h' },
+              { label: 'Сегодня', value: 'today' },
+            ]}
+          />
+        </div>
       </div>
       {historyLoading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>

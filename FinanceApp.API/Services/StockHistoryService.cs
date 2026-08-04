@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -16,6 +17,7 @@ public class StockHistoryService : IStockHistoryService
     private static readonly TimeSpan YahooRetryBaseDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan YahooRetryMaxDelay = TimeSpan.FromSeconds(20);
     private static readonly SemaphoreSlim YahooRequestGate = new(1, 1);
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> StockRefreshLocks = new();
     private static DateTimeOffset _nextYahooRequestUtc = DateTimeOffset.MinValue;
 
     private readonly AppDbContext _dbContext;
@@ -63,23 +65,89 @@ public class StockHistoryService : IStockHistoryService
             return;
         }
 
-        var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+        var batches = await FetchHistoryBatchesAsync(stock, cancellationToken);
+        await UpsertHistoryBatchesAsync(stock.Id, batches, cancellationToken);
+    }
 
-        var monthly = await FetchCandlesAsync(providerSymbol, "1mo", "5y", cancellationToken);
-        await UpsertCandlesAsync(stock.Id, "1mo", monthly, cancellationToken);
+    public async Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
+    {
+        if (stock is null)
+        {
+            throw new ArgumentNullException(nameof(stock));
+        }
 
-        var weekly = await FetchCandlesAsync(providerSymbol, "1wk", "1y", cancellationToken);
-        await UpsertCandlesAsync(stock.Id, "1wk", weekly, cancellationToken);
+        if (string.IsNullOrWhiteSpace(stock.Ticker) || !StockExchanges.TryNormalize(stock.Exchange, out _))
+        {
+            throw new InvalidOperationException("Stock ticker and exchange must be valid before refreshing history.");
+        }
 
-        var daily = await FetchCandlesAsync(providerSymbol, "1d", "1y", cancellationToken);
-        await UpsertCandlesAsync(stock.Id, "1d", daily, cancellationToken);
+        var stockLock = StockRefreshLocks.GetOrAdd(stock.Id, static _ => new SemaphoreSlim(1, 1));
+        await stockLock.WaitAsync(cancellationToken);
+        try
+        {
+            var batches = await FetchHistoryBatchesAsync(stock, cancellationToken);
+            var importedPoints = batches.Sum(batch => batch.Batch.Candles.Count);
 
-        var hourly = await FetchCandlesAsync(providerSymbol, "1h", "7d", cancellationToken);
-        await UpsertCandlesAsync(stock.Id, "1h", hourly, cancellationToken);
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction = null;
+            try
+            {
+                transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            }
+            catch (InvalidOperationException)
+            {
+                // Some test providers (e.g. EF InMemory) do not support transactions.
+            }
 
-        var fiveMinute = await FetchCandlesAsync(providerSymbol, "5m", "1d", cancellationToken);
-        var tenMinute = AggregateToTenMinute(fiveMinute);
-        await UpsertCandlesAsync(stock.Id, "10m", tenMinute, cancellationToken);
+            var existingRows = await _dbContext.StockHistoricalPrices
+                .Where(x => x.StockId == stock.Id)
+                .ToListAsync(cancellationToken);
+            var deletedPoints = existingRows.Count;
+
+            if (deletedPoints > 0)
+            {
+                _dbContext.StockHistoricalPrices.RemoveRange(existingRows);
+            }
+
+            foreach (var entry in batches)
+            {
+                foreach (var candle in entry.Batch.Candles)
+                {
+                    _dbContext.StockHistoricalPrices.Add(new StockHistoricalPrice
+                    {
+                        StockId = stock.Id,
+                        Timestamp = candle.Timestamp,
+                        Interval = entry.Interval,
+                        Open = candle.Open,
+                        High = candle.High,
+                        Low = candle.Low,
+                        Close = candle.Close,
+                        QuoteCurrency = entry.Batch.QuoteCurrency,
+                        FinancialCurrency = entry.Batch.FinancialCurrency,
+                        NormalizedQuoteCurrency = entry.Batch.NormalizedQuoteCurrency,
+                        QuoteUnitMultiplier = entry.Batch.QuoteUnitMultiplier,
+                        Volume = candle.Volume
+                    });
+                }
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                await transaction.DisposeAsync();
+            }
+
+            return new StockHistoryRefreshResponse
+            {
+                StockId = stock.Id,
+                DeletedPoints = deletedPoints,
+                ImportedPoints = importedPoints
+            };
+        }
+        finally
+        {
+            stockLock.Release();
+        }
     }
 
     public async Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default)
@@ -125,6 +193,37 @@ public class StockHistoryService : IStockHistoryService
                 .ToList()
         };
     }
+
+    private async Task<List<IntervalBatch>> FetchHistoryBatchesAsync(Stock stock, CancellationToken cancellationToken)
+    {
+        var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+
+        var monthly = await FetchCandlesAsync(providerSymbol, "1mo", "5y", cancellationToken);
+        var weekly = await FetchCandlesAsync(providerSymbol, "1wk", "1y", cancellationToken);
+        var daily = await FetchCandlesAsync(providerSymbol, "1d", "1y", cancellationToken);
+        var hourly = await FetchCandlesAsync(providerSymbol, "1h", "7d", cancellationToken);
+        var fiveMinute = await FetchCandlesAsync(providerSymbol, "5m", "1d", cancellationToken);
+        var tenMinute = AggregateToTenMinute(fiveMinute);
+
+        return
+        [
+            new IntervalBatch("1mo", monthly),
+            new IntervalBatch("1wk", weekly),
+            new IntervalBatch("1d", daily),
+            new IntervalBatch("1h", hourly),
+            new IntervalBatch("10m", tenMinute),
+        ];
+    }
+
+    private async Task UpsertHistoryBatchesAsync(int stockId, IEnumerable<IntervalBatch> batches, CancellationToken cancellationToken)
+    {
+        foreach (var entry in batches)
+        {
+            await UpsertCandlesAsync(stockId, entry.Interval, entry.Batch, cancellationToken);
+        }
+    }
+
+    private sealed record IntervalBatch(string Interval, CandleBatch Batch);
 
     private static string NormalizeRange(string range)
     {

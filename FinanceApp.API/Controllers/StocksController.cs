@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
 using FinanceApp.Core.Models;
@@ -114,6 +115,38 @@ public class StocksController : ControllerBase
         }
 
         return Ok(await _stockHistoryService.GetHistoryAsync(stock, normalizedRange, cancellationToken));
+    }
+
+
+    [HttpPost("{id}/history/refresh")]
+    public async Task<ActionResult<StockHistoryRefreshResponse>> RefreshHistory(int id, CancellationToken cancellationToken = default)
+    {
+        var stock = await _context.Stocks.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+        if (stock == null)
+        {
+            return NotFound();
+        }
+
+        if (string.IsNullOrWhiteSpace(stock.Ticker))
+        {
+            return BadRequest("У акции должен быть указан тикер для перезагрузки истории.");
+        }
+
+        if (!StockExchanges.TryNormalize(stock.Exchange, out var normalizedExchange))
+        {
+            return BadRequest("У акции указана некорректная биржа для перезагрузки истории.");
+        }
+
+        stock.Exchange = normalizedExchange;
+
+        try
+        {
+            return Ok(await _stockHistoryService.RefreshHistoryAsync(stock, cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpPost]

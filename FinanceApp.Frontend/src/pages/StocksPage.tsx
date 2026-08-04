@@ -35,7 +35,7 @@ import {
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio, StockQuoteResponse, StockExchange } from '../types';
+import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockRequest } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
@@ -65,6 +65,7 @@ const exchangeOptions: { label: string; value: StockExchange }[] = [
 export const STOCK_DELETE_TOOLTIP = 'Удалить';
 export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить, пока она находится в портфеле';
 const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления акции';
+export const HISTORY_RELOAD_WARNING = 'Тикер или биржа изменены. Старая история цены может больше не соответствовать этой акции. При необходимости используйте «Перезагрузить историю» в раскрытом графике.';
 
 export const getStockDeleteErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err) && typeof err.response?.data === 'string' && err.response.data.trim().length > 0) {
@@ -73,6 +74,9 @@ export const getStockDeleteErrorMessage = (err: unknown): string => {
 
   return STOCK_DELETE_GENERIC_ERROR;
 };
+
+export const didTickerOrExchangeChange = (previousStock: Pick<UpdateStockRequest, 'ticker' | 'exchange'>, nextStock: Pick<UpdateStockRequest, 'ticker' | 'exchange'>): boolean =>
+  previousStock.ticker.trim() !== nextStock.ticker.trim() || previousStock.exchange !== nextStock.exchange;
 
 type StockDeleteActionProps = {
   isProtected: boolean;
@@ -375,7 +379,7 @@ const StocksPage: React.FC = () => {
     setSubmitting(true);
     try {
       if (editingStock) {
-        await updateStock(editingStock.id, {
+        const updatedStock = {
           ...editingStock,
           ...values,
           name: normalizedName,
@@ -385,8 +389,13 @@ const StocksPage: React.FC = () => {
           finanzenNetSlug,
           exchange: values.exchange,
           updatedAt: new Date().toISOString(),
-        });
+        };
+        const identityChanged = didTickerOrExchangeChange(editingStock, updatedStock);
+        await updateStock(editingStock.id, updatedStock);
         message.success('Акция обновлена');
+        if (identityChanged) {
+          message.warning(HISTORY_RELOAD_WARNING, 6);
+        }
       } else {
         await createStock({
           ...values,
