@@ -1,10 +1,16 @@
+using System.Data.Common;
 using System.Net;
 using System.Text;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -15,7 +21,7 @@ public class StockHistoryRefreshTests
     [Fact]
     public async Task RefreshHistoryAsync_ReplacesOnlySelectedStockRows_AndUsesCurrentProviderSymbol()
     {
-        await using var context = CreateContext();
+        await using var context = CreateInMemoryContext();
         var target = new Stock { Id = 1, Ticker = "AMZN", Exchange = StockExchanges.Frankfurt, Name = "Amazon FRA" };
         var other = new Stock { Id = 2, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
         context.Stocks.AddRange(target, other);
@@ -50,7 +56,7 @@ public class StockHistoryRefreshTests
     [Fact]
     public async Task RefreshHistoryAsync_WhenProviderReturnsNoData_PreservesExistingHistory()
     {
-        await using var context = CreateContext();
+        await using var context = CreateInMemoryContext();
         var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
         context.Stocks.Add(stock);
         context.StockHistoricalPrices.Add(new StockHistoricalPrice
@@ -84,9 +90,140 @@ public class StockHistoryRefreshTests
     }
 
     [Fact]
+    public async Task RefreshHistoryAsync_RelationalProvider_UsesExecutionStrategyAndDoesNotRepeatProviderCallsOnRetry()
+    {
+        await using var harness = await CreateSqliteHarnessAsync();
+        var target = new Stock { Id = 1, Ticker = "AMZN", Exchange = StockExchanges.Frankfurt, Name = "Amazon FRA" };
+        var other = new Stock { Id = 2, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        harness.Context.Stocks.AddRange(target, other);
+        harness.Context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 1, Interval = "1d", Timestamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), Open = 1, High = 1, Low = 1, Close = 1, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = 2, Interval = "1d", Timestamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), Open = 9, High = 9, Low = 9, Close = 9, QuoteUnitMultiplier = 1m });
+        await harness.Context.SaveChangesAsync();
+
+        var handler = new CountingHandler(
+            SuccessChartJson(1704067200, 10m),
+            SuccessChartJson(1704672000, 20m),
+            SuccessChartJson(1705276800, 30m),
+            SuccessChartJson(1705881600, 40m),
+            SuccessChartJson(1706486400, 50m));
+        var service = CreateService(harness.Context, handler);
+
+        var result = await service.RefreshHistoryAsync(target);
+
+        Assert.Equal(2, harness.ExecutionStrategyFactory.CreateCount);
+        Assert.Equal(2, harness.ExecutionStrategyFactory.AttemptCount);
+        Assert.Equal(1, harness.SaveChangesInterceptor.FailureCount);
+        Assert.Equal(5, handler.CallCount);
+        Assert.Equal(1, result.DeletedPoints);
+        Assert.Equal(5, result.ImportedPoints);
+
+        await using var verificationContext = harness.CreateVerificationContext();
+        var targetRows = await verificationContext.StockHistoricalPrices
+            .Where(x => x.StockId == 1)
+            .OrderBy(x => x.Interval)
+            .ThenBy(x => x.Timestamp)
+            .ToListAsync();
+        Assert.Equal(5, targetRows.Count);
+        Assert.Equal(1, await verificationContext.StockHistoricalPrices.CountAsync(x => x.StockId == 2));
+    }
+
+    [Fact]
+    public async Task RefreshHistoryAsync_RelationalProvider_DatabaseFailureRollsBackAndPreservesExistingHistory()
+    {
+        await using var harness = await CreateSqliteHarnessAsync(failSaveChangesCount: 1, maxRetryCount: 0);
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        harness.Context.Stocks.Add(stock);
+        harness.Context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 1,
+            Interval = "1d",
+            Timestamp = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Open = 7m,
+            High = 7m,
+            Low = 7m,
+            Close = 7m,
+            QuoteUnitMultiplier = 1m
+        });
+        await harness.Context.SaveChangesAsync();
+
+        var handler = new CountingHandler(
+            SuccessChartJson(1704067200, 10m),
+            SuccessChartJson(1704672000, 20m),
+            SuccessChartJson(1705276800, 30m),
+            SuccessChartJson(1705881600, 40m),
+            SuccessChartJson(1706486400, 50m));
+        var service = CreateService(harness.Context, handler);
+
+        await Assert.ThrowsAsync<RetryableTestException>(() => service.RefreshHistoryAsync(stock));
+
+        await using var verificationContext = harness.CreateVerificationContext();
+        var rows = await verificationContext.StockHistoricalPrices.Where(x => x.StockId == 1).ToListAsync();
+        Assert.Single(rows);
+        Assert.Equal(7m, rows[0].Close);
+        Assert.Equal(5, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task RefreshHistoryAsync_ProviderFailurePreservesExistingHistory()
+    {
+        await using var harness = await CreateSqliteHarnessAsync();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        harness.Context.Stocks.Add(stock);
+        harness.Context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 1,
+            Interval = "1d",
+            Timestamp = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Open = 7m,
+            High = 7m,
+            Low = 7m,
+            Close = 7m,
+            QuoteUnitMultiplier = 1m
+        });
+        await harness.Context.SaveChangesAsync();
+
+        var handler = new FailingHandler(new HttpRequestException("provider failed"));
+        var service = CreateService(harness.Context, handler);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => service.RefreshHistoryAsync(stock));
+
+        await using var verificationContext = harness.CreateVerificationContext();
+        var rows = await verificationContext.StockHistoricalPrices.Where(x => x.StockId == 1).ToListAsync();
+        Assert.Single(rows);
+        Assert.Equal(7m, rows[0].Close);
+    }
+
+    [Fact]
+    public async Task RefreshHistoryAsync_CancellationAndPerStockDuplicateCallProtectionRemainIntact()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new BlockingHandler(gate);
+        var service = CreateService(context, handler);
+
+        var firstCall = service.RefreshHistoryAsync(stock);
+        await handler.WaitForFirstRequestAsync();
+
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var secondCall = service.RefreshHistoryAsync(stock, cancellationTokenSource.Token);
+        cancellationTokenSource.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => secondCall);
+
+        gate.SetResult();
+        await firstCall;
+        Assert.Equal(5, handler.CallCount);
+    }
+
+    [Fact]
     public async Task GetHistoryAsync_RangeSelection_ContinuesToWork()
     {
-        await using var context = CreateContext();
+        await using var context = CreateInMemoryContext();
         var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
         context.Stocks.Add(stock);
         context.StockHistoricalPrices.Add(new StockHistoricalPrice
@@ -114,11 +251,39 @@ public class StockHistoryRefreshTests
         Assert.Single(response.Points);
     }
 
-    private static AppDbContext CreateContext()
+    private static AppDbContext CreateInMemoryContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
             .Options;
+        return new AppDbContext(options);
+    }
+
+    private static async Task<SqliteHarness> CreateSqliteHarnessAsync(int failSaveChangesCount = 1, int maxRetryCount = 1)
+    {
+        var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var executionStrategyFactory = new TrackingExecutionStrategyFactory(maxRetryCount);
+        var saveChangesInterceptor = new ThrowOnceSaveChangesInterceptor(failSaveChangesCount);
+        var context = CreateSqliteContext(connection, executionStrategyFactory, saveChangesInterceptor);
+        await context.Database.EnsureCreatedAsync();
+
+        return new SqliteHarness(connection, context, executionStrategyFactory, saveChangesInterceptor);
+    }
+
+    private static AppDbContext CreateSqliteContext(
+        SqliteConnection connection,
+        TrackingExecutionStrategyFactory executionStrategyFactory,
+        ThrowOnceSaveChangesInterceptor saveChangesInterceptor)
+    {
+        executionStrategyFactory.Connection = connection;
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .ReplaceService<IExecutionStrategyFactory, TrackingExecutionStrategyFactory>()
+            .AddInterceptors(saveChangesInterceptor)
+            .Options;
+
         return new AppDbContext(options);
     }
 
@@ -144,7 +309,7 @@ public class StockHistoryRefreshTests
         public HttpClient CreateClient(string name) => _client;
     }
 
-    private sealed class SequenceHandler : HttpMessageHandler
+    private class SequenceHandler : HttpMessageHandler
     {
         private readonly Queue<string> _responses;
         private readonly List<string> _requestedUrls = new();
@@ -160,6 +325,55 @@ public class StockHistoryRefreshTests
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json")
             });
+        }
+    }
+
+    private sealed class CountingHandler : SequenceHandler
+    {
+        private int _callCount;
+
+        public CountingHandler(params string[] responses)
+            : base(responses)
+        {
+        }
+
+        public int CallCount => _callCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _callCount);
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    private sealed class FailingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromException<HttpResponseMessage>(exception);
+    }
+
+    private sealed class BlockingHandler(TaskCompletionSource gate) : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _firstRequest = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _callCount;
+
+        public int CallCount => _callCount;
+
+        public Task WaitForFirstRequestAsync() => _firstRequest.Task;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _callCount);
+            if (call == 1)
+            {
+                _firstRequest.TrySetResult();
+                await gate.Task.WaitAsync(cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(SuccessChartJson(1704067200 + call, 10m + call), Encoding.UTF8, "application/json")
+            };
         }
     }
 
@@ -194,5 +408,93 @@ public class StockHistoryRefreshTests
                 CloseEur = historicalPrice.Close,
                 Volume = historicalPrice.Volume
             };
+    }
+
+    private sealed class SqliteHarness(
+        SqliteConnection connection,
+        AppDbContext context,
+        TrackingExecutionStrategyFactory executionStrategyFactory,
+        ThrowOnceSaveChangesInterceptor saveChangesInterceptor) : IAsyncDisposable
+    {
+        public SqliteConnection Connection { get; } = connection;
+        public AppDbContext Context { get; } = context;
+        public TrackingExecutionStrategyFactory ExecutionStrategyFactory { get; } = executionStrategyFactory;
+        public ThrowOnceSaveChangesInterceptor SaveChangesInterceptor { get; } = saveChangesInterceptor;
+
+        public AppDbContext CreateVerificationContext() =>
+            CreateSqliteContext(Connection, new TrackingExecutionStrategyFactory(0), new ThrowOnceSaveChangesInterceptor(0));
+
+        public async ValueTask DisposeAsync()
+        {
+            await Context.DisposeAsync();
+            await Connection.DisposeAsync();
+        }
+    }
+
+    private sealed class RetryableTestException(string message) : Exception(message);
+
+    private sealed class ThrowOnceSaveChangesInterceptor(int failureCount) : SaveChangesInterceptor
+    {
+        private int _remainingFailures = failureCount;
+
+        public int FailureCount => failureCount - Math.Max(_remainingFailures, 0);
+
+        public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+        {
+            if (Interlocked.Decrement(ref _remainingFailures) >= 0)
+            {
+                throw new RetryableTestException("Simulated transient save failure.");
+            }
+
+            return base.SavingChanges(eventData, result);
+        }
+    }
+
+    private sealed class TrackingExecutionStrategyFactory : IExecutionStrategyFactory
+    {
+        private readonly int _maxRetryCount;
+
+        public TrackingExecutionStrategyFactory(ExecutionStrategyDependencies dependencies)
+        {
+            _maxRetryCount = 1;
+            Dependencies = dependencies;
+        }
+
+        public TrackingExecutionStrategyFactory(int maxRetryCount)
+        {
+            _maxRetryCount = maxRetryCount;
+        }
+
+        public int CreateCount { get; private set; }
+        public int AttemptCount { get; private set; }
+        public DbConnection Connection { get; set; } = null!;
+
+        public IExecutionStrategy Create()
+        {
+            CreateCount++;
+            return new TrackingExecutionStrategy(Dependencies.CurrentContext.Context, _maxRetryCount, () => AttemptCount++);
+        }
+
+        public ExecutionStrategyDependencies Dependencies { get; }
+    }
+
+    private sealed class TrackingExecutionStrategy(DbContext context, int maxRetryCount, Action onAttempt)
+        : ExecutionStrategy(context, maxRetryCount, TimeSpan.Zero)
+    {
+        protected override bool ShouldRetryOn(Exception exception) => exception is RetryableTestException;
+
+        protected override TimeSpan? GetNextDelay(Exception lastException) => TimeSpan.Zero;
+
+        public override TResult Execute<TState, TResult>(TState state, Func<DbContext, TState, TResult> operation, Func<DbContext, TState, ExecutionResult<TResult>>? verifySucceeded)
+        {
+            onAttempt();
+            return base.Execute(state, operation, verifySucceeded);
+        }
+
+        public override Task<TResult> ExecuteAsync<TState, TResult>(TState state, Func<DbContext, TState, CancellationToken, Task<TResult>> operation, Func<DbContext, TState, CancellationToken, Task<ExecutionResult<TResult>>>? verifySucceeded, CancellationToken cancellationToken = default)
+        {
+            onAttempt();
+            return base.ExecuteAsync(state, operation, verifySucceeded, cancellationToken);
+        }
     }
 }
