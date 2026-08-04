@@ -7,6 +7,7 @@ using FinanceApp.API.Models;
 using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FinanceApp.API.Services;
 
@@ -86,56 +87,9 @@ public class StockHistoryService : IStockHistoryService
         try
         {
             var batches = await FetchHistoryBatchesAsync(stock, cancellationToken);
-            var importedPoints = batches.Sum(batch => batch.Batch.Candles.Count);
-
-            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction = null;
-            try
-            {
-                transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-            }
-            catch (InvalidOperationException)
-            {
-                // Some test providers (e.g. EF InMemory) do not support transactions.
-            }
-
-            var existingRows = await _dbContext.StockHistoricalPrices
-                .Where(x => x.StockId == stock.Id)
-                .ToListAsync(cancellationToken);
-            var deletedPoints = existingRows.Count;
-
-            if (deletedPoints > 0)
-            {
-                _dbContext.StockHistoricalPrices.RemoveRange(existingRows);
-            }
-
-            foreach (var entry in batches)
-            {
-                foreach (var candle in entry.Batch.Candles)
-                {
-                    _dbContext.StockHistoricalPrices.Add(new StockHistoricalPrice
-                    {
-                        StockId = stock.Id,
-                        Timestamp = candle.Timestamp,
-                        Interval = entry.Interval,
-                        Open = candle.Open,
-                        High = candle.High,
-                        Low = candle.Low,
-                        Close = candle.Close,
-                        QuoteCurrency = entry.Batch.QuoteCurrency,
-                        FinancialCurrency = entry.Batch.FinancialCurrency,
-                        NormalizedQuoteCurrency = entry.Batch.NormalizedQuoteCurrency,
-                        QuoteUnitMultiplier = entry.Batch.QuoteUnitMultiplier,
-                        Volume = candle.Volume
-                    });
-                }
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            if (transaction is not null)
-            {
-                await transaction.CommitAsync(cancellationToken);
-                await transaction.DisposeAsync();
-            }
+            var replacementRows = BuildReplacementRows(stock.Id, batches);
+            var importedPoints = replacementRows.Count;
+            var deletedPoints = await ReplaceHistoryAsync(stock.Id, replacementRows, cancellationToken);
 
             return new StockHistoryRefreshResponse
             {
@@ -224,6 +178,118 @@ public class StockHistoryService : IStockHistoryService
     }
 
     private sealed record IntervalBatch(string Interval, CandleBatch Batch);
+
+    private static List<StockHistoricalPrice> BuildReplacementRows(int stockId, IEnumerable<IntervalBatch> batches)
+    {
+        var replacementRows = new List<StockHistoricalPrice>();
+        foreach (var entry in batches)
+        {
+            foreach (var candle in entry.Batch.Candles)
+            {
+                replacementRows.Add(new StockHistoricalPrice
+                {
+                    StockId = stockId,
+                    Timestamp = candle.Timestamp,
+                    Interval = entry.Interval,
+                    Open = candle.Open,
+                    High = candle.High,
+                    Low = candle.Low,
+                    Close = candle.Close,
+                    QuoteCurrency = entry.Batch.QuoteCurrency,
+                    FinancialCurrency = entry.Batch.FinancialCurrency,
+                    NormalizedQuoteCurrency = entry.Batch.NormalizedQuoteCurrency,
+                    QuoteUnitMultiplier = entry.Batch.QuoteUnitMultiplier,
+                    Volume = candle.Volume
+                });
+            }
+        }
+
+        return replacementRows;
+    }
+
+    private async Task<int> ReplaceHistoryAsync(
+        int stockId,
+        IReadOnlyCollection<StockHistoricalPrice> replacementRows,
+        CancellationToken cancellationToken)
+    {
+        if (!_dbContext.Database.IsRelational())
+        {
+            return await ReplaceHistoryWithoutTransactionAsync(stockId, replacementRows, cancellationToken);
+        }
+
+        var executionStrategy = _dbContext.Database.CreateExecutionStrategy();
+        var deletedPoints = 0;
+
+        await executionStrategy.ExecuteAsync(async () =>
+        {
+            _dbContext.ChangeTracker.Clear();
+
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            var existingRows = await _dbContext.StockHistoricalPrices
+                .Where(x => x.StockId == stockId)
+                .ToListAsync(cancellationToken);
+            deletedPoints = existingRows.Count;
+
+            if (deletedPoints > 0)
+            {
+                _dbContext.StockHistoricalPrices.RemoveRange(existingRows);
+            }
+
+            _dbContext.StockHistoricalPrices.AddRange(CloneReplacementRows(replacementRows));
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+
+        _dbContext.ChangeTracker.Clear();
+        return deletedPoints;
+    }
+
+    private async Task<int> ReplaceHistoryWithoutTransactionAsync(
+        int stockId,
+        IReadOnlyCollection<StockHistoricalPrice> replacementRows,
+        CancellationToken cancellationToken)
+    {
+        _dbContext.ChangeTracker.Clear();
+
+        var existingRows = await _dbContext.StockHistoricalPrices
+            .Where(x => x.StockId == stockId)
+            .ToListAsync(cancellationToken);
+        var deletedPoints = existingRows.Count;
+
+        if (deletedPoints > 0)
+        {
+            _dbContext.StockHistoricalPrices.RemoveRange(existingRows);
+        }
+
+        _dbContext.StockHistoricalPrices.AddRange(CloneReplacementRows(replacementRows));
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        _dbContext.ChangeTracker.Clear();
+
+        return deletedPoints;
+    }
+
+    private static IEnumerable<StockHistoricalPrice> CloneReplacementRows(IEnumerable<StockHistoricalPrice> replacementRows)
+    {
+        foreach (var row in replacementRows)
+        {
+            yield return new StockHistoricalPrice
+            {
+                StockId = row.StockId,
+                Timestamp = row.Timestamp,
+                Interval = row.Interval,
+                Open = row.Open,
+                High = row.High,
+                Low = row.Low,
+                Close = row.Close,
+                QuoteCurrency = row.QuoteCurrency,
+                FinancialCurrency = row.FinancialCurrency,
+                NormalizedQuoteCurrency = row.NormalizedQuoteCurrency,
+                QuoteUnitMultiplier = row.QuoteUnitMultiplier,
+                Volume = row.Volume
+            };
+        }
+    }
 
     private static string NormalizeRange(string range)
     {
