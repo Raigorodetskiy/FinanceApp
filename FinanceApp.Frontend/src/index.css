@@ -68,6 +68,11 @@ body {
   padding-right: 6px !important;
 }
 
+/* Stocks table: prevent change column headers from wrapping */
+.ant-table-wrapper.stocks-table th.stock-change-compact-col {
+  white-space: nowrap;
+}
+
 .ant-table-wrapper.stocks-table th.stock-api-area-compact-col,
 .ant-table-wrapper.stocks-table td.stock-api-area-compact-col {
   padding-left: 6px !important;

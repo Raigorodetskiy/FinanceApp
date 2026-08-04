@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import {
   ACTIONS_COL_WIDTH,
   API_PRICE_COL_WIDTH,
@@ -49,8 +52,16 @@ const makeQuote = (overrides: Partial<StockQuoteResponse> = {}): StockQuoteRespo
 
 describe('Stocks table – compact API area widths and invariants', () => {
   it('keeps change columns compact and unchanged', () => {
-    expect(CHANGE_EUR_COL_WIDTH).toBe(85);
+    expect(CHANGE_EUR_COL_WIDTH).toBe(108);
     expect(CHANGE_PCT_COL_WIDTH).toBe(75);
+    expect(STOCKS_CHANGE_COMPACT_CLASS).toBe('stock-change-compact-col');
+  });
+
+  it('CHANGE_EUR_COL_WIDTH is wide enough to fit "Изменение (€)" without wrapping (≥ 105 px)', () => {
+    expect(CHANGE_EUR_COL_WIDTH).toBeGreaterThanOrEqual(105);
+  });
+
+  it('compact 6 px padding class is scoped to stocks-table and applied to both th and td', () => {
     expect(STOCKS_CHANGE_COMPACT_CLASS).toBe('stock-change-compact-col');
   });
 
@@ -155,5 +166,20 @@ describe('Stocks table – market status helper (getMarketStatus)', () => {
 
   it('returns null when live entry has no quote and is not loading', () => {
     expect(getMarketStatus({ loading: false, quote: null })).toBeNull();
+  });
+});
+
+describe('Stocks table – index.css scoped nowrap rule for change headers', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const cssText = readFileSync(join(__dirname, '../index.css'), 'utf-8');
+
+  it('has a scoped white-space: nowrap rule for stocks-table change headers', () => {
+    expect(cssText).toMatch(
+      /\.ant-table-wrapper\.stocks-table\s+th\.stock-change-compact-col\s*\{[^}]*white-space:\s*nowrap/,
+    );
+  });
+
+  it('does not apply a global nowrap to all Ant Design table headers', () => {
+    expect(cssText).not.toMatch(/\.ant-table-thead\s+th\s*\{[^}]*white-space:\s*nowrap/);
   });
 });
