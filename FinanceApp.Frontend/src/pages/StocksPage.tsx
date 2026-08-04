@@ -28,6 +28,7 @@ import {
   getStocks,
   createStock,
   updateStock,
+  updateStockQuote,
   deleteStock,
   getPortfolios,
   getStockPrice,
@@ -35,7 +36,7 @@ import {
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockRequest } from '../types';
+import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockRequest, UpdateStockQuoteRequest } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
@@ -254,14 +255,12 @@ const StocksPage: React.FC = () => {
     const currentPriceAt = isFinite(tsRaw) ? providerTs! : null;
     const updatedAt = isFinite(tsRaw) ? providerTs! : stock.updatedAt;
 
-    await updateStock(stock.id, {
-      ...stock,
+    await updateStockQuote(stock.id, {
       currentPrice: roundedCurrentPrice,
-      updatedAt,
       currentPriceChange,
       currentPriceChangePercent,
       currentPriceAt,
-    });
+    } satisfies UpdateStockQuoteRequest);
 
     return { roundedCurrentPrice, updatedAt, currentPriceChange, currentPriceChangePercent, currentPriceAt };
   }, []);

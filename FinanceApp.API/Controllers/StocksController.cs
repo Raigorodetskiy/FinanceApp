@@ -228,6 +228,23 @@ public class StocksController : ControllerBase
         return NoContent();
     }
 
+    [HttpPatch("{id}/quote")]
+    public async Task<IActionResult> UpdateQuote(int id, UpdateStockQuoteRequest request)
+    {
+        var existing = await _context.Stocks.FindAsync(id);
+        if (existing == null) return NotFound();
+
+        existing.CurrentPrice = request.CurrentPrice;
+        existing.CurrentPriceChange = request.CurrentPriceChange;
+        existing.CurrentPriceChangePercent = request.CurrentPriceChangePercent;
+        existing.CurrentPriceAt = request.CurrentPriceAt;
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
