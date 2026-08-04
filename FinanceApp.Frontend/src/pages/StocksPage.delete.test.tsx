@@ -73,3 +73,35 @@ describe('getStockDeleteErrorMessage', () => {
     expect(getStockDeleteErrorMessage(new Error('boom'))).toBe('Ошибка удаления акции');
   });
 });
+
+
+describe('didTickerOrExchangeChange', () => {
+  it('returns true when ticker changes', async () => {
+    const mod = await import('./StocksPage');
+    expect(mod.didTickerOrExchangeChange(
+      { ticker: 'AAPL', exchange: 'NYSE' },
+      { ticker: 'MSFT', exchange: 'NYSE' },
+    )).toBe(true);
+  });
+
+  it('returns true when exchange changes', async () => {
+    const mod = await import('./StocksPage');
+    expect(mod.didTickerOrExchangeChange(
+      { ticker: 'AAPL', exchange: 'NYSE' },
+      { ticker: 'AAPL', exchange: 'Frankfurt' },
+    )).toBe(true);
+  });
+
+  it('returns false when identity is unchanged after trimming', async () => {
+    const mod = await import('./StocksPage');
+    expect(mod.didTickerOrExchangeChange(
+      { ticker: ' AAPL ', exchange: 'NYSE' },
+      { ticker: 'AAPL', exchange: 'NYSE' },
+    )).toBe(false);
+  });
+
+  it('exports the warning message for stale history', async () => {
+    const mod = await import('./StocksPage');
+    expect(mod.HISTORY_RELOAD_WARNING).toContain('Перезагрузить историю');
+  });
+});

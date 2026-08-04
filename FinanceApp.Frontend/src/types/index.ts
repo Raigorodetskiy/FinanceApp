@@ -112,6 +112,12 @@ export interface StockHistoryResponse {
   points: StockHistoryPoint[];
 }
 
+export interface StockHistoryRefreshResponse {
+  stockId: number;
+  deletedPoints: number;
+  importedPoints: number;
+}
+
 export type OrderType = 'Buy' | 'Sell';
 export type OrderStatus = 'Pending' | 'Executed' | 'Cancelled';
 

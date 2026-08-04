@@ -383,6 +383,41 @@ public class StocksControllerTests
         Assert.IsType<NotFoundResult>(result);
     }
 
+
+    [Fact]
+    public async Task RefreshHistory_MissingStock_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.RefreshHistory(999);
+
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task RefreshHistory_BlankTicker_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 77,
+            Ticker = "   ",
+            Name = "No Ticker",
+            CommonName = "No Ticker",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 1m,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.RefreshHistory(77);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("тикер", Assert.IsType<string>(badRequest.Value), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Create_WithUnderscoreSlug_Accepted()
     {
@@ -447,6 +482,9 @@ public class StocksControllerTests
     {
         public Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryResponse());
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
+            => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
 
         public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.CompletedTask;

@@ -14,6 +14,7 @@ import type {
   CreateStockRequest,
   UpdateStockRequest,
   StockHistoryResponse,
+  StockHistoryRefreshResponse,
   StockHistoryRange,
   StockQuoteResponse,
   StockExchange,
@@ -90,6 +91,8 @@ export const updateStock = (id: number, data: UpdateStockRequest) => api.put<Sto
 export const deleteStock = (id: number) => api.delete(`/Stocks/${id}`);
 export const getStockHistory = (id: number, range: StockHistoryRange) =>
   api.get<StockHistoryResponse>(`/Stocks/${id}/history`, { params: { range } });
+export const refreshStockHistory = (id: number) =>
+  api.post<StockHistoryRefreshResponse>(`/Stocks/${id}/history/refresh`);
 
 // Stock prices
 export const getStockPrice = (symbol: string, exchange: StockExchange, finanzenNetSlug?: string | null) =>
