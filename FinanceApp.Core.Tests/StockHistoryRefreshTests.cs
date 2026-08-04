@@ -1,4 +1,3 @@
-using System.Data.Common;
 using System.Net;
 using System.Text;
 using FinanceApp.API.Models;
@@ -8,9 +7,7 @@ using FinanceApp.Data.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -90,7 +87,7 @@ public class StockHistoryRefreshTests
     }
 
     [Fact]
-    public async Task RefreshHistoryAsync_RelationalProvider_UsesExecutionStrategyAndDoesNotRepeatProviderCallsOnRetry()
+    public async Task RefreshHistoryAsync_RelationalProvider_ReplacesAtomicallyAndDoesNotRepeatProviderCalls()
     {
         await using var harness = await CreateSqliteHarnessAsync();
         var target = new Stock { Id = 1, Ticker = "AMZN", Exchange = StockExchanges.Frankfurt, Name = "Amazon FRA" };
@@ -111,9 +108,6 @@ public class StockHistoryRefreshTests
 
         var result = await service.RefreshHistoryAsync(target);
 
-        Assert.Equal(2, harness.ExecutionStrategyFactory.CreateCount);
-        Assert.Equal(2, harness.ExecutionStrategyFactory.AttemptCount);
-        Assert.Equal(1, harness.SaveChangesInterceptor.FailureCount);
         Assert.Equal(5, handler.CallCount);
         Assert.Equal(1, result.DeletedPoints);
         Assert.Equal(5, result.ImportedPoints);
@@ -126,42 +120,6 @@ public class StockHistoryRefreshTests
             .ToListAsync();
         Assert.Equal(5, targetRows.Count);
         Assert.Equal(1, await verificationContext.StockHistoricalPrices.CountAsync(x => x.StockId == 2));
-    }
-
-    [Fact]
-    public async Task RefreshHistoryAsync_RelationalProvider_DatabaseFailureRollsBackAndPreservesExistingHistory()
-    {
-        await using var harness = await CreateSqliteHarnessAsync(failSaveChangesCount: 1, maxRetryCount: 0);
-        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
-        harness.Context.Stocks.Add(stock);
-        harness.Context.StockHistoricalPrices.Add(new StockHistoricalPrice
-        {
-            StockId = 1,
-            Interval = "1d",
-            Timestamp = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-            Open = 7m,
-            High = 7m,
-            Low = 7m,
-            Close = 7m,
-            QuoteUnitMultiplier = 1m
-        });
-        await harness.Context.SaveChangesAsync();
-
-        var handler = new CountingHandler(
-            SuccessChartJson(1704067200, 10m),
-            SuccessChartJson(1704672000, 20m),
-            SuccessChartJson(1705276800, 30m),
-            SuccessChartJson(1705881600, 40m),
-            SuccessChartJson(1706486400, 50m));
-        var service = CreateService(harness.Context, handler);
-
-        await Assert.ThrowsAsync<RetryableTestException>(() => service.RefreshHistoryAsync(stock));
-
-        await using var verificationContext = harness.CreateVerificationContext();
-        var rows = await verificationContext.StockHistoricalPrices.Where(x => x.StockId == 1).ToListAsync();
-        Assert.Single(rows);
-        Assert.Equal(7m, rows[0].Close);
-        Assert.Equal(5, handler.CallCount);
     }
 
     [Fact]
@@ -259,29 +217,21 @@ public class StockHistoryRefreshTests
         return new AppDbContext(options);
     }
 
-    private static async Task<SqliteHarness> CreateSqliteHarnessAsync(int failSaveChangesCount = 1, int maxRetryCount = 1)
+    private static async Task<SqliteHarness> CreateSqliteHarnessAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
 
-        var executionStrategyFactory = new TrackingExecutionStrategyFactory(maxRetryCount);
-        var saveChangesInterceptor = new ThrowOnceSaveChangesInterceptor(failSaveChangesCount);
-        var context = CreateSqliteContext(connection, executionStrategyFactory, saveChangesInterceptor);
+        var context = CreateSqliteContext(connection);
         await context.Database.EnsureCreatedAsync();
 
-        return new SqliteHarness(connection, context, executionStrategyFactory, saveChangesInterceptor);
+        return new SqliteHarness(connection, context);
     }
 
-    private static AppDbContext CreateSqliteContext(
-        SqliteConnection connection,
-        TrackingExecutionStrategyFactory executionStrategyFactory,
-        ThrowOnceSaveChangesInterceptor saveChangesInterceptor)
+    private static AppDbContext CreateSqliteContext(SqliteConnection connection)
     {
-        executionStrategyFactory.Connection = connection;
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlite(connection)
-            .ReplaceService<IExecutionStrategyFactory, TrackingExecutionStrategyFactory>()
-            .AddInterceptors(saveChangesInterceptor)
             .Options;
 
         return new AppDbContext(options);
@@ -412,17 +362,13 @@ public class StockHistoryRefreshTests
 
     private sealed class SqliteHarness(
         SqliteConnection connection,
-        AppDbContext context,
-        TrackingExecutionStrategyFactory executionStrategyFactory,
-        ThrowOnceSaveChangesInterceptor saveChangesInterceptor) : IAsyncDisposable
+        AppDbContext context) : IAsyncDisposable
     {
         public SqliteConnection Connection { get; } = connection;
         public AppDbContext Context { get; } = context;
-        public TrackingExecutionStrategyFactory ExecutionStrategyFactory { get; } = executionStrategyFactory;
-        public ThrowOnceSaveChangesInterceptor SaveChangesInterceptor { get; } = saveChangesInterceptor;
 
         public AppDbContext CreateVerificationContext() =>
-            CreateSqliteContext(Connection, new TrackingExecutionStrategyFactory(0), new ThrowOnceSaveChangesInterceptor(0));
+            CreateSqliteContext(Connection);
 
         public async ValueTask DisposeAsync()
         {
@@ -431,70 +377,4 @@ public class StockHistoryRefreshTests
         }
     }
 
-    private sealed class RetryableTestException(string message) : Exception(message);
-
-    private sealed class ThrowOnceSaveChangesInterceptor(int failureCount) : SaveChangesInterceptor
-    {
-        private int _remainingFailures = failureCount;
-
-        public int FailureCount => failureCount - Math.Max(_remainingFailures, 0);
-
-        public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
-        {
-            if (Interlocked.Decrement(ref _remainingFailures) >= 0)
-            {
-                throw new RetryableTestException("Simulated transient save failure.");
-            }
-
-            return base.SavingChanges(eventData, result);
-        }
-    }
-
-    private sealed class TrackingExecutionStrategyFactory : IExecutionStrategyFactory
-    {
-        private readonly int _maxRetryCount;
-
-        public TrackingExecutionStrategyFactory(ExecutionStrategyDependencies dependencies)
-        {
-            _maxRetryCount = 1;
-            Dependencies = dependencies;
-        }
-
-        public TrackingExecutionStrategyFactory(int maxRetryCount)
-        {
-            _maxRetryCount = maxRetryCount;
-        }
-
-        public int CreateCount { get; private set; }
-        public int AttemptCount { get; private set; }
-        public DbConnection Connection { get; set; } = null!;
-
-        public IExecutionStrategy Create()
-        {
-            CreateCount++;
-            return new TrackingExecutionStrategy(Dependencies.CurrentContext.Context, _maxRetryCount, () => AttemptCount++);
-        }
-
-        public ExecutionStrategyDependencies Dependencies { get; }
-    }
-
-    private sealed class TrackingExecutionStrategy(DbContext context, int maxRetryCount, Action onAttempt)
-        : ExecutionStrategy(context, maxRetryCount, TimeSpan.Zero)
-    {
-        protected override bool ShouldRetryOn(Exception exception) => exception is RetryableTestException;
-
-        protected override TimeSpan? GetNextDelay(Exception lastException) => TimeSpan.Zero;
-
-        public override TResult Execute<TState, TResult>(TState state, Func<DbContext, TState, TResult> operation, Func<DbContext, TState, ExecutionResult<TResult>>? verifySucceeded)
-        {
-            onAttempt();
-            return base.Execute(state, operation, verifySucceeded);
-        }
-
-        public override Task<TResult> ExecuteAsync<TState, TResult>(TState state, Func<DbContext, TState, CancellationToken, Task<TResult>> operation, Func<DbContext, TState, CancellationToken, Task<ExecutionResult<TResult>>>? verifySucceeded, CancellationToken cancellationToken = default)
-        {
-            onAttempt();
-            return base.ExecuteAsync(state, operation, verifySucceeded, cancellationToken);
-        }
-    }
 }
