@@ -104,33 +104,13 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
   );
 };
 
-/**
- * A quote is considered "current" when:
- *   - the provider market state is REGULAR;
- *   - a provider timestamp exists, is valid, is not in the future,
- *     and is no older than PRICE_FRESHNESS_THRESHOLD_MS.
- */
-const PRICE_FRESHNESS_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
-
-export const isQuoteCurrent = (
-  quote: Pick<import('../types').StockQuoteResponse, 'marketState' | 'priceTimestampUtc'>,
-  now: number = Date.now(),
-): boolean => {
-  if (quote.marketState !== 'REGULAR') return false;
-  if (!quote.priceTimestampUtc) return false;
-  const ts = Date.parse(quote.priceTimestampUtc);
-  if (!isFinite(ts)) return false;
-  if (ts > now) return false;
-  return (now - ts) <= PRICE_FRESHNESS_THRESHOLD_MS;
-};
-
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
 const SAVED_PRICE_COL_WIDTH = 130;
 export const CHANGE_EUR_COL_WIDTH = 85;
 export const CHANGE_PCT_COL_WIDTH = 75;
 export const PRICE_TIME_COL_WIDTH = 135;
-export const API_PRICE_COL_WIDTH = 105;
+export const API_PRICE_COL_WIDTH = 130;
 export const ACTIONS_COL_WIDTH = 180;
 const TICKER_META_SPACE_WIDTH = 70;
 const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
@@ -184,6 +164,17 @@ export const getApiPriceTooltip = (quote: StockQuoteResponse | null | undefined)
   quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
     ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
     : undefined;
+
+/**
+ * Maps provider market state to a UI status.
+ * Returns 'open' for REGULAR, 'closed' for any other known state,
+ * and null when there is no live quote (loading or absent).
+ */
+export const getMarketStatus = (live: LivePriceEntry | null | undefined): 'open' | 'closed' | null => {
+  if (!live || live.loading) return null;
+  if (!live.quote) return null;
+  return live.quote.marketState === 'REGULAR' ? 'open' : 'closed';
+};
 
 
 const StocksPage: React.FC = () => {
@@ -637,9 +628,16 @@ const StocksPage: React.FC = () => {
         const quote = live?.quote ?? null;
         const apiPriceText = getApiPriceText(live);
         const normalizedTooltip = getApiPriceTooltip(quote);
+        const marketStatus = getMarketStatus(live);
         return (
-          <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>
+          <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {apiPriceText}
+            {marketStatus === 'open' && (
+              <Tag color="green" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
+            )}
+            {marketStatus === 'closed' && (
+              <Tag style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
+            )}
           </span>
         );
       },
@@ -672,12 +670,8 @@ const StocksPage: React.FC = () => {
         const live = livePrices[stock.id];
         const isProtectedStock = portfolioStockIds.has(stock.id);
         const quote = live?.quote ?? null;
-        const quoteStatus = quote && !live?.loading
-          ? isQuoteCurrent(quote) ? 'current' : 'last'
-          : null;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {quoteStatus === 'current' && <Tag color="green" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Текущая</Tag>}
             {quote?.conversionWarning && !live?.loading && (
               <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
             )}

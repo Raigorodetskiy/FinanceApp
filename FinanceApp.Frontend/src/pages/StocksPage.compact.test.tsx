@@ -14,6 +14,7 @@ import {
   STOCKS_TABLE_TOTAL_COLS,
   getApiPriceText,
   getApiPriceTooltip,
+  getMarketStatus,
 } from './StocksPage';
 import type { StockQuoteResponse } from '../types';
 
@@ -54,7 +55,7 @@ describe('Stocks table – compact API area widths and invariants', () => {
   });
 
   it('uses compact target widths for API price, time, and actions', () => {
-    expect(API_PRICE_COL_WIDTH).toBe(105);
+    expect(API_PRICE_COL_WIDTH).toBe(130);
     expect(PRICE_TIME_COL_WIDTH).toBe(135);
     expect(ACTIONS_COL_WIDTH).toBe(180);
   });
@@ -124,5 +125,35 @@ describe('Stocks table – timestamp format', () => {
     const ts: string | null = null;
     const result = ts ? dayjs.utc(ts).local().format(PRICE_TIME_FORMAT) : '—';
     expect(result).toBe('—');
+  });
+});
+
+describe('Stocks table – market status helper (getMarketStatus)', () => {
+  it('returns "open" for REGULAR marketState', () => {
+    expect(getMarketStatus({ loading: false, quote: makeQuote({ marketState: 'REGULAR' }) })).toBe('open');
+  });
+
+  it('returns "closed" for CLOSED marketState', () => {
+    expect(getMarketStatus({ loading: false, quote: makeQuote({ marketState: 'CLOSED' }) })).toBe('closed');
+  });
+
+  it('returns "closed" for POST marketState', () => {
+    expect(getMarketStatus({ loading: false, quote: makeQuote({ marketState: 'POST' }) })).toBe('closed');
+  });
+
+  it('returns "closed" for PRE marketState', () => {
+    expect(getMarketStatus({ loading: false, quote: makeQuote({ marketState: 'PRE' }) })).toBe('closed');
+  });
+
+  it('returns null while loading (no marker shown)', () => {
+    expect(getMarketStatus({ loading: true, quote: null })).toBeNull();
+  });
+
+  it('returns null when no live quote exists (undefined)', () => {
+    expect(getMarketStatus(undefined)).toBeNull();
+  });
+
+  it('returns null when live entry has no quote and is not loading', () => {
+    expect(getMarketStatus({ loading: false, quote: null })).toBeNull();
   });
 });
