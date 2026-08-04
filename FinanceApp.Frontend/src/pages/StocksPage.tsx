@@ -130,7 +130,8 @@ const SAVED_PRICE_COL_WIDTH = 130;
 export const CHANGE_EUR_COL_WIDTH = 85;
 export const CHANGE_PCT_COL_WIDTH = 75;
 const UPDATED_COL_WIDTH = 170;
-const ACTIONS_COL_WIDTH = 310;
+export const API_PRICE_COL_WIDTH = 130;
+const ACTIONS_COL_WIDTH = 220;
 const TICKER_META_SPACE_WIDTH = 70;
 const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
@@ -140,6 +141,7 @@ const STOCKS_TABLE_SCROLL_X =
   + CHANGE_EUR_COL_WIDTH
   + CHANGE_PCT_COL_WIDTH
   + UPDATED_COL_WIDTH
+  + API_PRICE_COL_WIDTH
   + ACTIONS_COL_WIDTH;
 export const PRICE_TIME_FORMAT = 'DD.MM.YY HH:mm';
 export const STOCKS_CHANGE_COMPACT_CLASS = 'stock-change-compact-col';
@@ -162,6 +164,25 @@ const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): L
   quote: current?.quote ?? null,
   loading,
 });
+
+export const STOCKS_TABLE_TOTAL_COLS = 8;
+
+export const getApiPriceCurrency = (quote: StockQuoteResponse | null | undefined): string | null =>
+  quote?.currency ?? quote?.normalizedQuoteCurrency ?? null;
+
+export const getApiPriceText = (live: LivePriceEntry | null | undefined): string => {
+  if (live?.loading) return '...';
+  const quote = live?.quote;
+  const currency = getApiPriceCurrency(quote);
+  if (!quote || !currency) return '—';
+  return fmtCur(quote.rawCurrentPrice, currency);
+};
+
+export const getApiPriceTooltip = (quote: StockQuoteResponse | null | undefined): string | undefined =>
+  quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
+    ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
+    : undefined;
+
 
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
@@ -451,7 +472,7 @@ const StocksPage: React.FC = () => {
     }
   };
 
-  const TOTAL_COLS = 7;
+  const TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS;
 
   const formatEur = (v: number) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
@@ -567,46 +588,40 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Изменение',
-      key: 'change',
-      children: [
-        {
-          title: '(€)',
-          key: 'changeEur',
-          width: CHANGE_EUR_COL_WIDTH,
-          className: STOCKS_CHANGE_COMPACT_CLASS,
-          render: (_: unknown, record: TableRow) => {
-            if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-            const stock = record as Stock;
-            const change = stock.currentPriceChange ?? null;
-            const color =
-              change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
-            return (
-              <span style={{ color, whiteSpace: 'nowrap' }}>
-                {fmtCur(change, '€', { signed: true })}
-              </span>
-            );
-          },
-        },
-        {
-          title: '(%)',
-          key: 'changePct',
-          width: CHANGE_PCT_COL_WIDTH,
-          className: STOCKS_CHANGE_COMPACT_CLASS,
-          render: (_: unknown, record: TableRow) => {
-            if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-            const stock = record as Stock;
-            const pct = stock.currentPriceChangePercent ?? null;
-            const color =
-              pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
-            return (
-              <span style={{ color, whiteSpace: 'nowrap' }}>
-                {formatPct(pct)}
-              </span>
-            );
-          },
-        },
-      ],
+      title: 'Изменение (€)',
+      key: 'changeEur',
+      width: CHANGE_EUR_COL_WIDTH,
+      className: STOCKS_CHANGE_COMPACT_CLASS,
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const change = stock.currentPriceChange ?? null;
+        const color =
+          change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+        return (
+          <span style={{ color, whiteSpace: 'nowrap' }}>
+            {fmtCur(change, '€', { signed: true })}
+          </span>
+        );
+      },
+    },
+    {
+      title: '(%)',
+      key: 'changePct',
+      width: CHANGE_PCT_COL_WIDTH,
+      className: STOCKS_CHANGE_COMPACT_CLASS,
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const pct = stock.currentPriceChangePercent ?? null;
+        const color =
+          pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+        return (
+          <span style={{ color, whiteSpace: 'nowrap' }}>
+            {formatPct(pct)}
+          </span>
+        );
+      },
     },
     {
       title: 'Время цены',
@@ -625,6 +640,24 @@ const StocksPage: React.FC = () => {
       },
     },
     {
+      title: 'Цена API',
+      key: 'apiPrice',
+      width: API_PRICE_COL_WIDTH,
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const live = livePrices[stock.id];
+        const quote = live?.quote ?? null;
+        const apiPriceText = getApiPriceText(live);
+        const normalizedTooltip = getApiPriceTooltip(quote);
+        return (
+          <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>
+            {apiPriceText}
+          </span>
+        );
+      },
+    },
+    {
       title: 'Действия',
       key: 'actions',
       width: ACTIONS_COL_WIDTH,
@@ -634,27 +667,15 @@ const StocksPage: React.FC = () => {
         const live = livePrices[stock.id];
         const isProtectedStock = portfolioStockIds.has(stock.id);
         const quote = live?.quote ?? null;
-        const rawQuoteText = quote
-          ? `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`
-          : null;
-        const normalizedTooltip =
-          quote && quote.quoteUnitMultiplier !== 1 && quote.normalizedQuoteCurrency
-            ? `Нормализовано: ${quote.normalizedCurrentPrice.toFixed(3)} ${quote.normalizedQuoteCurrency}`
-            : undefined;
         const quoteStatus = quote && !live?.loading
           ? isQuoteCurrent(quote) ? 'current' : 'last'
           : null;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {/* 1. Source quote (provider currency) */}
-            <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>
-              {live?.loading ? '...' : rawQuoteText ?? '—'}
-            </span>
             {quoteStatus === 'current' && <Tag color="green" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Текущая</Tag>}
             {quote?.conversionWarning && !live?.loading && (
               <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
             )}
-            {/* 2. Refresh */}
             <Button
               icon={<ReloadOutlined />}
               size="small"
@@ -662,7 +683,6 @@ const StocksPage: React.FC = () => {
               disabled={!stock.ticker?.trim()}
               onClick={() => handleFetchLivePrice(stock)}
             />
-            {/* 3. Edit */}
             <Tooltip title="Изменить">
               <Button
                 icon={<EditOutlined />}
@@ -671,7 +691,6 @@ const StocksPage: React.FC = () => {
                 onClick={() => openEditModal(stock)}
               />
             </Tooltip>
-            {/* 4. Delete */}
             <StockDeleteAction isProtected={isProtectedStock} onDelete={() => handleDelete(stock.id)} />
           </div>
         );
