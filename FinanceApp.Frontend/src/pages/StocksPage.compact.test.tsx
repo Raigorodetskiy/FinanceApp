@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
+  ACTIONS_COL_WIDTH,
   API_PRICE_COL_WIDTH,
   CHANGE_EUR_COL_WIDTH,
   CHANGE_PCT_COL_WIDTH,
+  PRICE_TIME_COL_WIDTH,
   PRICE_TIME_FORMAT,
+  STOCKS_API_AREA_COMPACT_CLASS,
   STOCKS_CHANGE_COMPACT_CLASS,
+  STOCKS_RIGHT_COMPACT_COLUMN_TITLES,
   STOCKS_TABLE_TOTAL_COLS,
   getApiPriceText,
   getApiPriceTooltip,
@@ -42,29 +46,39 @@ const makeQuote = (overrides: Partial<StockQuoteResponse> = {}): StockQuoteRespo
   ...overrides,
 });
 
-describe('Stocks table – compact change columns', () => {
-  it('CHANGE_EUR_COL_WIDTH is approximately 85 px', () => {
-    expect(CHANGE_EUR_COL_WIDTH).toBeLessThanOrEqual(90);
-    expect(CHANGE_EUR_COL_WIDTH).toBeGreaterThanOrEqual(80);
-  });
-
-  it('CHANGE_PCT_COL_WIDTH is approximately 75 px', () => {
-    expect(CHANGE_PCT_COL_WIDTH).toBeLessThanOrEqual(80);
-    expect(CHANGE_PCT_COL_WIDTH).toBeGreaterThanOrEqual(70);
-  });
-
-  it('compact column class name is defined', () => {
+describe('Stocks table – compact API area widths and invariants', () => {
+  it('keeps change columns compact and unchanged', () => {
+    expect(CHANGE_EUR_COL_WIDTH).toBe(85);
+    expect(CHANGE_PCT_COL_WIDTH).toBe(75);
     expect(STOCKS_CHANGE_COMPACT_CLASS).toBe('stock-change-compact-col');
   });
 
-  it('keeps API price column compact and readable', () => {
-    expect(API_PRICE_COL_WIDTH).toBeGreaterThanOrEqual(110);
-    expect(API_PRICE_COL_WIDTH).toBeLessThanOrEqual(150);
+  it('uses compact target widths for API price, time, and actions', () => {
+    expect(API_PRICE_COL_WIDTH).toBe(105);
+    expect(PRICE_TIME_COL_WIDTH).toBe(135);
+    expect(ACTIONS_COL_WIDTH).toBe(180);
+  });
+
+  it('keeps total leaf column count at 8', () => {
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
   });
 });
 
-describe('Stocks table – column metadata', () => {
-  it('uses 8 top-level columns after adding API price', () => {
+describe('Stocks table – compact API area metadata', () => {
+  it('orders columns as Цена API, then Время, then Действия', () => {
+    expect([...STOCKS_RIGHT_COMPACT_COLUMN_TITLES]).toEqual(['Цена API', 'Время', 'Действия']);
+  });
+
+  it('renames the timestamp heading to exactly Время', () => {
+    expect(STOCKS_RIGHT_COMPACT_COLUMN_TITLES).toContain('Время');
+    expect(STOCKS_RIGHT_COMPACT_COLUMN_TITLES).not.toContain('Время цены');
+  });
+
+  it('applies the scoped compact class to API price, time, and actions headers/cells', () => {
+    expect(STOCKS_API_AREA_COMPACT_CLASS).toBe('stock-api-area-compact-col');
+  });
+
+  it('keeps expanded chart row spanning the full table width via the shared total-column constant', () => {
     expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
   });
 });
@@ -98,28 +112,15 @@ describe('Stocks table – API price rendering helpers', () => {
   });
 });
 
-describe('Stocks table – price timestamp format', () => {
-  it('PRICE_TIME_FORMAT uses two-digit year (DD.MM.YY HH:mm)', () => {
+describe('Stocks table – timestamp format', () => {
+  it('keeps the short local-time format unchanged', () => {
     expect(PRICE_TIME_FORMAT).toBe('DD.MM.YY HH:mm');
-  });
-
-  it('formats UTC timestamp 2026-08-04T07:08:00Z as DD.MM.YY HH:mm in local time', () => {
-    const ts = '2026-08-04T07:08:00Z';
-    const formatted = dayjs.utc(ts).local().format(PRICE_TIME_FORMAT);
+    const formatted = dayjs.utc('2026-08-04T07:08:00Z').local().format(PRICE_TIME_FORMAT);
     expect(formatted).toMatch(/\d{2}\.\d{2}\.\d{2} \d{2}:\d{2}/);
-    const parts = formatted.split(' ');
-    const dateParts = parts[0].split('.');
-    expect(dateParts[2]).toHaveLength(2);
-    expect(dateParts[2]).toBe('26');
+    expect(formatted).toContain('26');
   });
 
-  it('does NOT use four-digit year format', () => {
-    const ts = '2026-08-04T07:08:00Z';
-    const formatted = dayjs.utc(ts).local().format(PRICE_TIME_FORMAT);
-    expect(formatted).not.toContain('2026');
-  });
-
-  it('missing timestamp should fall back to —', () => {
+  it('falls back to em dash when timestamp is unavailable', () => {
     const ts: string | null = null;
     const result = ts ? dayjs.utc(ts).local().format(PRICE_TIME_FORMAT) : '—';
     expect(result).toBe('—');

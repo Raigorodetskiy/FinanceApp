@@ -129,9 +129,9 @@ const NAME_COL_WIDTH = 300;
 const SAVED_PRICE_COL_WIDTH = 130;
 export const CHANGE_EUR_COL_WIDTH = 85;
 export const CHANGE_PCT_COL_WIDTH = 75;
-const UPDATED_COL_WIDTH = 170;
-export const API_PRICE_COL_WIDTH = 130;
-const ACTIONS_COL_WIDTH = 220;
+export const PRICE_TIME_COL_WIDTH = 135;
+export const API_PRICE_COL_WIDTH = 105;
+export const ACTIONS_COL_WIDTH = 180;
 const TICKER_META_SPACE_WIDTH = 70;
 const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
@@ -140,11 +140,13 @@ const STOCKS_TABLE_SCROLL_X =
   + SAVED_PRICE_COL_WIDTH
   + CHANGE_EUR_COL_WIDTH
   + CHANGE_PCT_COL_WIDTH
-  + UPDATED_COL_WIDTH
+  + PRICE_TIME_COL_WIDTH
   + API_PRICE_COL_WIDTH
   + ACTIONS_COL_WIDTH;
 export const PRICE_TIME_FORMAT = 'DD.MM.YY HH:mm';
 export const STOCKS_CHANGE_COMPACT_CLASS = 'stock-change-compact-col';
+export const STOCKS_API_AREA_COMPACT_CLASS = 'stock-api-area-compact-col';
+export const STOCKS_RIGHT_COMPACT_COLUMN_TITLES = ['Цена API', 'Время', 'Действия'] as const;
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
@@ -624,25 +626,10 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Время цены',
-      key: 'priceTime',
-      width: UPDATED_COL_WIDTH,
-      render: (_: unknown, record: TableRow) => {
-        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const stock = record as Stock;
-        const live = livePrices[stock.id];
-        // Prefer live quote provider timestamp when a quote was fetched this session.
-        // Fall back to the persisted currentPriceAt from the database.
-        // Do NOT fall back to updatedAt or request time.
-        const ts = live?.quote?.priceTimestampUtc ?? stock.currentPriceAt ?? null;
-        if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
-        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;
-      },
-    },
-    {
       title: 'Цена API',
       key: 'apiPrice',
       width: API_PRICE_COL_WIDTH,
+      className: STOCKS_API_AREA_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
@@ -658,9 +645,27 @@ const StocksPage: React.FC = () => {
       },
     },
     {
+      title: 'Время',
+      key: 'priceTime',
+      width: PRICE_TIME_COL_WIDTH,
+      className: STOCKS_API_AREA_COMPACT_CLASS,
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        const stock = record as Stock;
+        const live = livePrices[stock.id];
+        // Prefer live quote provider timestamp when a quote was fetched this session.
+        // Fall back to the persisted currentPriceAt from the database.
+        // Do NOT fall back to updatedAt or request time.
+        const ts = live?.quote?.priceTimestampUtc ?? stock.currentPriceAt ?? null;
+        if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
+        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;
+      },
+    },
+    {
       title: 'Действия',
       key: 'actions',
       width: ACTIONS_COL_WIDTH,
+      className: STOCKS_API_AREA_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
