@@ -60,3 +60,10 @@ body {
   padding-bottom: 4px;
   border-bottom: 1px solid #e8e8e8;
 }
+
+/* Stocks table: compact padding for daily-change leaf columns */
+.ant-table-wrapper.stocks-table th.stock-change-compact-col,
+.ant-table-wrapper.stocks-table td.stock-change-compact-col {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}

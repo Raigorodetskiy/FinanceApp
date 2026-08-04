@@ -127,8 +127,8 @@ export const isQuoteCurrent = (
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
 const SAVED_PRICE_COL_WIDTH = 130;
-const CHANGE_EUR_COL_WIDTH = 110;
-const CHANGE_PCT_COL_WIDTH = 100;
+export const CHANGE_EUR_COL_WIDTH = 85;
+export const CHANGE_PCT_COL_WIDTH = 75;
 const UPDATED_COL_WIDTH = 170;
 const ACTIONS_COL_WIDTH = 310;
 const TICKER_META_SPACE_WIDTH = 70;
@@ -141,6 +141,8 @@ const STOCKS_TABLE_SCROLL_X =
   + CHANGE_PCT_COL_WIDTH
   + UPDATED_COL_WIDTH
   + ACTIONS_COL_WIDTH;
+export const PRICE_TIME_FORMAT = 'DD.MM.YY HH:mm';
+export const STOCKS_CHANGE_COMPACT_CLASS = 'stock-change-compact-col';
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
@@ -565,38 +567,46 @@ const StocksPage: React.FC = () => {
       },
     },
     {
-      title: 'Изменение (€)',
-      key: 'changeEur',
-      width: CHANGE_EUR_COL_WIDTH,
-      render: (_: unknown, record: TableRow) => {
-        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const stock = record as Stock;
-        const change = stock.currentPriceChange ?? null;
-        const color =
-          change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
-        return (
-          <span style={{ color, whiteSpace: 'nowrap' }}>
-            {fmtCur(change, '€', { signed: true })}
-          </span>
-        );
-      },
-    },
-    {
-      title: '(%)',
-      key: 'changePct',
-      width: CHANGE_PCT_COL_WIDTH,
-      render: (_: unknown, record: TableRow) => {
-        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const stock = record as Stock;
-        const pct = stock.currentPriceChangePercent ?? null;
-        const color =
-          pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
-        return (
-          <span style={{ color, whiteSpace: 'nowrap' }}>
-            {formatPct(pct)}
-          </span>
-        );
-      },
+      title: 'Изменение',
+      key: 'change',
+      children: [
+        {
+          title: '(€)',
+          key: 'changeEur',
+          width: CHANGE_EUR_COL_WIDTH,
+          className: STOCKS_CHANGE_COMPACT_CLASS,
+          render: (_: unknown, record: TableRow) => {
+            if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+            const stock = record as Stock;
+            const change = stock.currentPriceChange ?? null;
+            const color =
+              change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+            return (
+              <span style={{ color, whiteSpace: 'nowrap' }}>
+                {fmtCur(change, '€', { signed: true })}
+              </span>
+            );
+          },
+        },
+        {
+          title: '(%)',
+          key: 'changePct',
+          width: CHANGE_PCT_COL_WIDTH,
+          className: STOCKS_CHANGE_COMPACT_CLASS,
+          render: (_: unknown, record: TableRow) => {
+            if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+            const stock = record as Stock;
+            const pct = stock.currentPriceChangePercent ?? null;
+            const color =
+              pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
+            return (
+              <span style={{ color, whiteSpace: 'nowrap' }}>
+                {formatPct(pct)}
+              </span>
+            );
+          },
+        },
+      ],
     },
     {
       title: 'Время цены',
@@ -611,7 +621,7 @@ const StocksPage: React.FC = () => {
         // Do NOT fall back to updatedAt or request time.
         const ts = live?.quote?.priceTimestampUtc ?? stock.currentPriceAt ?? null;
         if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
-        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm')}</span>;
+        return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;
       },
     },
     {
