@@ -13,6 +13,7 @@ import {
   PRICE_TIME_FORMAT,
   STOCKS_API_AREA_COMPACT_CLASS,
   STOCKS_CHANGE_COMPACT_CLASS,
+  STOCKS_RIGHT_ALIGNED_MONEY_KEYS,
   STOCKS_RIGHT_COMPACT_COLUMN_TITLES,
   STOCKS_TABLE_TOTAL_COLS,
   getApiPriceText,
@@ -181,5 +182,15 @@ describe('Stocks table – index.css scoped nowrap rule for change headers', () 
 
   it('does not apply a global nowrap to all Ant Design table headers', () => {
     expect(cssText).not.toMatch(/\.ant-table-thead\s+th\s*\{[^}]*white-space:\s*nowrap/);
+  });
+});
+
+
+describe('Stocks table – right-aligned monetary columns', () => {
+  it('right-aligns current, daily-change, and API price columns only', () => {
+    expect([...STOCKS_RIGHT_ALIGNED_MONEY_KEYS]).toEqual(['savedPrice', 'changeEur', 'apiPrice']);
+    expect(STOCKS_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('changePct');
+    expect(STOCKS_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('priceTime');
+    expect(STOCKS_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('ticker');
   });
 });
