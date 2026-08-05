@@ -92,6 +92,10 @@ export const SUMMARY_ROW_GUTTER: [number, number] = [16, 8];
 
 /** Bottom margin (px) applied to the last summary row before the positions table. */
 export const SUMMARY_ROW_MARGIN_BOTTOM = 12;
+export const PORTFOLIO_POSITION_RIGHT_ALIGNED_MONEY_KEYS = ['buyPrice', 'currentPrice', 'dailyPriceChange', 'currentValue', 'dailyPositionChange', 'pnlEur'] as const;
+export const PORTFOLIO_PENDING_ORDER_RIGHT_ALIGNED_MONEY_KEYS = ['price', 'stopLoss', 'stopMarket', 'currentPrice'] as const;
+export const PORTFOLIO_EXECUTED_ORDER_RIGHT_ALIGNED_MONEY_KEYS = ['price', 'total'] as const;
+export const PORTFOLIO_TRANSACTION_RIGHT_ALIGNED_MONEY_KEYS = ['amount'] as const;
 
 /**
  * Computes the quote patch fields from a {@link StockQuoteResponse}.
@@ -700,14 +704,14 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'Цена покупки', key: 'buyPrice',
+      title: 'Цена покупки', key: 'buyPrice', align: 'right' as const,
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return fmtCur((record as PortfolioItem).buyPrice, '€');
       },
     },
     {
-      title: 'Тек. цена', key: 'currentPrice',
+      title: 'Тек. цена', key: 'currentPrice', align: 'right' as const,
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return fmtCur((record as PortfolioItem).stock.currentPrice, '€');
@@ -716,6 +720,7 @@ const PortfolioDetailPage: React.FC = () => {
     {
       title: 'Изм. за день',
       key: 'dailyPriceChange',
+      align: 'right' as const,
       width: 90,
       className: 'col-compact',
       render: (_: unknown, record: PositionTableRow) => {
@@ -731,7 +736,7 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: <><span>Тек.</span><br /><span>стоимость</span></>, key: 'currentValue',
+      title: <><span>Тек.</span><br /><span>стоимость</span></>, key: 'currentValue', align: 'right' as const,
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -741,6 +746,7 @@ const PortfolioDetailPage: React.FC = () => {
     {
       title: 'Изм. за день',
       key: 'dailyPositionChange',
+      align: 'right' as const,
       width: 90,
       className: 'col-compact',
       render: (_: unknown, record: PositionTableRow) => {
@@ -756,7 +762,7 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'P&L (€)', key: 'pnlEur',
+      title: 'P&L (€)', key: 'pnlEur', align: 'right' as const,
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -811,10 +817,10 @@ const PortfolioDetailPage: React.FC = () => {
     { title: 'Название', key: 'name', render: (_: unknown, r: Order) => r.stock?.name ?? '—' },
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
     { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
-    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => fmtCur(v, '€') },
-    { title: 'Stop Loss', dataIndex: 'stopLoss', key: 'stopLoss', render: (v: number | null) => fmtCur(v, '€') },
-    { title: 'Stop Market', dataIndex: 'stopMarket', key: 'stopMarket', render: (v: number | null) => fmtCur(v, '€') },
-    { title: 'Тек. цена', key: 'currentPrice', render: (_: unknown, r: Order) => fmtCur(r.stock?.currentPrice ?? null, '€') },
+    { title: 'Цена', dataIndex: 'price', key: 'price', align: 'right' as const, render: (v: number) => fmtCur(v, '€') },
+    { title: 'Stop Loss', dataIndex: 'stopLoss', key: 'stopLoss', align: 'right' as const, render: (v: number | null) => fmtCur(v, '€') },
+    { title: 'Stop Market', dataIndex: 'stopMarket', key: 'stopMarket', align: 'right' as const, render: (v: number | null) => fmtCur(v, '€') },
+    { title: 'Тек. цена', key: 'currentPrice', align: 'right' as const, render: (_: unknown, r: Order) => fmtCur(r.stock?.currentPrice ?? null, '€') },
     { title: 'Создан', dataIndex: 'createdAt', key: 'createdAt', render: (v: string) => dayjs.utc(v).local().format('DD.MM.YYYY HH:mm') },
     {
       title: 'Действия', key: 'actions',
@@ -841,8 +847,8 @@ const PortfolioDetailPage: React.FC = () => {
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
     { title: 'Статус', dataIndex: 'status', key: 'status', render: (v: OrderStatus) => <Tag color={ORDER_STATUS_COLORS[v]}>{ORDER_STATUS_LABELS[v]}</Tag> },
     { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
-    { title: 'Цена', dataIndex: 'price', key: 'price', render: (v: number) => fmtCur(v, '€') },
-    { title: 'Итого', key: 'total', render: (_: unknown, r: Order) => fmtCur(r.price * r.quantity, '€') },
+    { title: 'Цена', dataIndex: 'price', key: 'price', align: 'right' as const, render: (v: number) => fmtCur(v, '€') },
+    { title: 'Итого', key: 'total', align: 'right' as const, render: (_: unknown, r: Order) => fmtCur(r.price * r.quantity, '€') },
     {
       title: 'Удалить', key: 'delete',
       render: (_: unknown, r: Order) => (
@@ -1130,7 +1136,7 @@ const PortfolioDetailPage: React.FC = () => {
                           ),
                         },
                         {
-                          title: 'Сумма', key: 'amount',
+                          title: 'Сумма', key: 'amount', align: 'right' as const,
                           render: (_: unknown, t: Transaction) => {
                             const signed = getEffectiveSignedAmount(t);
                             const color = signed >= 0 ? '#3f8600' : '#cf1322';

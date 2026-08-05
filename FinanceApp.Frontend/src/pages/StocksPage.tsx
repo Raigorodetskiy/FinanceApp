@@ -126,6 +126,7 @@ export const PRICE_TIME_FORMAT = 'DD.MM.YY HH:mm';
 export const STOCKS_CHANGE_COMPACT_CLASS = 'stock-change-compact-col';
 export const STOCKS_API_AREA_COMPACT_CLASS = 'stock-api-area-compact-col';
 export const STOCKS_RIGHT_COMPACT_COLUMN_TITLES = ['Цена API', 'Время', 'Действия'] as const;
+export const STOCKS_RIGHT_ALIGNED_MONEY_KEYS = ['savedPrice', 'changeEur', 'apiPrice'] as const;
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
@@ -564,6 +565,7 @@ const StocksPage: React.FC = () => {
     {
       title: 'Текущая цена',
       key: 'savedPrice',
+      align: 'right' as const,
       width: SAVED_PRICE_COL_WIDTH,
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
@@ -578,6 +580,7 @@ const StocksPage: React.FC = () => {
     {
       title: 'Изменение (€)',
       key: 'changeEur',
+      align: 'right' as const,
       width: CHANGE_EUR_COL_WIDTH,
       className: STOCKS_CHANGE_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
@@ -614,6 +617,7 @@ const StocksPage: React.FC = () => {
     {
       title: 'Цена API',
       key: 'apiPrice',
+      align: 'right' as const,
       width: API_PRICE_COL_WIDTH,
       className: STOCKS_API_AREA_COMPACT_CLASS,
       render: (_: unknown, record: TableRow) => {
