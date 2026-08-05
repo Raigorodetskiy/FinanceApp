@@ -6,7 +6,7 @@
 #   - Frontend web root: /var/www/html/financeapp
 #   - A running systemd service whose name contains "financeapp" (case-insensitive)
 #   - .NET SDK ≥ 8, Node.js ≥ 20, npm ≥ 8 are available
-#   - The committed package-lock.json contains esbuild 0.28.1 entries
+#   - The committed package-lock.json contains esbuild 0.25.x entries (Vite 6 compatible)
 
 set -Eeuo pipefail
 
@@ -144,6 +144,9 @@ if [ -z "$MAIN_PID" ] || [ "$MAIN_PID" = "0" ]; then
   exit 1
 fi
 
+# Derive API deployment directory from the running process command line.
+# Fall back to systemd ExecStart if /proc/PID/cmdline does not contain the DLL
+# path (e.g. the file was deleted from disk by a prior git update).
 API_DLL="$(
   tr '\0' '\n' < "/proc/$MAIN_PID/cmdline" \
   | grep '/FinanceApp.API\.dll$' \
@@ -151,16 +154,28 @@ API_DLL="$(
 )"
 
 if [ -z "$API_DLL" ]; then
-  echo "ERROR: cannot determine FinanceApp.API.dll path from process $MAIN_PID."
+  echo "WARNING: DLL path not found in process cmdline; falling back to systemd ExecStart."
+  API_DLL="$(
+    systemctl show "$SERVICE" -p ExecStart --value \
+    | grep -oP '[^ ]+/FinanceApp\.API\.dll'
+  )"
+fi
+
+if [ -z "$API_DLL" ]; then
+  echo "ERROR: cannot determine FinanceApp.API.dll path from process $MAIN_PID or systemd ExecStart."
   echo "Process command:"
   tr '\0' ' ' < "/proc/$MAIN_PID/cmdline"
   echo
+  systemctl show "$SERVICE" -p ExecStart --value || true
   exit 1
 fi
 
 API_TARGET="$(dirname "$API_DLL")"
-test -f "$API_TARGET/FinanceApp.API.dll" \
-  || { echo "ERROR: $API_TARGET/FinanceApp.API.dll not found"; exit 1; }
+# Note: do NOT require the DLL to exist on disk here — a prior git update or
+# cleanup may have removed it before this deployment script ran.  The directory
+# itself must exist (it is where we will place the new publish).
+test -d "$API_TARGET" \
+  || { echo "ERROR: API directory $API_TARGET does not exist"; exit 1; }
 
 echo "SERVICE=$SERVICE"
 echo "API_TARGET=$API_TARGET"
