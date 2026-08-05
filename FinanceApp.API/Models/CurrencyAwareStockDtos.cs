@@ -93,3 +93,17 @@ public sealed class UpdateStockQuoteRequest
     public decimal? CurrentPriceChangePercent { get; init; }
     public DateTime? CurrentPriceAt { get; init; }
 }
+
+/// <summary>
+/// Request DTO for updating non-identity metadata of an existing stock.
+/// Ticker and Exchange are intentionally excluded — they are immutable identity fields.
+/// </summary>
+public sealed class UpdateStockMetadataRequest
+{
+    public string Name { get; init; } = string.Empty;
+    public string? CommonName { get; init; }
+    public string? Wkn { get; init; }
+    public string? Isin { get; init; }
+    public string? FinanzenNetSlug { get; init; }
+    public decimal CurrentPrice { get; init; }
+}

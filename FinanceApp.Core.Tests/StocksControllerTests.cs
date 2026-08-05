@@ -124,17 +124,13 @@ public class StocksControllerTests
 
         var controller = CreateController(context);
 
-        var result = await controller.Update(existing.Id, new Stock
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
         {
-            Id = existing.Id,
-            Ticker = existing.Ticker,
             Name = existing.Name,
             CommonName = existing.CommonName,
-            Exchange = existing.Exchange,
-            CurrentPrice = 101.23m,
-            UpdatedAt = DateTime.UtcNow,
             Wkn = existing.Wkn,
-            Isin = existing.Isin
+            Isin = existing.Isin,
+            CurrentPrice = 101.23m,
         });
 
         Assert.IsType<NoContentResult>(result);
@@ -169,15 +165,9 @@ public class StocksControllerTests
         var providerTs = new DateTime(2026, 8, 1, 14, 30, 0, DateTimeKind.Utc);
         var controller = CreateController(context);
 
-        var result = await controller.Update(existing.Id, new Stock
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
         {
-            Id = existing.Id,
-            Ticker = existing.Ticker,
-            Name = existing.Name,
-            CommonName = existing.CommonName,
-            Exchange = existing.Exchange,
             CurrentPrice = 195.40m,
-            UpdatedAt = providerTs,
             CurrentPriceChange = 3.15m,
             CurrentPriceChangePercent = 1.30m,
             CurrentPriceAt = providerTs,
@@ -215,17 +205,12 @@ public class StocksControllerTests
 
         var controller = CreateController(context);
 
-        // Simulate a manual price edit: no snapshot fields supplied
-        var result = await controller.Update(existing.Id, new Stock
+        // Simulate a manual price edit via metadata endpoint: clears stale snapshot fields
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
         {
-            Id = existing.Id,
-            Ticker = existing.Ticker,
             Name = existing.Name,
             CommonName = existing.CommonName,
-            Exchange = existing.Exchange,
             CurrentPrice = 400m,
-            UpdatedAt = DateTime.UtcNow,
-            // CurrentPriceChange / CurrentPriceChangePercent / CurrentPriceAt intentionally omitted
         });
 
         Assert.IsType<NoContentResult>(result);
@@ -561,9 +546,9 @@ public class StocksControllerTests
     }
 
     [Fact]
-    public async Task UpdateQuote_RaceCondition_DoesNotRevertIdentityEditedAfterQuoteFetch()
+    public async Task UpdateQuote_RaceCondition_DoesNotRevertMetadataEditedAfterQuoteFetch()
     {
-        // Simulates: 1) quote fetch starts, 2) user edits ticker/exchange, 3) old quote response arrives
+        // Simulates: 1) quote fetch starts, 2) user edits metadata, 3) old quote response arrives
         await using var context = CreateContext();
         var existing = new Stock
         {
@@ -580,16 +565,12 @@ public class StocksControllerTests
 
         var controller = CreateController(context);
 
-        // Step 2: user edits ticker and exchange (general PUT)
-        var editResult = await controller.Update(existing.Id, new Stock
+        // Step 2: user edits metadata (name, etc.) — identity is immutable
+        var editResult = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
         {
-            Id = existing.Id,
-            Ticker = "NEW",
             Name = "New Name",
             CommonName = "New",
-            Exchange = StockExchanges.Nyse,
             CurrentPrice = 100m,
-            UpdatedAt = DateTime.UtcNow,
         });
         Assert.IsType<NoContentResult>(editResult);
 
@@ -606,11 +587,220 @@ public class StocksControllerTests
         var persisted = await context.Stocks.SingleAsync();
         // Price was updated by the quote
         Assert.Equal(102m, persisted.CurrentPrice);
-        // Identity fields reflect the user's edit, NOT the stale quote snapshot
-        Assert.Equal("NEW", persisted.Ticker);
-        Assert.Equal(StockExchanges.Nyse, persisted.Exchange);
+        // Identity fields are unchanged (immutable)
+        Assert.Equal("OLD.F", persisted.Ticker);
+        Assert.Equal(StockExchanges.Frankfurt, persisted.Exchange);
+        // Name reflects the metadata edit, NOT reverted by the quote
         Assert.Equal("New Name", persisted.Name);
     }
+
+    // ─── New metadata endpoint tests ───────────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateMetadata_ChangesAllAllowedFields_PreservesIdentity()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 200,
+            Ticker = "SAP",
+            Name = "SAP SE",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 100m,
+            Wkn = "716460",
+            Isin = "DE0007164600",
+            FinanzenNetSlug = "sap-aktie",
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
+        {
+            Name = "SAP SE Updated",
+            CommonName = "SAP Updated",
+            Wkn = "716461",
+            Isin = "DE0007164601",
+            FinanzenNetSlug = "sap-aktie-new",
+            CurrentPrice = 120m,
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        // Editable fields updated
+        Assert.Equal("SAP SE Updated", persisted.Name);
+        Assert.Equal("SAP Updated", persisted.CommonName);
+        Assert.Equal("716461", persisted.Wkn);
+        Assert.Equal("DE0007164601", persisted.Isin);
+        Assert.Equal("sap-aktie-new", persisted.FinanzenNetSlug);
+        Assert.Equal(120m, persisted.CurrentPrice);
+        // Identity fields must NOT change
+        Assert.Equal("SAP", persisted.Ticker);
+        Assert.Equal(StockExchanges.Frankfurt, persisted.Exchange);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_MissingStock_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.UpdateMetadata(999, new UpdateStockMetadataRequest
+        {
+            Name = "Ghost",
+            CurrentPrice = 1m,
+        });
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_ManualPrice_ClearsStaleSnapshotFields()
+    {
+        await using var context = CreateContext();
+        var providerTs = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        var existing = new Stock
+        {
+            Id = 201,
+            Ticker = "MSFT",
+            Name = "Microsoft Corporation",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 420m,
+            CurrentPriceChange = 5m,
+            CurrentPriceChangePercent = 1.2m,
+            CurrentPriceAt = providerTs,
+            UpdatedAt = providerTs,
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
+        {
+            Name = existing.Name,
+            CurrentPrice = 400m,
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(400m, persisted.CurrentPrice);
+        Assert.Null(persisted.CurrentPriceChange);
+        Assert.Null(persisted.CurrentPriceChangePercent);
+        Assert.Null(persisted.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_InvalidSlug_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 202,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
+        {
+            Name = "Apple Inc.",
+            FinanzenNetSlug = "invalid/slug",
+            CurrentPrice = 100m,
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        // Stock must not be modified
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Null(persisted.FinanzenNetSlug);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_BlankCommonName_FallsBackToName()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 203,
+            Ticker = "IBM",
+            Name = "IBM Corp",
+            CommonName = "IBM",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
+        {
+            Name = "International Business Machines",
+            CommonName = "   ",
+            CurrentPrice = 100m,
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal("International Business Machines", persisted.Name);
+        Assert.Equal("International Business Machines", persisted.CommonName);
+    }
+
+    [Fact]
+    public async Task LegacyPut_ReturnsGone_PerformsNoWrite()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 210,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 180m,
+            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = controller.Update(existing.Id);
+
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status410Gone, statusResult.StatusCode);
+
+        // The stock must not be modified
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal("Apple Inc.", persisted.Name);
+        Assert.Equal("AAPL", persisted.Ticker);
+        Assert.Equal(180m, persisted.CurrentPrice);
+    }
+
+    [Fact]
+    public async Task LegacyPut_ReturnsGone_MessageMentionsNewEndpoints()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = controller.Update(42);
+
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status410Gone, statusResult.StatusCode);
+        var message = Assert.IsType<string>(statusResult.Value);
+        Assert.Contains("/metadata", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/quote", message, StringComparison.OrdinalIgnoreCase);
+    }
+
 
     private static AppDbContext CreateContext()
     {

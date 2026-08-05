@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using FinanceApp.API.Models;
@@ -178,43 +179,63 @@ public class StocksController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = stock.Id }, stock);
     }
 
+    /// <summary>
+    /// Legacy full-object update endpoint. Returns 410 Gone — callers must migrate to
+    /// PUT /api/Stocks/{id}/metadata (editable fields) and PATCH /api/Stocks/{id}/quote (price).
+    /// </summary>
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, Stock stock)
+    public IActionResult Update(int id)
     {
-        if (id != stock.Id) return BadRequest();
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous";
+        var userAgent = Request.Headers.UserAgent.ToString();
+        _logger.LogWarning(
+            "Legacy PUT /api/Stocks/{StockId} rejected (410 Gone). UserId={UserId} UserAgent={UserAgent}",
+            id, userId, userAgent);
 
-        var validationError = NormalizeAndValidateStock(stock);
-        if (validationError != null) return validationError;
+        return StatusCode(StatusCodes.Status410Gone,
+            "PUT /api/Stocks/{id} has been retired. " +
+            "Use PUT /api/Stocks/{id}/metadata to update editable fields " +
+            "and PATCH /api/Stocks/{id}/quote to update quote data.");
+    }
 
+    /// <summary>
+    /// Updates editable metadata fields for an existing stock.
+    /// Ticker and Exchange are identity fields and cannot be changed after creation.
+    /// </summary>
+    [HttpPut("{id}/metadata")]
+    public async Task<IActionResult> UpdateMetadata(int id, UpdateStockMetadataRequest request)
+    {
         var existing = await _context.Stocks.FindAsync(id);
         if (existing == null) return NotFound();
 
-        existing.Ticker = stock.Ticker;
-        existing.Name = stock.Name;
-        existing.CommonName = stock.CommonName;
-        existing.Exchange = stock.Exchange;
-        existing.Wkn = stock.Wkn;
-        existing.Isin = stock.Isin;
-        existing.FinanzenNetSlug = stock.FinanzenNetSlug;
+        // Normalize fields the same way as Create
+        var wkn = NormalizeIdentifier(request.Wkn);
+        var isin = NormalizeIdentifier(request.Isin);
+        var finanzenNetSlug = string.IsNullOrWhiteSpace(request.FinanzenNetSlug)
+            ? null
+            : request.FinanzenNetSlug.Trim();
+        var name = (request.Name ?? string.Empty).Trim();
+        var commonName = string.IsNullOrWhiteSpace(request.CommonName) ? name : request.CommonName.Trim();
+
+        var slugError = ValidateFinanzenNetSlug(finanzenNetSlug);
+        if (slugError is not null) return slugError;
+
+        var identifierError = ValidateIdentifiers(wkn, isin);
+        if (identifierError is not null) return identifierError;
+
+        existing.Name = name;
+        existing.CommonName = commonName;
+        existing.Wkn = wkn;
+        existing.Isin = isin;
+        existing.FinanzenNetSlug = finanzenNetSlug;
         existing.UpdatedAt = DateTime.UtcNow;
 
-        // When a caller supplies a full quote snapshot (change + timestamp), persist it atomically.
-        // When only the price changes (manual edit from the form), clear stale snapshot fields so
-        // the UI never shows outdated change/timestamp alongside a manually entered price.
-        if (stock.CurrentPriceChange.HasValue || stock.CurrentPriceChangePercent.HasValue || stock.CurrentPriceAt.HasValue)
-        {
-            existing.CurrentPrice = stock.CurrentPrice;
-            existing.CurrentPriceChange = stock.CurrentPriceChange;
-            existing.CurrentPriceChangePercent = stock.CurrentPriceChangePercent;
-            existing.CurrentPriceAt = stock.CurrentPriceAt;
-        }
-        else
-        {
-            existing.CurrentPrice = stock.CurrentPrice;
-            existing.CurrentPriceChange = null;
-            existing.CurrentPriceChangePercent = null;
-            existing.CurrentPriceAt = null;
-        }
+        // Manual price edit: clear stale snapshot fields so the UI never shows outdated
+        // change/timestamp alongside a manually entered price.
+        existing.CurrentPrice = request.CurrentPrice;
+        existing.CurrentPriceChange = null;
+        existing.CurrentPriceChangePercent = null;
+        existing.CurrentPriceAt = null;
 
         try
         {
@@ -222,8 +243,14 @@ public class StocksController : ControllerBase
         }
         catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
         {
-            return BadRequest(BuildDuplicateMessage(stock.Wkn, stock.Isin));
+            return BadRequest(BuildDuplicateMessage(wkn, isin));
         }
+
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous";
+        var userAgent = Request.Headers.UserAgent.ToString();
+        _logger.LogInformation(
+            "Stock metadata updated. StockId={StockId} Ticker={Ticker} Exchange={Exchange} UserId={UserId} UserAgent={UserAgent}",
+            id, existing.Ticker, existing.Exchange, userId, userAgent);
 
         return NoContent();
     }

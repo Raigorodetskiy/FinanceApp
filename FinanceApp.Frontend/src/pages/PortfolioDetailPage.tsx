@@ -53,6 +53,7 @@ import {
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
+import StockExchangeTag, { EXCHANGE_ABBREVIATION } from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import type {
   Portfolio,
@@ -106,7 +107,8 @@ const getEffectiveSignedAmount = (t: Transaction) => {
 
 const getTransactionDescription = (t: Transaction): string => {
   if (t.stock) {
-    return `${TX_TYPE_LABELS[t.type]} — ${t.stock.ticker} · ${t.stock.name}`;
+    const exAbbr = EXCHANGE_ABBREVIATION[t.stock.exchange] ?? t.stock.exchange;
+    return `${TX_TYPE_LABELS[t.type]} — ${t.stock.ticker} [${exAbbr}] · ${t.stock.name}`;
   }
   return t.description ?? TX_TYPE_LABELS[t.type];
 };
@@ -430,7 +432,10 @@ const PortfolioDetailPage: React.FC = () => {
     return transactions.filter((t) => t.type === txTypeFilter);
   }, [transactions, txTypeFilter]);
   const stockOptions = useMemo(
-    () => stocks.map((s) => ({ value: s.id, label: `${s.ticker} — ${s.name}` })),
+    () => stocks.map((s) => ({
+      value: s.id,
+      label: `${s.ticker} [${EXCHANGE_ABBREVIATION[s.exchange] ?? s.exchange}] — ${s.name}`,
+    })),
     [stocks],
   );
   const previewStocksValue = balance?.stocksValue ?? 0;
@@ -523,27 +528,30 @@ const PortfolioDetailPage: React.FC = () => {
         if (!ticker) return <Tag color="blue">—</Tag>;
         const isExpanded = expandedPositionId === item.id;
         return (
-          <button
-            type="button"
-            onClick={() => setExpandedPositionId((prev) => (prev === item.id ? null : item.id))}
-            aria-expanded={isExpanded}
-            aria-controls={`pos-chart-panel-${item.id}`}
-            aria-label={isExpanded ? `Закрыть график цены: ${ticker}` : `Открыть график цены: ${ticker}`}
-            style={{
-              padding: 0, background: 'none', border: 'none', cursor: 'pointer',
-              fontWeight: 600, color: isExpanded ? '#1677ff' : 'inherit',
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-            }}
-          >
-            <CaretRightFilled
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button
+              type="button"
+              onClick={() => setExpandedPositionId((prev) => (prev === item.id ? null : item.id))}
+              aria-expanded={isExpanded}
+              aria-controls={`pos-chart-panel-${item.id}`}
+              aria-label={isExpanded ? `Закрыть график цены: ${ticker}` : `Открыть график цены: ${ticker}`}
               style={{
-                fontSize: 10, transition: 'transform 0.2s',
-                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                color: '#1677ff',
+                padding: 0, background: 'none', border: 'none', cursor: 'pointer',
+                fontWeight: 600, color: isExpanded ? '#1677ff' : 'inherit',
+                display: 'inline-flex', alignItems: 'center', gap: 4,
               }}
-            />
-            {ticker}
-          </button>
+            >
+              <CaretRightFilled
+                style={{
+                  fontSize: 10, transition: 'transform 0.2s',
+                  transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                  color: '#1677ff',
+                }}
+              />
+              {ticker}
+            </button>
+            {item.stock?.exchange && <StockExchangeTag exchange={item.stock.exchange} />}
+          </div>
         );
       },
     },
@@ -630,7 +638,12 @@ const PortfolioDetailPage: React.FC = () => {
         return msg ? <Tooltip title={msg}><BellOutlined style={{ color: '#faad14', fontSize: 16 }} /></Tooltip> : null;
       },
     },
-    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag>
+        {r.stock?.exchange && <StockExchangeTag exchange={r.stock.exchange} />}
+      </div>
+    ) },
     { title: 'Название', key: 'name', render: (_: unknown, r: Order) => r.stock?.name ?? '—' },
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
     { title: 'Кол-во', dataIndex: 'quantity', key: 'quantity', render: (v: number) => v.toFixed(2) },
@@ -654,7 +667,12 @@ const PortfolioDetailPage: React.FC = () => {
 
   const executedOrderColumns = [
     { title: 'Дата исполнения', dataIndex: 'executedAt', key: 'executedAt', render: (v: string | null) => v ? dayjs.utc(v).local().format('DD.MM.YYYY') : '—' },
-    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag> },
+    { title: 'Тикер', key: 'ticker', render: (_: unknown, r: Order) => (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Tag color="blue">{r.stock?.ticker ?? '—'}</Tag>
+        {r.stock?.exchange && <StockExchangeTag exchange={r.stock.exchange} />}
+      </div>
+    ) },
     { title: 'Название', key: 'name', render: (_: unknown, r: Order) => r.stock?.name ?? '—' },
     { title: 'Тип', dataIndex: 'type', key: 'type', render: (v: OrderType) => <Tag color={ORDER_TYPE_COLORS[v]}>{ORDER_TYPE_LABELS[v]}</Tag> },
     { title: 'Статус', dataIndex: 'status', key: 'status', render: (v: OrderStatus) => <Tag color={ORDER_STATUS_COLORS[v]}>{ORDER_STATUS_LABELS[v]}</Tag> },
@@ -967,9 +985,12 @@ const PortfolioDetailPage: React.FC = () => {
       >
         <Form form={posForm} layout="vertical" onFinish={handlePosSubmit}>
           <Form.Item label="Акция" name="stockId" rules={[{ required: true, message: 'Выберите акцию' }]}>
-            <Select placeholder="Выберите акцию" showSearch optionFilterProp="children" disabled={!!editingItem}>
-              {stocks.map((s) => <Select.Option key={s.id} value={s.id}>{s.ticker} — {s.name}</Select.Option>)}
-            </Select>
+            <Select placeholder="Выберите акцию" showSearch optionFilterProp="label" disabled={!!editingItem}
+              options={stocks.map((s) => ({
+                value: s.id,
+                label: `${s.ticker} [${EXCHANGE_ABBREVIATION[s.exchange] ?? s.exchange}] — ${s.name}`,
+              }))}
+            />
           </Form.Item>
           <Form.Item label="Количество" name="quantity" rules={[{ required: true, message: 'Введите количество' }]}>
             <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} placeholder="Количество" />
@@ -995,9 +1016,12 @@ const PortfolioDetailPage: React.FC = () => {
       >
         <Form form={orderForm} layout="vertical" onFinish={handleOrderSubmit}>
           <Form.Item label="Акция" name="stockId" rules={[{ required: true, message: 'Выберите акцию' }]}>
-            <Select placeholder="Выберите акцию" showSearch optionFilterProp="children" disabled={!!editingOrder}>
-              {stocks.map((s) => <Select.Option key={s.id} value={s.id}>{s.ticker} — {s.name}</Select.Option>)}
-            </Select>
+            <Select placeholder="Выберите акцию" showSearch optionFilterProp="label" disabled={!!editingOrder}
+              options={stocks.map((s) => ({
+                value: s.id,
+                label: `${s.ticker} [${EXCHANGE_ABBREVIATION[s.exchange] ?? s.exchange}] — ${s.name}`,
+              }))}
+            />
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
