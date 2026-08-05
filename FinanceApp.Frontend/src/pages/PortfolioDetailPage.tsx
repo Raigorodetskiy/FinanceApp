@@ -19,7 +19,12 @@ import {
   message,
   Input,
 } from 'antd';
-import { formatCurrency as fmtCur } from '../utils/currency';
+import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
+import {
+  computePortfolioDailyChange,
+  getDailyChangeColor,
+  getPositionDailyChange,
+} from '../utils/portfolioDailyChange';
 import {
   PlusOutlined,
   ArrowLeftOutlined,
@@ -75,7 +80,7 @@ type PositionChartRow = { _isPositionChartRow: true; _itemId: number; _stockId: 
 type PositionTableRow = PortfolioItem | PositionChartRow;
 const isPositionChartRow = (row: PositionTableRow): row is PositionChartRow =>
   !!(row as PositionChartRow)._isPositionChartRow;
-const TOTAL_POS_COLS = 9;
+const TOTAL_POS_COLS = 11;
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = { Buy: 'Покупка', Sell: 'Продажа' };
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = { Pending: 'Ожидание', Executed: 'Выполнено', Cancelled: 'Отменено' };
@@ -423,6 +428,7 @@ const PortfolioDetailPage: React.FC = () => {
   }, [items]);
 
   const summary = computeSummary(items);
+  const dailyChangeSummary = computePortfolioDailyChange(items);
 
   const pendingOrders = orders.filter((o) => o.status === 'Pending');
   const executedOrders = orders.filter((o) => o.status === 'Executed' || o.status === 'Cancelled');
@@ -584,11 +590,43 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
+      title: 'Изм. цены за день (€)',
+      key: 'dailyPriceChange',
+      width: 145,
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) {
+          return { children: null, props: { colSpan: 0 } };
+        }
+        const change = (record as PortfolioItem).stock.currentPriceChange ?? null;
+        return (
+          <span style={{ color: getDailyChangeColor(change), whiteSpace: 'nowrap' }}>
+            {fmtCur(change, '€', { signed: true })}
+          </span>
+        );
+      },
+    },
+    {
       title: 'Тек. стоимость', key: 'currentValue',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
         return fmtCur(r.stock.currentPrice * r.quantity, '€');
+      },
+    },
+    {
+      title: 'Изм. стоимости за день (€)',
+      key: 'dailyPositionChange',
+      width: 170,
+      render: (_: unknown, record: PositionTableRow) => {
+        if (isPositionChartRow(record)) {
+          return { children: null, props: { colSpan: 0 } };
+        }
+        const change = getPositionDailyChange(record as PortfolioItem);
+        return (
+          <span style={{ color: getDailyChangeColor(change), whiteSpace: 'nowrap' }}>
+            {fmtCur(change, '€', { signed: true })}
+          </span>
+        );
       },
     },
     {
@@ -743,6 +781,34 @@ const PortfolioDetailPage: React.FC = () => {
                       <Text type="secondary">Общий P&L (%)</Text>
                       <Title level={4} style={{ margin: 0, color: summary.totalPnlPct >= 0 ? '#3f8600' : '#cf1322' }}>
                         {summary.totalPnlPct >= 0 ? '+' : ''}{summary.totalPnlPct.toFixed(2)}%
+                      </Title>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card>
+                      <Text type="secondary">Изменение за день (€)</Text>
+                      <Title
+                        level={4}
+                        style={{
+                          margin: 0,
+                          color: getDailyChangeColor(dailyChangeSummary.changeEur),
+                        }}
+                      >
+                        {fmtCur(dailyChangeSummary.changeEur, '€', { signed: true })}
+                      </Title>
+                    </Card>
+                  </Col>
+                  <Col xs={24} sm={12} lg={6}>
+                    <Card>
+                      <Text type="secondary">Изменение за день (%)</Text>
+                      <Title
+                        level={4}
+                        style={{
+                          margin: 0,
+                          color: getDailyChangeColor(dailyChangeSummary.changePercent),
+                        }}
+                      >
+                        {formatPercent(dailyChangeSummary.changePercent)}
                       </Title>
                     </Card>
                   </Col>
