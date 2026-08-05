@@ -242,6 +242,15 @@ export interface UpdateStockRequest {
   currentPriceAt?: string | null;
 }
 
+export interface UpdateStockMetadataRequest {
+  name: string;
+  commonName?: string;
+  wkn?: string | null;
+  isin?: string | null;
+  finanzenNetSlug?: string | null;
+  currentPrice: number;
+}
+
 export interface UpdateStockQuoteRequest {
   currentPrice: number;
   currentPriceChange: number | null;

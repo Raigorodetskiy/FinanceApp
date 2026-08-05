@@ -27,7 +27,7 @@ import utc from 'dayjs/plugin/utc';
 import {
   getStocks,
   createStock,
-  updateStock,
+  updateStockMetadata,
   updateStockQuote,
   deleteStock,
   getPortfolios,
@@ -35,8 +35,9 @@ import {
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
+import StockExchangeTag from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockRequest, UpdateStockQuoteRequest } from '../types';
+import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockMetadataRequest, UpdateStockQuoteRequest } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
@@ -55,10 +56,6 @@ const exchangeLabelByValue: Record<StockExchange, string> = {
   NYSE: 'NYSE',
   Frankfurt: 'Frankfurt',
 };
-const exchangeAbbreviationByValue: Record<StockExchange, string> = {
-  NYSE: 'NYSE',
-  Frankfurt: 'FRA',
-};
 const exchangeOptions: { label: string; value: StockExchange }[] = [
   { label: exchangeLabelByValue.NYSE, value: 'NYSE' },
   { label: exchangeLabelByValue.Frankfurt, value: 'Frankfurt' },
@@ -66,7 +63,7 @@ const exchangeOptions: { label: string; value: StockExchange }[] = [
 export const STOCK_DELETE_TOOLTIP = 'Удалить';
 export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить, пока она находится в портфеле';
 const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления акции';
-export const HISTORY_RELOAD_WARNING = 'Тикер или биржа изменены. Старая история цены может больше не соответствовать этой акции. При необходимости используйте «Перезагрузить историю» в раскрытом графике.';
+export const IDENTITY_IMMUTABLE_HELPER = 'Тикер и биржа определяют инструмент и не могут быть изменены. Для другого тикера или биржи создайте новую акцию.';
 
 export const getStockDeleteErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err) && typeof err.response?.data === 'string' && err.response.data.trim().length > 0) {
@@ -75,9 +72,6 @@ export const getStockDeleteErrorMessage = (err: unknown): string => {
 
   return STOCK_DELETE_GENERIC_ERROR;
 };
-
-export const didTickerOrExchangeChange = (previousStock: Pick<UpdateStockRequest, 'ticker' | 'exchange'>, nextStock: Pick<UpdateStockRequest, 'ticker' | 'exchange'>): boolean =>
-  previousStock.ticker.trim() !== nextStock.ticker.trim() || previousStock.exchange !== nextStock.exchange;
 
 type StockDeleteActionProps = {
   isProtected: boolean;
@@ -378,23 +372,18 @@ const StocksPage: React.FC = () => {
     setSubmitting(true);
     try {
       if (editingStock) {
-        const updatedStock = {
-          ...editingStock,
-          ...values,
+        // Build an explicit metadata payload — never spread editingStock into the request.
+        // Ticker and Exchange are immutable identity fields and must not be sent.
+        const metadataPayload: UpdateStockMetadataRequest = {
           name: normalizedName,
           commonName: normalizedCommonName,
           wkn,
           isin,
           finanzenNetSlug,
-          exchange: values.exchange,
-          updatedAt: new Date().toISOString(),
+          currentPrice: values.currentPrice,
         };
-        const identityChanged = didTickerOrExchangeChange(editingStock, updatedStock);
-        await updateStock(editingStock.id, updatedStock);
+        await updateStockMetadata(editingStock.id, metadataPayload);
         message.success('Акция обновлена');
-        if (identityChanged) {
-          message.warning(HISTORY_RELOAD_WARNING, 6);
-        }
       } else {
         await createStock({
           ...values,
@@ -545,9 +534,7 @@ const StocksPage: React.FC = () => {
                 </span>
               </button>
             </Tooltip>
-            <Tooltip title={exchangeLabelByValue[stock.exchange]}>
-              <Tag style={{ marginInlineEnd: 0 }}>{exchangeAbbreviationByValue[stock.exchange]}</Tag>
-            </Tooltip>
+            <StockExchangeTag exchange={stock.exchange} />
           </div>
         );
       },
@@ -816,8 +803,9 @@ const StocksPage: React.FC = () => {
             label="Тикер"
             name="ticker"
             rules={[{ required: true, message: 'Введите тикер' }]}
+            extra={editingStock ? IDENTITY_IMMUTABLE_HELPER : undefined}
           >
-            <Input placeholder="AAPL" />
+            <Input placeholder="AAPL" disabled={!!editingStock} />
           </Form.Item>
           <Form.Item
             label="Название"
@@ -838,7 +826,7 @@ const StocksPage: React.FC = () => {
             name="exchange"
             rules={[{ required: true, message: 'Выберите биржу' }]}
           >
-            <Select options={exchangeOptions} />
+            <Select options={exchangeOptions} disabled={!!editingStock} />
           </Form.Item>
           <Form.Item
             label="Текущая цена (€)"

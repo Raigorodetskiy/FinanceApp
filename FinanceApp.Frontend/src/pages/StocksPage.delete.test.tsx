@@ -6,6 +6,7 @@ import {
   PROTECTED_STOCK_DELETE_TOOLTIP,
   STOCK_DELETE_TOOLTIP,
   StockDeleteAction,
+  IDENTITY_IMMUTABLE_HELPER,
 } from './StocksPage';
 
 const getProtectedDeleteButton = (node: React.ReactElement) => {
@@ -75,33 +76,13 @@ describe('getStockDeleteErrorMessage', () => {
 });
 
 
-describe('didTickerOrExchangeChange', () => {
-  it('returns true when ticker changes', async () => {
-    const mod = await import('./StocksPage');
-    expect(mod.didTickerOrExchangeChange(
-      { ticker: 'AAPL', exchange: 'NYSE' },
-      { ticker: 'MSFT', exchange: 'NYSE' },
-    )).toBe(true);
+describe('identity immutability in edit mode', () => {
+  it('exports IDENTITY_IMMUTABLE_HELPER explaining why ticker/exchange cannot be changed', () => {
+    expect(IDENTITY_IMMUTABLE_HELPER).toContain('Тикер');
+    expect(IDENTITY_IMMUTABLE_HELPER).toContain('биржа');
   });
 
-  it('returns true when exchange changes', async () => {
-    const mod = await import('./StocksPage');
-    expect(mod.didTickerOrExchangeChange(
-      { ticker: 'AAPL', exchange: 'NYSE' },
-      { ticker: 'AAPL', exchange: 'Frankfurt' },
-    )).toBe(true);
-  });
-
-  it('returns false when identity is unchanged after trimming', async () => {
-    const mod = await import('./StocksPage');
-    expect(mod.didTickerOrExchangeChange(
-      { ticker: ' AAPL ', exchange: 'NYSE' },
-      { ticker: 'AAPL', exchange: 'NYSE' },
-    )).toBe(false);
-  });
-
-  it('exports the warning message for stale history', async () => {
-    const mod = await import('./StocksPage');
-    expect(mod.HISTORY_RELOAD_WARNING).toContain('Перезагрузить историю');
+  it('IDENTITY_IMMUTABLE_HELPER instructs user to create a new stock for a different ticker/exchange', () => {
+    expect(IDENTITY_IMMUTABLE_HELPER.toLowerCase()).toContain('создайте новую акцию');
   });
 });

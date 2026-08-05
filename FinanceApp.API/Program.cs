@@ -164,7 +164,7 @@ app.Use(async (context, next) =>
         if (allowedOrigins.Contains(origin))
         {
             context.Response.Headers["Access-Control-Allow-Origin"] = origin;
-            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
             context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
             context.Response.Headers["Access-Control-Max-Age"] = "86400";
         }
