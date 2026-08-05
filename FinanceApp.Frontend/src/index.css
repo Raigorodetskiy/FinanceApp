@@ -78,3 +78,10 @@ body {
   padding-left: 6px !important;
   padding-right: 6px !important;
 }
+
+/* Positions table: compact padding for daily-change columns */
+.ant-table-wrapper .ant-table-thead > tr > th.col-compact,
+.ant-table-wrapper .ant-table-tbody > tr > td.col-compact {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}

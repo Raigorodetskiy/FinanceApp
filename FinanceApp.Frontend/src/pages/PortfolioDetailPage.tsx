@@ -590,9 +590,10 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'Изм. цены за день (€)',
+      title: 'Изм. за день',
       key: 'dailyPriceChange',
-      width: 145,
+      width: 90,
+      className: 'col-compact',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) {
           return { children: null, props: { colSpan: 0 } };
@@ -606,7 +607,7 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'Тек. стоимость', key: 'currentValue',
+      title: <><span>Тек.</span><br /><span>стоимость</span></>, key: 'currentValue',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const r = record as PortfolioItem;
@@ -614,9 +615,10 @@ const PortfolioDetailPage: React.FC = () => {
       },
     },
     {
-      title: 'Изм. стоимости за день (€)',
+      title: 'Изм. за день',
       key: 'dailyPositionChange',
-      width: 170,
+      width: 90,
+      className: 'col-compact',
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) {
           return { children: null, props: { colSpan: 0 } };
@@ -764,58 +766,64 @@ const PortfolioDetailPage: React.FC = () => {
           ) : (
             <>
               {section === 'positions' && (
-                <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-                  <Col xs={24} sm={12} lg={6}>
-                    <Card><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>{formatCurrency(summary.totalValue)}</Title></Card>
-                  </Col>
-                  <Col xs={24} sm={12} lg={6}>
-                    <Card>
-                      <Text type="secondary">Общий P&L (€)</Text>
-                      <Title level={4} style={{ margin: 0, color: summary.totalPnlEur >= 0 ? '#3f8600' : '#cf1322' }}>
-                        {summary.totalPnlEur >= 0 ? '+' : ''}{formatCurrency(summary.totalPnlEur)}
-                      </Title>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} lg={6}>
-                    <Card>
-                      <Text type="secondary">Общий P&L (%)</Text>
-                      <Title level={4} style={{ margin: 0, color: summary.totalPnlPct >= 0 ? '#3f8600' : '#cf1322' }}>
-                        {summary.totalPnlPct >= 0 ? '+' : ''}{summary.totalPnlPct.toFixed(2)}%
-                      </Title>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} lg={6}>
-                    <Card>
-                      <Text type="secondary">Изменение за день (€)</Text>
-                      <Title
-                        level={4}
-                        style={{
-                          margin: 0,
-                          color: getDailyChangeColor(dailyChangeSummary.changeEur),
-                        }}
-                      >
-                        {fmtCur(dailyChangeSummary.changeEur, '€', { signed: true })}
-                      </Title>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} lg={6}>
-                    <Card>
-                      <Text type="secondary">Изменение за день (%)</Text>
-                      <Title
-                        level={4}
-                        style={{
-                          margin: 0,
-                          color: getDailyChangeColor(dailyChangeSummary.changePercent),
-                        }}
-                      >
-                        {formatPercent(dailyChangeSummary.changePercent)}
-                      </Title>
-                    </Card>
-                  </Col>
-                  <Col xs={24} sm={12} lg={6}>
-                    <Card><Text type="secondary">Позиций</Text><Title level={4} style={{ margin: 0 }}>{summary.count}</Title></Card>
-                  </Col>
-                </Row>
+                <>
+                  <Row gutter={[16, 16]} style={{ marginBottom: 0 }}>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>{formatCurrency(summary.totalValue)}</Title></Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card>
+                        <Text type="secondary">Общий P&L (€)</Text>
+                        <Title level={4} style={{ margin: 0, color: summary.totalPnlEur >= 0 ? '#3f8600' : '#cf1322' }}>
+                          {summary.totalPnlEur >= 0 ? '+' : ''}{formatCurrency(summary.totalPnlEur)}
+                        </Title>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card>
+                        <Text type="secondary">Общий P&L (%)</Text>
+                        <Title level={4} style={{ margin: 0, color: summary.totalPnlPct >= 0 ? '#3f8600' : '#cf1322' }}>
+                          {summary.totalPnlPct >= 0 ? '+' : ''}{summary.totalPnlPct.toFixed(2)}%
+                        </Title>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card><Text type="secondary">Позиций</Text><Title level={4} style={{ margin: 0 }}>{summary.count}</Title></Card>
+                    </Col>
+                  </Row>
+                  <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                    <Col xs={0} lg={6} />
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card>
+                        <Text type="secondary">Изменение за день (€)</Text>
+                        <Title
+                          level={4}
+                          style={{
+                            margin: 0,
+                            color: getDailyChangeColor(dailyChangeSummary.changeEur),
+                          }}
+                        >
+                          {fmtCur(dailyChangeSummary.changeEur, '€', { signed: true })}
+                        </Title>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card>
+                        <Text type="secondary">Изменение за день (%)</Text>
+                        <Title
+                          level={4}
+                          style={{
+                            margin: 0,
+                            color: getDailyChangeColor(dailyChangeSummary.changePercent),
+                          }}
+                        >
+                          {formatPercent(dailyChangeSummary.changePercent)}
+                        </Title>
+                      </Card>
+                    </Col>
+                    <Col xs={0} lg={6} />
+                  </Row>
+                </>
               )}
 
               {/* ── Positions (with Orders as tab) ─────────────── */}
