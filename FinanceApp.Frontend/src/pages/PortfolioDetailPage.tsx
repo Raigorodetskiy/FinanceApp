@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Table,
   Button,
@@ -34,6 +34,7 @@ import {
   CaretRightFilled,
   CheckOutlined,
   CloseOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -55,6 +56,8 @@ import {
   createTransaction,
   updateTransaction,
   deleteTransaction,
+  getStockPrice,
+  updateStockQuote,
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
@@ -70,11 +73,36 @@ import type {
   Transaction,
   TransactionType,
   PortfolioBalance,
+  StockQuoteResponse,
+  UpdateStockQuoteRequest,
 } from '../types';
 
 dayjs.extend(utc);
 
 const { Title, Text } = Typography;
+
+/** Accessible label for the quote-refresh button in the positions table toolbar. */
+export const REFRESH_QUOTES_LABEL = 'Обновить цены';
+
+/**
+ * Computes the quote patch fields from a {@link StockQuoteResponse}.
+ * Returns `null` when the response does not carry a EUR-normalised price
+ * (in which case the stock record should not be updated).
+ */
+export const buildQuotePatch = (
+  quote: StockQuoteResponse,
+): Pick<Stock, 'currentPrice' | 'currentPriceChange' | 'currentPriceChangePercent' | 'currentPriceAt'> | null => {
+  if (quote.currentPriceEur == null) return null;
+  const tsRaw = quote.priceTimestampUtc ? Date.parse(quote.priceTimestampUtc) : NaN;
+  return {
+    currentPrice: Math.round(quote.currentPriceEur * 100) / 100,
+    currentPriceChange:
+      quote.changeEur != null ? Math.round(quote.changeEur * 10000) / 10000 : null,
+    currentPriceChangePercent:
+      quote.percentChange != null ? Math.round(quote.percentChange * 10000) / 10000 : null,
+    currentPriceAt: isFinite(tsRaw) ? quote.priceTimestampUtc : null,
+  };
+};
 
 type PositionChartRow = { _isPositionChartRow: true; _itemId: number; _stockId: number };
 type PositionTableRow = PortfolioItem | PositionChartRow;
@@ -162,6 +190,10 @@ const PortfolioDetailPage: React.FC = () => {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderForm] = Form.useForm();
 
+  // Quote refresh
+  const [quotesRefreshing, setQuotesRefreshing] = useState(false);
+  const quotesRefreshingRef = useRef(false);
+
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -248,6 +280,89 @@ const PortfolioDetailPage: React.FC = () => {
     try { await deletePortfolioItem(Number(id), itemId); message.success('Позиция удалена'); fetchData(); }
     catch { message.error('Ошибка удаления позиции'); }
   };
+
+  // ── Quote refresh ───────────────────────────────────────────
+  const handleRefreshPositionPrices = useCallback(async () => {
+    if (quotesRefreshingRef.current || !portfolio) return;
+    quotesRefreshingRef.current = true;
+    setQuotesRefreshing(true);
+    try {
+      const uniqueStocks = portfolio.items
+        .map((item) => item.stock)
+        .filter((s, idx, arr) => s?.ticker?.trim() && arr.findIndex((x) => x.id === s.id) === idx);
+
+      const results = await Promise.allSettled(
+        uniqueStocks.map(async (stock) => {
+          const priceRes = await getStockPrice(stock.ticker, stock.exchange, stock.finanzenNetSlug);
+          const quote: StockQuoteResponse = priceRes.data;
+          const patch = buildQuotePatch(quote);
+          if (!patch) return { stockId: stock.id, patch: null };
+
+          await updateStockQuote(stock.id, {
+            currentPrice: patch.currentPrice,
+            currentPriceChange: patch.currentPriceChange ?? null,
+            currentPriceChangePercent: patch.currentPriceChangePercent ?? null,
+            currentPriceAt: patch.currentPriceAt ?? null,
+          } satisfies UpdateStockQuoteRequest);
+
+          return { stockId: stock.id, patch };
+        })
+      );
+
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const skipped = results.filter(
+        (r) => r.status === 'fulfilled' && r.value.patch === null,
+      ).length;
+
+      // Patch local state with refreshed quote fields
+      const patchMap = new Map<number, NonNullable<ReturnType<typeof buildQuotePatch>>>();
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.patch) {
+          patchMap.set(result.value.stockId, result.value.patch);
+        }
+      }
+
+      const applyPatch = (stock: Stock): Stock => {
+        const patch = patchMap.get(stock.id);
+        if (!patch) return stock;
+        return { ...stock, ...patch };
+      };
+
+      setStocks((prev) => prev.map(applyPatch));
+      setPortfolio((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((item) => ({
+            ...item,
+            stock: applyPatch(item.stock),
+          })),
+        };
+      });
+      setPortfolios((prev) =>
+        prev.map((p) => ({
+          ...p,
+          items: p.items.map((item) => ({
+            ...item,
+            stock: applyPatch(item.stock),
+          })),
+        }))
+      );
+
+      if (failed === 0 && skipped === 0) {
+        message.success('Цены обновлены');
+      } else if (failed > 0) {
+        message.warning(`Цены обновлены частично (${failed} ошибок)`);
+      } else {
+        message.warning(`Цены обновлены частично (${skipped} без конвертации)`);
+      }
+    } catch {
+      message.error('Ошибка обновления цен');
+    } finally {
+      quotesRefreshingRef.current = false;
+      setQuotesRefreshing(false);
+    }
+  }, [portfolio]);
 
   // ── Orders ─────────────────────────────────────────────────
   const openAddOrderModal = () => { setEditingOrder(null); orderForm.resetFields(); setOrderModalOpen(true); };
@@ -832,6 +947,15 @@ const PortfolioDetailPage: React.FC = () => {
                   defaultActiveKey="positions"
                   tabBarExtraContent={
                     <div style={{ display: 'flex', gap: 8 }}>
+                      <Tooltip title="Обновить цены">
+                        <Button
+                          icon={<ReloadOutlined />}
+                          loading={quotesRefreshing}
+                          disabled={quotesRefreshing}
+                          aria-label="Обновить цены"
+                          onClick={handleRefreshPositionPrices}
+                        />
+                      </Tooltip>
                       <Button type="primary" icon={<PlusOutlined />} onClick={openAddPosModal}>
                         Добавить позицию
                       </Button>
