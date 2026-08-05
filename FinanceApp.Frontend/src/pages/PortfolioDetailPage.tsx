@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Table,
   Button,
@@ -192,6 +192,7 @@ const PortfolioDetailPage: React.FC = () => {
 
   // Quote refresh
   const [quotesRefreshing, setQuotesRefreshing] = useState(false);
+  const quotesRefreshingRef = useRef(false);
 
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -282,7 +283,8 @@ const PortfolioDetailPage: React.FC = () => {
 
   // ── Quote refresh ───────────────────────────────────────────
   const handleRefreshPositionPrices = useCallback(async () => {
-    if (quotesRefreshing || !portfolio) return;
+    if (quotesRefreshingRef.current || !portfolio) return;
+    quotesRefreshingRef.current = true;
     setQuotesRefreshing(true);
     try {
       const uniqueStocks = portfolio.items
@@ -308,6 +310,9 @@ const PortfolioDetailPage: React.FC = () => {
       );
 
       const failed = results.filter((r) => r.status === 'rejected').length;
+      const skipped = results.filter(
+        (r) => r.status === 'fulfilled' && r.value.patch === null,
+      ).length;
 
       // Patch local state with refreshed quote fields
       const patchMap = new Map<number, NonNullable<ReturnType<typeof buildQuotePatch>>>();
@@ -344,17 +349,20 @@ const PortfolioDetailPage: React.FC = () => {
         }))
       );
 
-      if (failed === 0) {
+      if (failed === 0 && skipped === 0) {
         message.success('Цены обновлены');
-      } else {
+      } else if (failed > 0) {
         message.warning(`Цены обновлены частично (${failed} ошибок)`);
+      } else {
+        message.warning(`Цены обновлены частично (${skipped} без конвертации)`);
       }
     } catch {
       message.error('Ошибка обновления цен');
     } finally {
+      quotesRefreshingRef.current = false;
       setQuotesRefreshing(false);
     }
-  }, [quotesRefreshing, portfolio]);
+  }, [portfolio]);
 
   // ── Orders ─────────────────────────────────────────────────
   const openAddOrderModal = () => { setEditingOrder(null); orderForm.resetFields(); setOrderModalOpen(true); };

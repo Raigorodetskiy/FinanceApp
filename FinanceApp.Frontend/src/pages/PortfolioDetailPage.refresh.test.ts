@@ -132,8 +132,9 @@ describe('buildQuotePatch – full patch shape', () => {
 });
 
 describe('buildQuotePatch – partial failure: quote without EUR conversion', () => {
-  it('returns null so no PATCH request is sent for that stock', () => {
+  it('returns null so no PATCH request is sent for that stock (counted as skipped)', () => {
     // Simulates a stock whose currency has no conversion rate available
+    // buildQuotePatch returns null → caller skips the PATCH and increments skipped count
     expect(buildQuotePatch(makeQuote({ currentPriceEur: null }))).toBeNull();
   });
 });
