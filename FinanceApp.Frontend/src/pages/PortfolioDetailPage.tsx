@@ -84,6 +84,15 @@ const { Title, Text } = Typography;
 /** Accessible label for the quote-refresh button in the positions table toolbar. */
 export const REFRESH_QUOTES_LABEL = 'Обновить цены';
 
+/** Ant Design Card size used for the compact summary rows above the positions table. */
+export const SUMMARY_CARD_SIZE = 'small' as const;
+
+/** Row gutter used for the compact summary rows above the positions table [horizontal, vertical]. */
+export const SUMMARY_ROW_GUTTER: [number, number] = [16, 8];
+
+/** Bottom margin (px) applied to the last summary row before the positions table. */
+export const SUMMARY_ROW_MARGIN_BOTTOM = 12;
+
 /**
  * Computes the quote patch fields from a {@link StockQuoteResponse}.
  * Returns `null` when the response does not carry a EUR-normalised price
@@ -882,12 +891,12 @@ const PortfolioDetailPage: React.FC = () => {
             <>
               {section === 'positions' && (
                 <>
-                  <Row gutter={[16, 16]} style={{ marginBottom: 0 }}>
+                  <Row gutter={SUMMARY_ROW_GUTTER} style={{ marginBottom: 0 }}>
                     <Col xs={24} sm={12} lg={6}>
-                      <Card><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>{formatCurrency(summary.totalValue)}</Title></Card>
+                      <Card size={SUMMARY_CARD_SIZE}><Text type="secondary">Общая стоимость</Text><Title level={4} style={{ margin: 0 }}>{formatCurrency(summary.totalValue)}</Title></Card>
                     </Col>
                     <Col xs={24} sm={12} lg={6}>
-                      <Card>
+                      <Card size={SUMMARY_CARD_SIZE}>
                         <Text type="secondary">Общий P&L (€)</Text>
                         <Title level={4} style={{ margin: 0, color: summary.totalPnlEur >= 0 ? '#3f8600' : '#cf1322' }}>
                           {summary.totalPnlEur >= 0 ? '+' : ''}{formatCurrency(summary.totalPnlEur)}
@@ -895,7 +904,7 @@ const PortfolioDetailPage: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} lg={6}>
-                      <Card>
+                      <Card size={SUMMARY_CARD_SIZE}>
                         <Text type="secondary">Общий P&L (%)</Text>
                         <Title level={4} style={{ margin: 0, color: summary.totalPnlPct >= 0 ? '#3f8600' : '#cf1322' }}>
                           {summary.totalPnlPct >= 0 ? '+' : ''}{summary.totalPnlPct.toFixed(2)}%
@@ -903,13 +912,13 @@ const PortfolioDetailPage: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} lg={6}>
-                      <Card><Text type="secondary">Позиций</Text><Title level={4} style={{ margin: 0 }}>{summary.count}</Title></Card>
+                      <Card size={SUMMARY_CARD_SIZE}><Text type="secondary">Позиций</Text><Title level={4} style={{ margin: 0 }}>{summary.count}</Title></Card>
                     </Col>
                   </Row>
-                  <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                  <Row gutter={SUMMARY_ROW_GUTTER} style={{ marginBottom: SUMMARY_ROW_MARGIN_BOTTOM }}>
                     <Col xs={0} lg={6} />
                     <Col xs={24} sm={12} lg={6}>
-                      <Card>
+                      <Card size={SUMMARY_CARD_SIZE}>
                         <Text type="secondary">Изменение за день (€)</Text>
                         <Title
                           level={4}
@@ -923,7 +932,7 @@ const PortfolioDetailPage: React.FC = () => {
                       </Card>
                     </Col>
                     <Col xs={24} sm={12} lg={6}>
-                      <Card>
+                      <Card size={SUMMARY_CARD_SIZE}>
                         <Text type="secondary">Изменение за день (%)</Text>
                         <Title
                           level={4}
