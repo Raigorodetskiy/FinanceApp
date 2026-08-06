@@ -227,11 +227,13 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
             _nextRequestStartUtc = now.Add(minRequestInterval);
 
             var client = _httpClientFactory.CreateClient();
-            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
-            client.Timeout = NormalizePositive(_options.Value.RequestTimeout, TimeSpan.FromSeconds(10));
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-            using var response = await client.GetAsync(url, CancellationToken.None);
+            using var timeoutCancellationTokenSource = new CancellationTokenSource(
+                NormalizePositive(_options.Value.RequestTimeout, TimeSpan.FromSeconds(10)));
+            using var response = await client.SendAsync(request, timeoutCancellationTokenSource.Token);
             var content = response.Content is null
                 ? null
                 : await response.Content.ReadAsStringAsync(CancellationToken.None);
