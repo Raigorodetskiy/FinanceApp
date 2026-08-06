@@ -293,10 +293,26 @@ public class YahooQuoteServiceTests
     }
 
     [Fact]
-    public async Task GetQuoteAsync_NoRegularMarketTime_PriceTimestampUtcIsNull()
+    public async Task GetQuoteAsync_NoRegularMarketTime_NoCandleData_PriceTimestampUtcIsNull()
     {
+        // When neither regularMarketTime in meta nor usable candle timestamps are present,
+        // PriceTimestampUtc must be null.
+        var responseNoCandleData = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 520.5,
+                    "chartPreviousClose": 514.0,
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
         var handler = new StubHttpMessageHandler();
-        handler.EnqueueJson(ValidChartResponse); // ValidChartResponse has no regularMarketTime
+        handler.EnqueueJson(responseNoCandleData);
 
         var service = CreateService(handler);
         var result = await service.GetQuoteAsync("RHM.DE");
@@ -585,6 +601,475 @@ public class YahooQuoteServiceTests
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    // ── candle selection tests ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetQuoteAsync_CandleNewerThanMeta_UsesCandlePriceAndTimestamp()
+    {
+        // candleTs (1720100000) is newer than metaTs (1720000000).
+        // Both price and timestamp must come from the candle; meta values must not be mixed in.
+        const long metaTs     = 1720000000; // older
+        const long candleTs   = 1720100000; // newer
+        const decimal candleClose = 123.45m;
+        const decimal metaPrice   = 120.00m;
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 110.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "CLOSED"
+                  },
+                  "timestamp": [{{candleTs}}],
+                  "indicators": {
+                    "quote": [{ "close": [{{candleClose}}] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        var quote = result.Quote!;
+        Assert.Equal(candleClose, quote.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(candleTs).UtcDateTime, quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_MetaNewerThanCandle_UsesMetaPriceAndTimestamp()
+    {
+        // metaTs (1720100000) is newer than candleTs (1720000000).
+        // Both price and timestamp must come from meta.
+        const long metaTs     = 1720100000; // newer
+        const long candleTs   = 1720000000; // older
+        const decimal candleClose = 118.00m;
+        const decimal metaPrice   = 120.00m;
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 110.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "CLOSED"
+                  },
+                  "timestamp": [{{candleTs}}],
+                  "indicators": {
+                    "quote": [{ "close": [{{candleClose}}] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        var quote = result.Quote!;
+        Assert.Equal(metaPrice, quote.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(metaTs).UtcDateTime, quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_NoCandleData_FallsBackToMeta()
+    {
+        const long metaTs = 1720000000;
+        const decimal metaPrice = 99.99m;
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 95.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(metaPrice, result.Quote!.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(metaTs).UtcDateTime, result.Quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_CandleCloseIsNull_FallsBackToMeta()
+    {
+        // A null close value (not-yet-settled candle) must be skipped.
+        const long metaTs = 1720000000;
+        const decimal metaPrice = 88.0m;
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 85.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "REGULAR"
+                  },
+                  "timestamp": [1720100000],
+                  "indicators": {
+                    "quote": [{ "close": [null] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(metaPrice, result.Quote!.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(metaTs).UtcDateTime, result.Quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_MismatchedArrayLengths_UsesAlignedPrefix()
+    {
+        // When timestamp[] is longer than close[], only the aligned (shorter) prefix is used.
+        // The second candle (ts=1720100000, close=125.0) is aligned; the third timestamp has no close.
+        const long metaTs = 1720000000;
+        const decimal metaPrice = 120.0m;
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 115.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "CLOSED"
+                  },
+                  "timestamp": [1720000000, 1720100000, 1720200000],
+                  "indicators": {
+                    "quote": [{ "close": [119.0, 125.0] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        // The newest aligned candle is index 1: close=125.0 @ ts=1720100000.
+        // That is newer than metaTs=1720000000, so candle wins.
+        Assert.Equal(125.0m, result.Quote!.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1720100000).UtcDateTime, result.Quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_CandleTimestampInFuture_IsRejected_MetaUsed()
+    {
+        // A candle timestamp more than 1 hour in the future must be skipped as implausible.
+        var fakeNow = new DateTimeOffset(2024, 7, 3, 10, 0, 0, TimeSpan.Zero);
+        var fakeTime = new FakeTimeProvider(fakeNow);
+        // future timestamp: 2 hours ahead
+        long futureTs = fakeNow.AddHours(2).ToUnixTimeSeconds();
+        const long metaTs = 1720000000; // past, valid
+        const decimal metaPrice = 75.0m;
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 70.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "CLOSED"
+                  },
+                  "timestamp": [{{futureTs}}],
+                  "indicators": {
+                    "quote": [{ "close": [999.0] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler, fakeTime);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(metaPrice, result.Quote!.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(metaTs).UtcDateTime, result.Quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_CandleWithZeroClose_IsSkipped()
+    {
+        // close=0 is invalid and must be skipped; fall back to the previous candle.
+        const long metaTs = 1720000000;
+        const decimal metaPrice = 50.0m;
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": {{metaPrice}},
+                    "chartPreviousClose": 48.0,
+                    "regularMarketTime": {{metaTs}},
+                    "marketState": "CLOSED"
+                  },
+                  "timestamp": [1720000000, 1720100000],
+                  "indicators": {
+                    "quote": [{ "close": [49.5, 0] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        // index 1 (ts=1720100000, close=0) is invalid; fall back to index 0 (close=49.5).
+        Assert.Equal(49.5m, result.Quote!.CurrentPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1720000000).UtcDateTime, result.Quote.PriceTimestampUtc);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_NoCandleData_NoMetaTimestamp_PriceTimestampUtcIsNull()
+    {
+        // Neither candle timestamps nor regularMarketTime → PriceTimestampUtc must be null.
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 520.5,
+                    "chartPreviousClose": 514.0,
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Quote!.PriceTimestampUtc);
+    }
+
+    // ── Frankfurt intraday freshness tests ────────────────────────────────────
+
+    [Fact]
+    public async Task GetQuoteAsync_ActiveSession_StaleQuote_IsDelayedTrue()
+    {
+        // During an active REGULAR session, a quote timestamp lagging more than 30 min
+        // (the default IntradayStaleThreshold) must produce IsDelayed=true and a DelayReason.
+        var fakeNow = new DateTimeOffset(2024, 7, 3, 15, 0, 0, TimeSpan.Zero);
+        var fakeTime = new FakeTimeProvider(fakeNow);
+        // Quote is from 60 min ago → exceeds the 30-min default threshold
+        long staleTs = fakeNow.AddMinutes(-60).ToUnixTimeSeconds();
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 200.0,
+                    "chartPreviousClose": 195.0,
+                    "regularMarketTime": {{staleTs}},
+                    "marketState": "REGULAR"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler, fakeTime);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Quote!.IsDelayed);
+        Assert.NotNull(result.Quote.DelayReason);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_ActiveSession_FreshQuote_IsDelayedFalse()
+    {
+        // During REGULAR session, a quote only 10 min old is within the 30-min threshold.
+        var fakeNow = new DateTimeOffset(2024, 7, 3, 15, 0, 0, TimeSpan.Zero);
+        var fakeTime = new FakeTimeProvider(fakeNow);
+        long recentTs = fakeNow.AddMinutes(-10).ToUnixTimeSeconds();
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 200.0,
+                    "chartPreviousClose": 195.0,
+                    "regularMarketTime": {{recentTs}},
+                    "marketState": "REGULAR"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler, fakeTime);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Quote!.IsDelayed);
+        Assert.Null(result.Quote.DelayReason);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_ClosedSession_OldQuote_IsDelayedFalse()
+    {
+        // Outside an active session (CLOSED), an hours-old quote is the prior close and
+        // must NOT be flagged as delayed.
+        var fakeNow = new DateTimeOffset(2024, 7, 6, 8, 0, 0, TimeSpan.Zero); // Saturday morning
+        var fakeTime = new FakeTimeProvider(fakeNow);
+        // Friday close ~17:30 Frankfurt = Friday at 15:30 UTC
+        long priorCloseTs = new DateTimeOffset(2024, 7, 5, 15, 30, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 200.0,
+                    "chartPreviousClose": 198.0,
+                    "regularMarketTime": {{priorCloseTs}},
+                    "marketState": "CLOSED"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler, fakeTime);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Quote!.IsDelayed,
+            "A prior close quote during a CLOSED session must not be flagged as delayed.");
+        Assert.Null(result.Quote.DelayReason);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_PreSession_StaleQuote_IsDelayedTrue()
+    {
+        // During a PRE session, a 45-min-old quote also exceeds the threshold.
+        var fakeNow = new DateTimeOffset(2024, 7, 3, 7, 0, 0, TimeSpan.Zero);
+        var fakeTime = new FakeTimeProvider(fakeNow);
+        long staleTs = fakeNow.AddMinutes(-45).ToUnixTimeSeconds();
+
+        var response = $$"""
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 150.0,
+                    "chartPreviousClose": 148.0,
+                    "regularMarketTime": {{staleTs}},
+                    "marketState": "PRE"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler, fakeTime);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Quote!.IsDelayed);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_NoPriceTimestamp_IsDelayedFalse()
+    {
+        // Without a price timestamp there is nothing to assess; must not be flagged.
+        var response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 100.0,
+                    "chartPreviousClose": 99.0,
+                    "marketState": "REGULAR"
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Quote!.IsDelayed);
+        Assert.Null(result.Quote.DelayReason);
+    }
+
+
 
     private static string BuildResponseWithTradingPeriod(
         (long start, long end) regular,

@@ -29,7 +29,8 @@ public sealed class StockQuoteResponse
     public DateTime? PriceTimestampUtc { get; init; }
     /// <summary>
     /// True when <see cref="PriceTimestampUtc"/> is present and more than
-    /// <c>24 hours</c> old at the time of the request.
+    /// <c>24 hours</c> old at the time of the request, or when the quote is
+    /// flagged as delayed during an active trading session (see <see cref="DelayWarning"/>).
     /// </summary>
     public bool IsStale { get; init; }
     /// <summary>
@@ -38,6 +39,12 @@ public sealed class StockQuoteResponse
     /// Null when the primary provider (Yahoo/Finnhub) is used.
     /// </summary>
     public string? PriceSource { get; init; }
+    /// <summary>
+    /// Human-readable Russian-language warning when the provider price appears delayed
+    /// during an active trading session (intraday lag exceeded the configured threshold).
+    /// Null when the quote is considered fresh.
+    /// </summary>
+    public string? DelayWarning { get; init; }
     public decimal? RateToEur { get; init; }
     public DateTime? RateTimestampUtc { get; init; }
     public string? RateSource { get; init; }

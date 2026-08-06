@@ -11,6 +11,15 @@ public sealed class YahooFinanceOptions
     public TimeSpan CooldownDuration { get; init; } = TimeSpan.FromMinutes(30);
     public TimeSpan QuoteCacheDuration { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// How far a quote's provider timestamp may trail the current time before the quote is
+    /// considered stale/delayed during an active trading session (REGULAR, PRE, or POST).
+    /// Only applied when Yahoo reports an active market state; quotes outside an active session
+    /// (CLOSED, UNKNOWN) continue to use the generic 24-hour threshold so that a legitimate
+    /// prior close is never falsely flagged overnight or on weekends.
+    /// Default: 30 minutes.
+    /// </summary>
+    public TimeSpan IntradayStaleThreshold { get; init; } = TimeSpan.FromMinutes(30);
 }
 
 public sealed record YahooRequestExecutionOptions(

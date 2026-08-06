@@ -213,7 +213,8 @@ public class StockHistoryServiceProviderSymbolTests
             CurrencyConversionContext conversionContext,
             string priceSession = "REGULAR",
             DateTime? priceTimestampUtc = null,
-            string? priceSource = null)
+            string? priceSource = null,
+            string? delayWarning = null)
             => new() { Symbol = symbol };
 
         public StockHistoryPointResponse BuildHistoryPointResponse(

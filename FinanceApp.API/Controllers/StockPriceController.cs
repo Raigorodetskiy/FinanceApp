@@ -79,6 +79,7 @@ public class StockPriceController : ControllerBase
             string marketState;
             string priceSession;
             DateTime? priceTimestampUtc;
+            string? delayWarning = null;
 
             if (normalizedExchange == StockExchanges.Frankfurt)
             {
@@ -97,6 +98,7 @@ public class StockPriceController : ControllerBase
                 marketState = quote.MarketState;
                 priceSession = quote.PriceSession;
                 priceTimestampUtc = quote.PriceTimestampUtc;
+                delayWarning = quote.IsDelayed ? quote.DelayReason : null;
             }
             else
             {
@@ -179,7 +181,8 @@ public class StockPriceController : ControllerBase
                 conversionContext,
                 priceSession,
                 priceTimestampUtc,
-                priceSource));
+                priceSource,
+                delayWarning));
         }
         catch (Exception)
         {
