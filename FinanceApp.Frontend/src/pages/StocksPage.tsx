@@ -318,8 +318,12 @@ const StocksPage: React.FC = () => {
         } else {
           message.warning(`Цены обновлены частично (${failed} ошибок, ${delayed} задержано)`);
         }
-      } else if (delayed > 0) {
+      } else if (delayed > 0 && failed === 0) {
         message.info(`Авт. обновление: ${delayed} задержано`);
+      } else if (failed > 0 && delayed === 0) {
+        message.info(`Авт. обновление: ${failed} ошибок`);
+      } else if (delayed > 0 || failed > 0) {
+        message.info(`Авт. обновление: ${failed} ошибок, ${delayed} задержано`);
       } else {
         message.info('Цены автоматически обновлены');
       }

@@ -377,7 +377,7 @@ const PortfolioDetailPage: React.FC = () => {
         message.warning(`Задержано: ${delayed}. Остальные цены обновлены`);
       } else if (delayed > 0 && (failed > 0 || skipped > 0)) {
         message.warning(`Цены обновлены частично (${failed} ошибок, ${delayed} задержано)`);
-      } else if (failed > 0) {
+      } else if (failed > 0 && delayed === 0) {
         message.warning(`Цены обновлены частично (${failed} ошибок)`);
       } else {
         message.warning(`Цены обновлены частично (${skipped} без конвертации)`);
