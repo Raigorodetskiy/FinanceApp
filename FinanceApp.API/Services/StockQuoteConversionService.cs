@@ -15,7 +15,8 @@ public interface IStockQuoteConversionService
         CurrencyConversionContext conversionContext,
         string priceSession = "REGULAR",
         DateTime? priceTimestampUtc = null,
-        string? priceSource = null);
+        string? priceSource = null,
+        string? delayWarning = null);
     StockHistoryPointResponse BuildHistoryPointResponse(StockHistoricalPrice historicalPrice, CurrencyConversionContext conversionContext);
 }
 
@@ -60,7 +61,8 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
         CurrencyConversionContext conversionContext,
         string priceSession = "REGULAR",
         DateTime? priceTimestampUtc = null,
-        string? priceSource = null)
+        string? priceSource = null,
+        string? delayWarning = null)
     {
         var normalizedCurrentPrice = conversionContext.Normalize(rawCurrentPrice);
         var normalizedPreviousClose = conversionContext.Normalize(rawPreviousClose);
@@ -85,8 +87,9 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
             MarketState = marketState,
             PriceSession = priceSession,
             PriceTimestampUtc = priceTimestampUtc,
-            IsStale = ComputeIsStale(priceTimestampUtc),
+            IsStale = ComputeIsStale(priceTimestampUtc) || delayWarning is not null,
             PriceSource = priceSource,
+            DelayWarning = delayWarning,
             RateToEur = conversionContext.ExchangeRate.RateToEur,
             RateTimestampUtc = conversionContext.ExchangeRate.RateTimestampUtc,
             RateSource = conversionContext.ExchangeRate.Source,

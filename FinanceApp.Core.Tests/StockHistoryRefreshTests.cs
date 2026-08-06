@@ -414,7 +414,7 @@ public class StockHistoryRefreshTests
             return Task.FromResult(new CurrencyConversionContext(meta, rate, null));
         }
 
-        public StockQuoteResponse BuildQuoteResponse(string symbol, decimal rawCurrentPrice, decimal rawPreviousClose, decimal percentChange, string marketState, CurrencyConversionContext conversionContext, string priceSession = "REGULAR", DateTime? priceTimestampUtc = null, string? priceSource = null)
+        public StockQuoteResponse BuildQuoteResponse(string symbol, decimal rawCurrentPrice, decimal rawPreviousClose, decimal percentChange, string marketState, CurrencyConversionContext conversionContext, string priceSession = "REGULAR", DateTime? priceTimestampUtc = null, string? priceSource = null, string? delayWarning = null)
             => new() { Symbol = symbol };
 
         public StockHistoryPointResponse BuildHistoryPointResponse(StockHistoricalPrice historicalPrice, CurrencyConversionContext conversionContext)
