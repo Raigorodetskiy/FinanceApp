@@ -113,8 +113,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient();
 builder.Services.Configure<FinnhubOptions>(builder.Configuration.GetSection("Finnhub"));
+builder.Services.Configure<YahooFinanceOptions>(builder.Configuration.GetSection("YahooFinance"));
 builder.Services.AddHttpClient<IFinnhubQuoteService, FinnhubQuoteService>(client =>
 {
     client.BaseAddress = new Uri("https://finnhub.io/api/v1/");
@@ -123,6 +125,7 @@ builder.Services.AddHttpClient<IFinnhubQuoteService, FinnhubQuoteService>(client
 });
 builder.Services.Configure<FinanzenNetOptions>(builder.Configuration.GetSection("FinanzenNet"));
 builder.Services.AddSingleton<IFinanzenNetQuoteService, FinanzenNetQuoteService>();
+builder.Services.AddSingleton<IYahooRequestCoordinator, YahooRequestCoordinator>();
 builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
 builder.Services.AddScoped<IYahooQuoteService, YahooQuoteService>();
 builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();

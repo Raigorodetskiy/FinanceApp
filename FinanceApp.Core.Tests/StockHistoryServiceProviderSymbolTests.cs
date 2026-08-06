@@ -6,6 +6,7 @@ using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -138,12 +139,21 @@ public class StockHistoryServiceProviderSymbolTests
         context.Stocks.Add(stock);
         await context.SaveChangesAsync();
 
-        var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-        var factory = new FixedHttpClientFactory(httpClient);
+        var factory = new FixedHttpClientFactory(new HttpClient(handler));
+        var coordinator = new YahooRequestCoordinator(
+            factory,
+            NullLogger<YahooRequestCoordinator>.Instance,
+            Options.Create(new YahooFinanceOptions
+            {
+                MinRequestInterval = TimeSpan.Zero,
+                CooldownDuration = TimeSpan.FromMinutes(30),
+                QuoteCacheDuration = TimeSpan.Zero,
+                RequestTimeout = TimeSpan.FromSeconds(10)
+            }));
 
         var service = new StockHistoryService(
             context,
-            factory,
+            coordinator,
             new StubStockQuoteConversionService(),
             NullLogger<StockHistoryService>.Instance);
 

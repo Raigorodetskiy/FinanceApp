@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using FinanceApp.API.Models;
 using FinanceApp.Core.Models;
@@ -14,26 +12,23 @@ namespace FinanceApp.API.Services;
 public class StockHistoryService : IStockHistoryService
 {
     private const int MaxYahooRequestAttempts = 5;
-    private static readonly TimeSpan YahooRequestThrottleDelay = TimeSpan.FromMilliseconds(350);
     private static readonly TimeSpan YahooRetryBaseDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan YahooRetryMaxDelay = TimeSpan.FromSeconds(20);
-    private static readonly SemaphoreSlim YahooRequestGate = new(1, 1);
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> StockRefreshLocks = new();
-    private static DateTimeOffset _nextYahooRequestUtc = DateTimeOffset.MinValue;
 
     private readonly AppDbContext _dbContext;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IYahooRequestCoordinator _yahooRequestCoordinator;
     private readonly IStockQuoteConversionService _stockQuoteConversionService;
     private readonly ILogger<StockHistoryService> _logger;
 
     public StockHistoryService(
         AppDbContext dbContext,
-        IHttpClientFactory httpClientFactory,
+        IYahooRequestCoordinator yahooRequestCoordinator,
         IStockQuoteConversionService stockQuoteConversionService,
         ILogger<StockHistoryService> logger)
     {
         _dbContext = dbContext;
-        _httpClientFactory = httpClientFactory;
+        _yahooRequestCoordinator = yahooRequestCoordinator;
         _stockQuoteConversionService = stockQuoteConversionService;
         _logger = logger;
     }
@@ -50,7 +45,12 @@ public class StockHistoryService : IStockHistoryService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                await SyncHistoricalDataForStockAsync(stock, cancellationToken);
+                var syncResult = await SyncHistoricalDataForStockCoreAsync(stock, cancellationToken);
+                if (syncResult.WasRateLimited)
+                {
+                    _logger.LogInformation("Stopping Yahoo history refresh cycle early because a shared cooldown is active.");
+                    break;
+                }
             }
             catch (Exception ex)
             {
@@ -61,13 +61,7 @@ public class StockHistoryService : IStockHistoryService
 
     public async Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(stock.Ticker))
-        {
-            return;
-        }
-
-        var batches = await FetchHistoryBatchesAsync(stock, cancellationToken);
-        await UpsertHistoryBatchesAsync(stock.Id, batches, cancellationToken);
+        await SyncHistoricalDataForStockCoreAsync(stock, cancellationToken);
     }
 
     public async Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
@@ -86,7 +80,19 @@ public class StockHistoryService : IStockHistoryService
         await stockLock.WaitAsync(cancellationToken);
         try
         {
-            var batches = await FetchHistoryBatchesAsync(stock, cancellationToken);
+            var fetchResult = await FetchHistoryBatchesAsync(stock, cancellationToken);
+            if (fetchResult.WasRateLimited)
+            {
+                _logger.LogInformation("Skipping history replacement for stock {StockId} because Yahoo cooldown is active.", stock.Id);
+                return new StockHistoryRefreshResponse
+                {
+                    StockId = stock.Id,
+                    DeletedPoints = 0,
+                    ImportedPoints = 0
+                };
+            }
+
+            var batches = fetchResult.Batches;
             var replacementRows = BuildReplacementRows(stock.Id, batches);
             var importedPoints = replacementRows.Count;
             var deletedPoints = await ReplaceHistoryAsync(stock.Id, replacementRows, cancellationToken);
@@ -148,25 +154,48 @@ public class StockHistoryService : IStockHistoryService
         };
     }
 
-    private async Task<List<IntervalBatch>> FetchHistoryBatchesAsync(Stock stock, CancellationToken cancellationToken)
+    private async Task<StockHistorySyncResult> SyncHistoricalDataForStockCoreAsync(Stock stock, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stock.Ticker))
+        {
+            return StockHistorySyncResult.Success();
+        }
+
+        var fetchResult = await FetchHistoryBatchesAsync(stock, cancellationToken);
+        if (fetchResult.WasRateLimited)
+        {
+            _logger.LogInformation("Skipping Yahoo history sync for stock {StockId} because a shared cooldown is active.", stock.Id);
+            return StockHistorySyncResult.RateLimited();
+        }
+
+        await UpsertHistoryBatchesAsync(stock.Id, fetchResult.Batches, cancellationToken);
+        return StockHistorySyncResult.Success();
+    }
+
+    private async Task<HistoryBatchFetchResult> FetchHistoryBatchesAsync(Stock stock, CancellationToken cancellationToken)
     {
         var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
 
         var monthly = await FetchCandlesAsync(providerSymbol, "1mo", "5y", cancellationToken);
+        if (monthly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var weekly = await FetchCandlesAsync(providerSymbol, "1wk", "1y", cancellationToken);
+        if (weekly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var daily = await FetchCandlesAsync(providerSymbol, "1d", "1y", cancellationToken);
+        if (daily.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var hourly = await FetchCandlesAsync(providerSymbol, "1h", "7d", cancellationToken);
+        if (hourly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var fiveMinute = await FetchCandlesAsync(providerSymbol, "5m", "1d", cancellationToken);
+        if (fiveMinute.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var tenMinute = AggregateToTenMinute(fiveMinute);
 
-        return
+        return HistoryBatchFetchResult.Success(
         [
             new IntervalBatch("1mo", monthly),
             new IntervalBatch("1wk", weekly),
             new IntervalBatch("1d", daily),
             new IntervalBatch("1h", hourly),
             new IntervalBatch("10m", tenMinute),
-        ];
+        ]);
     }
 
     private async Task UpsertHistoryBatchesAsync(int stockId, IEnumerable<IntervalBatch> batches, CancellationToken cancellationToken)
@@ -409,80 +438,55 @@ public class StockHistoryService : IStockHistoryService
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<CandleBatch> FetchCandlesAsync(string symbol, string interval, string range, CancellationToken cancellationToken)
+    private async Task<CandleFetchResult> FetchCandlesAsync(string symbol, string interval, string range, CancellationToken cancellationToken)
     {
-        var client = _httpClientFactory.CreateClient();
-        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
-
         var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}?interval={interval}&range={range}";
-        for (var attempt = 1; attempt <= MaxYahooRequestAttempts; attempt++)
+        var requestLabel = $"history:{interval}:{range}";
+
+        try
         {
-            try
+            var response = await _yahooRequestCoordinator.GetAsync(
+                url,
+                requestLabel,
+                new YahooRequestExecutionOptions(
+                    MaxYahooRequestAttempts,
+                    YahooRetryBaseDelay,
+                    YahooRetryMaxDelay),
+                cancellationToken);
+
+            if (response.IsRateLimited)
             {
-                using var response = await SendYahooRequestAsync(client, url, cancellationToken);
-                if (response.IsSuccessStatusCode)
-                {
-                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                    using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-                    return ParseCandles(doc.RootElement);
-                }
+                _logger.LogWarning(
+                    "Yahoo history request rate limited for interval={Interval} range={Range}; cooldownUntilUtc={CooldownUntilUtc}",
+                    interval,
+                    range,
+                    response.CooldownUntilUtc);
+                return CandleFetchResult.RateLimited();
+            }
 
-                if (IsTransientStatusCode(response.StatusCode) && attempt < MaxYahooRequestAttempts)
-                {
-                    var delay = GetRetryDelay(attempt, response.Headers.RetryAfter);
-                    _logger.LogWarning(
-                        "Yahoo history request transient failure for interval={Interval} range={Range} status={StatusCode}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                        interval,
-                        range,
-                        (int)response.StatusCode,
-                        attempt,
-                        MaxYahooRequestAttempts,
-                        (int)delay.TotalMilliseconds);
-                    await Task.Delay(delay, cancellationToken);
-                    continue;
-                }
-
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(response.Content))
+            {
                 _logger.LogWarning(
                     "Yahoo history request failed for interval={Interval} range={Range}: {StatusCode}",
                     interval,
                     range,
                     (int)response.StatusCode);
-                return CandleBatch.Empty;
+                return CandleFetchResult.Success(CandleBatch.Empty);
             }
-            catch (HttpRequestException ex) when (attempt < MaxYahooRequestAttempts)
-            {
-                var delay = GetRetryDelay(attempt, null);
-                _logger.LogWarning(
-                    ex,
-                    "Yahoo history request network error for interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                    interval,
-                    range,
-                    attempt,
-                    MaxYahooRequestAttempts,
-                    (int)delay.TotalMilliseconds);
-                await Task.Delay(delay, cancellationToken);
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt < MaxYahooRequestAttempts)
-            {
-                var delay = GetRetryDelay(attempt, null);
-                _logger.LogWarning(
-                    ex,
-                    "Yahoo history request timed out for interval={Interval} range={Range}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                    interval,
-                    range,
-                    attempt,
-                    MaxYahooRequestAttempts,
-                    (int)delay.TotalMilliseconds);
-                await Task.Delay(delay, cancellationToken);
-            }
-        }
 
-        _logger.LogWarning(
-            "Yahoo history request failed after retries for interval={Interval} range={Range}",
-            interval,
-            range);
-        return CandleBatch.Empty;
+            using var doc = JsonDocument.Parse(response.Content);
+            return CandleFetchResult.Success(ParseCandles(doc.RootElement));
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Yahoo history request timed out for interval={Interval} range={Range}", interval, range);
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Yahoo history request failed for interval={Interval} range={Range}", interval, range);
+            throw;
+        }
     }
 
     private static CandleBatch ParseCandles(JsonElement root)
@@ -553,64 +557,6 @@ public class StockHistoryService : IStockHistoryService
             currencyMetadata.FinancialCurrency,
             currencyMetadata.NormalizedQuoteCurrency,
             currencyMetadata.QuoteUnitMultiplier);
-    }
-
-    private static bool IsTransientStatusCode(HttpStatusCode statusCode) =>
-        statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
-
-    private static TimeSpan GetRetryDelay(int attempt, RetryConditionHeaderValue? retryAfter)
-    {
-        var retryAfterDelay = GetRetryAfterDelay(retryAfter);
-        if (retryAfterDelay.HasValue)
-        {
-            return retryAfterDelay.Value;
-        }
-
-        var exponentialMs = Math.Min(
-            YahooRetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt - 1),
-            YahooRetryMaxDelay.TotalMilliseconds);
-        var jitterMs = Random.Shared.Next(0, 250);
-        return TimeSpan.FromMilliseconds(exponentialMs + jitterMs);
-    }
-
-    private static TimeSpan? GetRetryAfterDelay(RetryConditionHeaderValue? retryAfter)
-    {
-        if (retryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
-        {
-            return delta > YahooRetryMaxDelay ? YahooRetryMaxDelay : delta;
-        }
-
-        if (retryAfter?.Date is { } date)
-        {
-            var delay = date - DateTimeOffset.UtcNow;
-            if (delay > TimeSpan.Zero)
-            {
-                return delay > YahooRetryMaxDelay ? YahooRetryMaxDelay : delay;
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task<HttpResponseMessage> SendYahooRequestAsync(HttpClient client, string url, CancellationToken cancellationToken)
-    {
-        await YahooRequestGate.WaitAsync(cancellationToken);
-        try
-        {
-            var now = DateTimeOffset.UtcNow;
-            if (_nextYahooRequestUtc > now)
-            {
-                await Task.Delay(_nextYahooRequestUtc - now, cancellationToken);
-            }
-
-            var response = await client.GetAsync(url, cancellationToken);
-            _nextYahooRequestUtc = DateTimeOffset.UtcNow.Add(YahooRequestThrottleDelay);
-            return response;
-        }
-        finally
-        {
-            YahooRequestGate.Release();
-        }
     }
 
     private static CandleBatch AggregateToTenMinute(CandleBatch fiveMinuteCandles)
@@ -732,5 +678,25 @@ public class StockHistoryService : IStockHistoryService
         decimal QuoteUnitMultiplier)
     {
         public static CandleBatch Empty { get; } = new(Array.Empty<CandleData>(), null, null, null, 1m);
+    }
+
+    private sealed record CandleFetchResult(CandleBatch Batch, bool WasRateLimited)
+    {
+        public static CandleFetchResult Success(CandleBatch batch) => new(batch, false);
+        public static CandleFetchResult RateLimited() => new(CandleBatch.Empty, true);
+
+        public static implicit operator CandleBatch(CandleFetchResult result) => result.Batch;
+    }
+
+    private sealed record HistoryBatchFetchResult(IReadOnlyList<IntervalBatch> Batches, bool WasRateLimited)
+    {
+        public static HistoryBatchFetchResult Success(IReadOnlyList<IntervalBatch> batches) => new(batches, false);
+        public static HistoryBatchFetchResult RateLimited() => new(Array.Empty<IntervalBatch>(), true);
+    }
+
+    private sealed record StockHistorySyncResult(bool WasRateLimited)
+    {
+        public static StockHistorySyncResult Success() => new(false);
+        public static StockHistorySyncResult RateLimited() => new(true);
     }
 }

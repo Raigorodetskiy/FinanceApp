@@ -261,6 +261,18 @@ public class StocksController : ControllerBase
         var existing = await _context.Stocks.FindAsync(id);
         if (existing == null) return NotFound();
 
+        if (request.CurrentPriceAt.HasValue &&
+            existing.CurrentPriceAt.HasValue &&
+            request.CurrentPriceAt.Value < existing.CurrentPriceAt.Value)
+        {
+            _logger.LogInformation(
+                "Skipping stale stock quote update. StockId={StockId} ExistingPriceAt={ExistingPriceAt} IncomingPriceAt={IncomingPriceAt}",
+                id,
+                existing.CurrentPriceAt.Value,
+                request.CurrentPriceAt.Value);
+            return NoContent();
+        }
+
         existing.CurrentPrice = request.CurrentPrice;
         existing.CurrentPriceChange = request.CurrentPriceChange;
         existing.CurrentPriceChangePercent = request.CurrentPriceChangePercent;
