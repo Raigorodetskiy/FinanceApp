@@ -72,6 +72,8 @@ export interface StockQuoteResponse {
   priceTimestampUtc: string | null;
   /** True when priceTimestampUtc is present and older than 24 hours. */
   isStale: boolean;
+  /** Human-readable delay warning from the provider. Non-null when the quote is considered delayed. */
+  delayWarning?: string | null;
   /** Identifies which quote provider supplied rawCurrentPrice. Null for Yahoo/Finnhub (primary providers). */
   priceSource: string | null;
   rateToEur: number | null;
