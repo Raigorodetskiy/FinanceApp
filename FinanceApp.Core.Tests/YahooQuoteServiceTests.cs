@@ -3,6 +3,7 @@ using System.Text;
 using FinanceApp.API.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -635,12 +636,26 @@ public class YahooQuoteServiceTests
 
     private static YahooQuoteService CreateService(HttpMessageHandler handler, TimeProvider? timeProvider = null)
     {
-        var httpClientFactory = new StubHttpClientFactory(
-            new HttpClient(handler)
+        var httpClientFactory = new StubHttpClientFactory(new HttpClient(handler));
+        var coordinator = new YahooRequestCoordinator(
+            httpClientFactory,
+            NullLogger<YahooRequestCoordinator>.Instance,
+            Options.Create(new YahooFinanceOptions
             {
-                Timeout = TimeSpan.FromSeconds(10)
-            });
-        return new YahooQuoteService(httpClientFactory, NullLogger<YahooQuoteService>.Instance, timeProvider);
+                MinRequestInterval = TimeSpan.Zero,
+                CooldownDuration = TimeSpan.FromMinutes(30),
+                QuoteCacheDuration = TimeSpan.Zero,
+                RequestTimeout = TimeSpan.FromSeconds(10)
+            }),
+            timeProvider);
+        return new YahooQuoteService(
+            coordinator,
+            NullLogger<YahooQuoteService>.Instance,
+            Options.Create(new YahooFinanceOptions
+            {
+                QuoteCacheDuration = TimeSpan.Zero
+            }),
+            timeProvider);
     }
 
     private sealed class FakeTimeProvider : TimeProvider

@@ -594,6 +594,44 @@ public class StocksControllerTests
         Assert.Equal("New Name", persisted.Name);
     }
 
+    [Fact]
+    public async Task UpdateQuote_StaleProviderTimestamp_DoesNotOverwriteNewerStoredQuote()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 104,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 210m,
+            CurrentPriceChange = 3m,
+            CurrentPriceChangePercent = 1.45m,
+            CurrentPriceAt = new DateTime(2026, 8, 1, 15, 0, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 1, 15, 0, 5, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 205m,
+            CurrentPriceChange = -2m,
+            CurrentPriceChangePercent = -0.97m,
+            CurrentPriceAt = new DateTime(2026, 8, 1, 14, 0, 0, DateTimeKind.Utc),
+        });
+
+        Assert.IsType<NoContentResult>(result);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(210m, persisted.CurrentPrice);
+        Assert.Equal(3m, persisted.CurrentPriceChange);
+        Assert.Equal(1.45m, persisted.CurrentPriceChangePercent);
+        Assert.Equal(new DateTime(2026, 8, 1, 15, 0, 0, DateTimeKind.Utc), persisted.CurrentPriceAt);
+    }
+
     // ─── New metadata endpoint tests ───────────────────────────────────────────
 
     [Fact]

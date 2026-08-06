@@ -46,107 +46,76 @@ public sealed class YahooQuoteService : IYahooQuoteService
 {
     private const int MaxAttempts = 3;
     private static readonly TimeSpan RetryBaseDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan RetryMaxDelay = TimeSpan.FromSeconds(20);
 
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IYahooRequestCoordinator _yahooRequestCoordinator;
     private readonly ILogger<YahooQuoteService> _logger;
+    private readonly YahooFinanceOptions _options;
     private readonly TimeProvider _timeProvider;
 
     public YahooQuoteService(
-        IHttpClientFactory httpClientFactory,
+        IYahooRequestCoordinator yahooRequestCoordinator,
         ILogger<YahooQuoteService> logger,
+        Microsoft.Extensions.Options.IOptions<YahooFinanceOptions> options,
         TimeProvider? timeProvider = null)
     {
-        _httpClientFactory = httpClientFactory;
+        _yahooRequestCoordinator = yahooRequestCoordinator;
         _logger = logger;
+        _options = options.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<YahooQuoteResult> GetQuoteAsync(string symbol, CancellationToken cancellationToken = default)
     {
-        var client = _httpClientFactory.CreateClient();
-        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
-        client.Timeout = TimeSpan.FromSeconds(10);
-
         var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}?interval=1d&range=1d";
         var safeSymbol = SanitizeForLog(symbol);
+        var requestLabel = $"quote:{safeSymbol}";
 
-        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        try
         {
-            try
+            var response = await _yahooRequestCoordinator.GetAsync(
+                url,
+                requestLabel,
+                new YahooRequestExecutionOptions(
+                    MaxAttempts,
+                    RetryBaseDelay,
+                    RetryMaxDelay,
+                    _options.QuoteCacheDuration),
+                cancellationToken);
+
+            if (response.IsRateLimited)
             {
-                using var response = await client.GetAsync(url, cancellationToken);
-
-                if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
-                {
-                    if (attempt < MaxAttempts)
-                    {
-                        var delay = GetRetryDelay(attempt, response.Headers.RetryAfter);
-                        _logger.LogWarning(
-                            "Yahoo quote request rate limited for {Symbol}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                            safeSymbol, attempt, MaxAttempts, (int)delay.TotalMilliseconds);
-                        await Task.Delay(delay, cancellationToken);
-                        continue;
-                    }
-
-                    _logger.LogWarning("Yahoo quote request rate limit exceeded for {Symbol}.", safeSymbol);
-                    return YahooQuoteResult.Failure(StatusCodes.Status429TooManyRequests, "Quote provider rate limit exceeded.");
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    if (IsTransient(response.StatusCode) && attempt < MaxAttempts)
-                    {
-                        var delay = GetRetryDelay(attempt, null);
-                        _logger.LogWarning(
-                            "Yahoo quote request transient failure for {Symbol} status={StatusCode}; retry {Attempt}/{MaxAttempts}",
-                            safeSymbol, (int)response.StatusCode, attempt, MaxAttempts);
-                        await Task.Delay(delay, cancellationToken);
-                        continue;
-                    }
-
-                    _logger.LogWarning("Yahoo quote request failed for {Symbol}: {StatusCode}", safeSymbol, (int)response.StatusCode);
-                    return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider request failed.");
-                }
-
-                var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-                if (string.IsNullOrWhiteSpace(payload))
-                {
-                    _logger.LogWarning("Yahoo quote returned empty response for {Symbol}.", safeSymbol);
-                    return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider returned an empty response.");
-                }
-
-                return ParseQuote(symbol, payload, _timeProvider);
+                _logger.LogWarning(
+                    "Yahoo quote request rate limit exceeded for {Symbol}; cooldownUntilUtc={CooldownUntilUtc}.",
+                    safeSymbol,
+                    response.CooldownUntilUtc);
+                return YahooQuoteResult.Failure(StatusCodes.Status429TooManyRequests, "Quote provider rate limit exceeded.");
             }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                if (attempt < MaxAttempts)
-                {
-                    var delay = GetRetryDelay(attempt, null);
-                    _logger.LogWarning(ex, "Yahoo quote request timed out for {Symbol}; retry {Attempt}/{MaxAttempts}", safeSymbol, attempt, MaxAttempts);
-                    await Task.Delay(delay, cancellationToken);
-                    continue;
-                }
 
-                _logger.LogWarning(ex, "Yahoo quote request timed out for {Symbol}.", safeSymbol);
-                return YahooQuoteResult.Failure(StatusCodes.Status504GatewayTimeout, "Quote provider request timed out.");
-            }
-            catch (HttpRequestException ex)
+            if (!response.IsSuccessStatusCode)
             {
-                if (attempt < MaxAttempts)
-                {
-                    var delay = GetRetryDelay(attempt, null);
-                    _logger.LogWarning(ex, "Yahoo quote request network error for {Symbol}; retry {Attempt}/{MaxAttempts}", safeSymbol, attempt, MaxAttempts);
-                    await Task.Delay(delay, cancellationToken);
-                    continue;
-                }
-
-                _logger.LogWarning(ex, "Yahoo quote request failed for {Symbol}.", safeSymbol);
+                _logger.LogWarning("Yahoo quote request failed for {Symbol}: {StatusCode}", safeSymbol, (int)response.StatusCode);
                 return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider request failed.");
             }
-        }
 
-        return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider request failed after retries.");
+            if (string.IsNullOrWhiteSpace(response.Content))
+            {
+                _logger.LogWarning("Yahoo quote returned empty response for {Symbol}.", safeSymbol);
+                return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider returned an empty response.");
+            }
+
+            return ParseQuote(symbol, response.Content, _timeProvider);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Yahoo quote request timed out for {Symbol}.", safeSymbol);
+            return YahooQuoteResult.Failure(StatusCodes.Status504GatewayTimeout, "Quote provider request timed out.");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Yahoo quote request failed for {Symbol}.", safeSymbol);
+            return YahooQuoteResult.Failure(StatusCodes.Status502BadGateway, "Quote provider request failed.");
+        }
     }
 
     private static string SanitizeForLog(string value) =>
@@ -308,19 +277,6 @@ public sealed class YahooQuoteService : IYahooQuoteService
         }
 
         return false;
-    }
-
-    private static bool IsTransient(HttpStatusCode statusCode) =>
-        (int)statusCode >= 500;
-
-    private static TimeSpan GetRetryDelay(int attempt, RetryConditionHeaderValue? retryAfter)
-    {
-        if (retryAfter?.Delta is { } delta)
-        {
-            return delta;
-        }
-
-        return TimeSpan.FromMilliseconds(RetryBaseDelay.TotalMilliseconds * attempt);
     }
 
     private static bool TryGetDecimal(JsonElement element, string propertyName, out decimal value)

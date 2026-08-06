@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -153,6 +154,56 @@ public class StockHistoryRefreshTests
     }
 
     [Fact]
+    public async Task RefreshHistoryAsync_RateLimited_PreservesExistingHistoryAndStopsAfterFirstCall()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 1,
+            Interval = "1d",
+            Timestamp = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Open = 7m,
+            High = 7m,
+            Low = 7m,
+            Close = 7m,
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new StatusSequenceHandler(HttpStatusCode.TooManyRequests);
+        var service = CreateService(context, handler);
+
+        var result = await service.RefreshHistoryAsync(stock);
+
+        Assert.Equal(0, result.DeletedPoints);
+        Assert.Equal(0, result.ImportedPoints);
+        Assert.Equal(1, handler.CallCount);
+
+        var rows = await context.StockHistoricalPrices.Where(x => x.StockId == 1).ToListAsync();
+        Assert.Single(rows);
+        Assert.Equal(7m, rows[0].Close);
+    }
+
+    [Fact]
+    public async Task SyncHistoricalDataForAllStocksAsync_RateLimited_StopsFurtherFanOut()
+    {
+        await using var context = CreateInMemoryContext();
+        context.Stocks.AddRange(
+            new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" },
+            new Stock { Id = 2, Ticker = "MSFT", Exchange = StockExchanges.Nyse, Name = "Microsoft" });
+        await context.SaveChangesAsync();
+
+        var handler = new StatusSequenceHandler(HttpStatusCode.TooManyRequests);
+        var service = CreateService(context, handler);
+
+        await service.SyncHistoricalDataForAllStocksAsync();
+
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
     public async Task RefreshHistoryAsync_CancellationAndPerStockDuplicateCallProtectionRemainIntact()
     {
         await using var context = CreateInMemoryContext();
@@ -239,10 +290,19 @@ public class StockHistoryRefreshTests
 
     private static StockHistoryService CreateService(AppDbContext context, HttpMessageHandler handler)
     {
-        var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        var coordinator = new YahooRequestCoordinator(
+            new FixedHttpClientFactory(new HttpClient(handler)),
+            NullLogger<YahooRequestCoordinator>.Instance,
+            Options.Create(new YahooFinanceOptions
+            {
+                MinRequestInterval = TimeSpan.Zero,
+                CooldownDuration = TimeSpan.FromMinutes(30),
+                QuoteCacheDuration = TimeSpan.Zero,
+                RequestTimeout = TimeSpan.FromSeconds(10)
+            }));
         return new StockHistoryService(
             context,
-            new FixedHttpClientFactory(httpClient),
+            coordinator,
             new StubStockQuoteConversionService(),
             NullLogger<StockHistoryService>.Instance);
     }
@@ -300,6 +360,24 @@ public class StockHistoryRefreshTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromException<HttpResponseMessage>(exception);
+    }
+
+    private sealed class StatusSequenceHandler(params HttpStatusCode[] statuses) : HttpMessageHandler
+    {
+        private readonly Queue<HttpStatusCode> _statuses = new(statuses);
+        private int _callCount;
+
+        public int CallCount => _callCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _callCount);
+            var status = _statuses.Count > 0 ? _statuses.Dequeue() : HttpStatusCode.OK;
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(EmptyChartJson(), Encoding.UTF8, "application/json")
+            });
+        }
     }
 
     private sealed class BlockingHandler(TaskCompletionSource gate) : HttpMessageHandler

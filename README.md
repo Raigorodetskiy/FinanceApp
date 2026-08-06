@@ -21,6 +21,8 @@ Supply real values via environment variables (recommended) or [.NET user secrets
 export ConnectionStrings__DefaultConnection="server=localhost;port=3306;database=financeapp;user=financeapp_user;******"
 export Jwt__Key="YOUR_JWT_SIGNING_KEY_AT_LEAST_32_CHARS"
 export Finnhub__ApiKey="YOUR_FINNHUB_KEY"
+export YahooFinance__MinRequestInterval="00:00:01.500"
+export YahooFinance__CooldownDuration="00:30:00"
 ```
 
 **User secrets (recommended for local development):**
@@ -38,6 +40,22 @@ dotnet user-secrets set "Finnhub:ApiKey" "YOUR_FINNHUB_KEY"
 cd FinanceApp.API
 dotnet run
 ```
+
+### Yahoo Finance throttling and cooldown
+
+FinanceApp routes all Yahoo Finance quote and chart requests through one shared, process-wide coordinator.
+
+| Option | Default | Description |
+|---|---|---|
+| `YahooFinance:MinRequestInterval` | `00:00:01.500` | Minimum delay between Yahoo request starts across the entire backend process. |
+| `YahooFinance:CooldownDuration` | `00:30:00` | Shared fallback cooldown activated for all Yahoo callers after HTTP 429 when `Retry-After` is absent or invalid. |
+| `YahooFinance:QuoteCacheDuration` | `00:00:10` | Short-term in-memory cache for successful Yahoo quote responses. Provider timestamps are preserved so cached quotes are not presented as freshly sourced. |
+| `YahooFinance:RequestTimeout` | `00:00:10` | Per-request HTTP timeout for Yahoo calls. |
+
+Notes:
+- Yahoo concurrency is limited to **1** process-wide.
+- Current quotes and historical refreshes share the same throttle, cooldown, and in-flight request coalescing.
+- When Yahoo returns HTTP `429`, FinanceApp stops sending new Yahoo requests until the shared cooldown expires.
 
 ---
 
