@@ -63,6 +63,7 @@ import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
 import StockExchangeTag, { EXCHANGE_ABBREVIATION } from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
+import { isQuoteDelayed } from '../utils/quote';
 import type {
   Portfolio,
   Stock,
@@ -308,8 +309,13 @@ const PortfolioDetailPage: React.FC = () => {
         uniqueStocks.map(async (stock) => {
           const priceRes = await getStockPrice(stock.ticker, stock.exchange, stock.finanzenNetSlug);
           const quote: StockQuoteResponse = priceRes.data;
+
+          if (isQuoteDelayed(quote)) {
+            return { stockId: stock.id, patch: null, delayed: true };
+          }
+
           const patch = buildQuotePatch(quote);
-          if (!patch) return { stockId: stock.id, patch: null };
+          if (!patch) return { stockId: stock.id, patch: null, delayed: false };
 
           await updateStockQuote(stock.id, {
             currentPrice: patch.currentPrice,
@@ -318,13 +324,16 @@ const PortfolioDetailPage: React.FC = () => {
             currentPriceAt: patch.currentPriceAt ?? null,
           } satisfies UpdateStockQuoteRequest);
 
-          return { stockId: stock.id, patch };
+          return { stockId: stock.id, patch, delayed: false };
         })
       );
 
       const failed = results.filter((r) => r.status === 'rejected').length;
+      const delayed = results.filter(
+        (r) => r.status === 'fulfilled' && r.value.delayed,
+      ).length;
       const skipped = results.filter(
-        (r) => r.status === 'fulfilled' && r.value.patch === null,
+        (r) => r.status === 'fulfilled' && !r.value.delayed && r.value.patch === null,
       ).length;
 
       // Patch local state with refreshed quote fields
@@ -362,8 +371,12 @@ const PortfolioDetailPage: React.FC = () => {
         }))
       );
 
-      if (failed === 0 && skipped === 0) {
+      if (failed === 0 && delayed === 0 && skipped === 0) {
         message.success('Цены обновлены');
+      } else if (delayed > 0 && failed === 0 && skipped === 0) {
+        message.warning(`Задержано: ${delayed}. Остальные цены обновлены`);
+      } else if (delayed > 0 && (failed > 0 || skipped > 0)) {
+        message.warning(`Цены обновлены частично (${failed} ошибок, ${delayed} задержано)`);
       } else if (failed > 0) {
         message.warning(`Цены обновлены частично (${failed} ошибок)`);
       } else {

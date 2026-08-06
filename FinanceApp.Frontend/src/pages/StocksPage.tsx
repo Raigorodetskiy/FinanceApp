@@ -26,6 +26,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
   getStocks,
+  getStock,
   createStock,
   updateStockMetadata,
   updateStockQuote,
@@ -40,6 +41,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockMetadataRequest, UpdateStockQuoteRequest } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
+import { isQuoteDelayed } from '../utils/quote';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 
 dayjs.extend(utc);
@@ -148,6 +150,9 @@ const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): L
 });
 
 export const STOCKS_TABLE_TOTAL_COLS = 8;
+
+/** Label shown on the delayed-quote badge. */
+export const STALE_DELAY_LABEL = 'Задержано';
 
 export const getApiPriceCurrency = (quote: StockQuoteResponse | null | undefined): string | null =>
   quote?.currency ?? quote?.normalizedQuoteCurrency ?? null;
@@ -286,7 +291,11 @@ const StocksPage: React.FC = () => {
               [stock.id]: { quote, loading: false },
             }));
 
+            if (isQuoteDelayed(quote)) {
+              return { delayed: true };
+            }
             await persistConvertedPrice(stock, quote);
+            return { delayed: false };
           } catch (error) {
             setLivePrices((prev) => ({
               ...prev,
@@ -297,13 +306,20 @@ const StocksPage: React.FC = () => {
         })
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
+      const delayed = results.filter((r) => r.status === 'fulfilled' && r.value.delayed).length;
       await fetchData();
       if (!silent) {
-        if (failed === 0) {
+        if (failed === 0 && delayed === 0) {
           message.success('Цены обновлены');
-        } else {
+        } else if (delayed > 0 && failed === 0) {
+          message.warning(`Задержано: ${delayed}. Остальные цены обновлены`);
+        } else if (failed > 0 && delayed === 0) {
           message.warning(`Цены обновлены частично (${failed} ошибок)`);
+        } else {
+          message.warning(`Цены обновлены частично (${failed} ошибок, ${delayed} задержано)`);
         }
+      } else if (delayed > 0) {
+        message.info(`Авт. обновление: ${delayed} задержано`);
       } else {
         message.info('Цены автоматически обновлены');
       }
@@ -438,6 +454,23 @@ const StocksPage: React.FC = () => {
         ...prev,
         [stock.id]: { quote, loading: false },
       }));
+
+      if (isQuoteDelayed(quote)) {
+        const tsDisplay = quote.priceTimestampUtc
+          ? dayjs.utc(quote.priceTimestampUtc).local().format(PRICE_TIME_FORMAT)
+          : '—';
+        message.warning(`Задержанная котировка для ${stock.ticker}: ${tsDisplay}`);
+        // Reconcile from the authoritative backend state rather than applying a stale patch.
+        try {
+          const freshRes = await getStock(stock.id);
+          const freshStock = freshRes.data;
+          setStocks((prev) => prev.map((s) => s.id === stock.id ? freshStock : s));
+          stocksRef.current = stocksRef.current.map((s) => s.id === stock.id ? freshStock : s);
+        } catch {
+          // Reconciliation best-effort; live badge still shows Задержано
+        }
+        return;
+      }
 
       const persisted = await persistConvertedPrice(stock, quote);
 
@@ -628,14 +661,30 @@ const StocksPage: React.FC = () => {
         const apiPriceText = getApiPriceText(live);
         const normalizedTooltip = getApiPriceTooltip(quote);
         const marketStatus = getMarketStatus(live);
+        const delayed = isQuoteDelayed(quote);
+        const delayTooltip = (delayed && quote?.delayWarning) ? quote.delayWarning : undefined;
         return (
           <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {apiPriceText}
-            {marketStatus === 'open' && (
-              <Tag color="green" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
-            )}
-            {marketStatus === 'closed' && (
-              <Tag style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
+            {delayed ? (
+              <Tooltip title={delayTooltip}>
+                <Tag
+                  color="orange"
+                  style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0, cursor: delayTooltip ? 'help' : undefined }}
+                  aria-label={delayTooltip ?? STALE_DELAY_LABEL}
+                >
+                  {STALE_DELAY_LABEL}
+                </Tag>
+              </Tooltip>
+            ) : (
+              <>
+                {marketStatus === 'open' && (
+                  <Tag color="green" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
+                )}
+                {marketStatus === 'closed' && (
+                  <Tag style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
+                )}
+              </>
             )}
           </span>
         );
