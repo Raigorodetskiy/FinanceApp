@@ -35,6 +35,7 @@ import {
   CheckOutlined,
   CloseOutlined,
   ReloadOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -162,6 +163,49 @@ const getTransactionDescription = (t: Transaction): string => {
 
 const formatCurrency = (value: number) => fmtCur(value, '€');
 
+/**
+ * Pure helper that applies all four transaction filters with AND semantics.
+ * Exported so it can be unit-tested independently of the React component.
+ */
+export const filterTransactions = (
+  transactions: Transaction[],
+  typeFilter: TransactionType | 'all',
+  dateFrom: Dayjs | null,
+  dateTo: Dayjs | null,
+  textQuery: string,
+): Transaction[] => {
+  const q = textQuery.trim().toLowerCase();
+  return transactions.filter((t) => {
+    // 1. Type filter
+    if (typeFilter !== 'all' && t.type !== typeFilter) return false;
+    // 2. Date from (inclusive, day boundary)
+    if (dateFrom && dayjs.utc(t.createdAt).local().isBefore(dateFrom.startOf('day'))) return false;
+    // 3. Date to (inclusive, end of day)
+    if (dateTo && dayjs.utc(t.createdAt).local().isAfter(dateTo.endOf('day'))) return false;
+    // 4. Text search
+    if (q) {
+      const stock = t.stock;
+      const generatedDesc = stock
+        ? `${TX_TYPE_LABELS[t.type]} — ${stock.ticker} · ${stock.name}`
+        : TX_TYPE_LABELS[t.type];
+      const haystack = [
+        t.description ?? '',
+        generatedDesc,
+        stock?.ticker ?? '',
+        stock?.name ?? '',
+        stock?.commonName ?? '',
+        stock?.isin ?? '',
+        stock?.wkn ?? '',
+        TX_TYPE_LABELS[t.type],
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+};
+
 const PortfolioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -178,6 +222,9 @@ const PortfolioDetailPage: React.FC = () => {
   const [balance, setBalance] = useState<PortfolioBalance | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txTypeFilter, setTxTypeFilter] = useState<TransactionType | 'all'>('all');
+  const [txDateFrom, setTxDateFrom] = useState<Dayjs | null>(null);
+  const [txDateTo, setTxDateTo] = useState<Dayjs | null>(null);
+  const [txTextFilter, setTxTextFilter] = useState('');
   const [financeLoaded, setFinanceLoaded] = useState(false);
 
   // Transaction modal
@@ -574,10 +621,10 @@ const PortfolioDetailPage: React.FC = () => {
   const pendingOrders = orders.filter((o) => o.status === 'Pending');
   const executedOrders = orders.filter((o) => o.status === 'Executed' || o.status === 'Cancelled');
 
-  const filteredTransactions = useMemo(() => {
-    if (txTypeFilter === 'all') return transactions;
-    return transactions.filter((t) => t.type === txTypeFilter);
-  }, [transactions, txTypeFilter]);
+  const filteredTransactions = useMemo(
+    () => filterTransactions(transactions, txTypeFilter, txDateFrom, txDateTo, txTextFilter),
+    [transactions, txTypeFilter, txDateFrom, txDateTo, txTextFilter],
+  );
   const stockOptions = useMemo(
     () => stocks.map((s) => ({
       value: s.id,
@@ -1109,19 +1156,45 @@ const PortfolioDetailPage: React.FC = () => {
 
                     {/* Toolbar */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-                      <Select
-                        value={txTypeFilter}
-                        onChange={(v) => setTxTypeFilter(v)}
-                        style={{ minWidth: 180 }}
-                        options={[
-                          { value: 'all', label: 'Все типы' },
-                          { value: 'Deposit', label: 'Пополнение' },
-                          { value: 'Withdrawal', label: 'Вывод' },
-                          { value: 'Buy', label: 'Покупка' },
-                          { value: 'Sell', label: 'Продажа' },
-                          { value: 'Dividend', label: 'Дивиденды' },
-                        ]}
-                      />
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                        <Select
+                          value={txTypeFilter}
+                          onChange={(v) => setTxTypeFilter(v)}
+                          style={{ minWidth: 160 }}
+                          options={[
+                            { value: 'all', label: 'Все типы' },
+                            { value: 'Deposit', label: 'Пополнение' },
+                            { value: 'Withdrawal', label: 'Вывод' },
+                            { value: 'Buy', label: 'Покупка' },
+                            { value: 'Sell', label: 'Продажа' },
+                            { value: 'Dividend', label: 'Дивиденды' },
+                          ]}
+                        />
+                        <DatePicker
+                          placeholder="Дата от"
+                          value={txDateFrom}
+                          onChange={(d) => setTxDateFrom(d)}
+                          style={{ width: 140 }}
+                          format="DD.MM.YYYY"
+                          allowClear
+                        />
+                        <DatePicker
+                          placeholder="Дата до"
+                          value={txDateTo}
+                          onChange={(d) => setTxDateTo(d)}
+                          style={{ width: 140 }}
+                          format="DD.MM.YYYY"
+                          allowClear
+                        />
+                        <Input
+                          placeholder="Поиск по описанию, тикеру…"
+                          prefix={<SearchOutlined />}
+                          allowClear
+                          value={txTextFilter}
+                          onChange={(e) => setTxTextFilter(e.target.value)}
+                          style={{ width: 220 }}
+                        />
+                      </div>
                       <Button type="primary" icon={<PlusOutlined />} onClick={openNewTxModal}>
                         Новая транзакция
                       </Button>
