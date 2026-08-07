@@ -32,8 +32,6 @@ import {
   DeleteOutlined,
   BellOutlined,
   CaretRightFilled,
-  CheckOutlined,
-  CloseOutlined,
   ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
@@ -52,7 +50,6 @@ import {
   updateOrder,
   deleteOrder,
   getBalance,
-  updateBalance,
   getTransactions,
   createTransaction,
   updateTransaction,
@@ -146,11 +143,42 @@ const TX_TYPE_COLORS: Record<TransactionType, string> = {
   Dividend: 'purple',
 };
 
-type BalanceField = 'cashBalance';
 
 const getEffectiveSignedAmount = (t: Transaction) => {
   if (t.signedAmount !== 0 || t.amount === 0) return t.signedAmount;
   return t.type === 'Deposit' ? t.amount : -t.amount;
+};
+
+/**
+ * Computes the net cash remainder from ALL portfolio transactions.
+ * Deposits, sales, and dividends increase it; withdrawals and buys decrease it.
+ */
+export const computeTransactionRemainder = (transactions: Transaction[]): number =>
+  transactions.reduce((sum, t) => sum + getEffectiveSignedAmount(t), 0);
+
+/**
+ * Computes the total portfolio value as stock value + cash remainder.
+ */
+export const computeTransactionPortfolioTotal = (stocksValue: number, remainder: number): number =>
+  stocksValue + remainder;
+
+/**
+ * Computes absolute (positive) totals per transaction type across all supplied transactions.
+ */
+export const computeTransactionTypeTotals = (
+  transactions: Transaction[],
+): Record<TransactionType, number> => {
+  const result: Record<TransactionType, number> = {
+    Deposit: 0,
+    Withdrawal: 0,
+    Buy: 0,
+    Sell: 0,
+    Dividend: 0,
+  };
+  for (const t of transactions) {
+    result[t.type] += t.amount;
+  }
+  return result;
 };
 
 const getTransactionDescription = (t: Transaction): string => {
@@ -232,9 +260,6 @@ const PortfolioDetailPage: React.FC = () => {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [txSubmitting, setTxSubmitting] = useState(false);
   const [txForm] = Form.useForm();
-  const [balanceEditField, setBalanceEditField] = useState<BalanceField | null>(null);
-  const [balanceDraft, setBalanceDraft] = useState({ cashBalance: 0 });
-  const [balanceSubmitting, setBalanceSubmitting] = useState(false);
 
   // Position modal
   const [posModalOpen, setPosModalOpen] = useState(false);
@@ -306,13 +331,6 @@ const PortfolioDetailPage: React.FC = () => {
     setExpandedPositionId(null);
   }, [id, section]);
 
-  useEffect(() => {
-    if (balance) {
-      setBalanceDraft({
-        cashBalance: balance.cashBalance,
-      });
-    }
-  }, [balance]);
 
   // ── Positions ──────────────────────────────────────────────
   const openAddPosModal = () => { setEditingItem(null); posForm.resetFields(); setPosModalOpen(true); };
@@ -542,48 +560,6 @@ const PortfolioDetailPage: React.FC = () => {
     } catch { message.error('Ошибка сохранения транзакции'); }
     finally { setTxSubmitting(false); }
   };
-  const startBalanceEdit = (field: BalanceField) => {
-    if (!balance) return;
-    setBalanceDraft({
-      cashBalance: balance.cashBalance,
-    });
-    setBalanceEditField(field);
-  };
-  const cancelBalanceEdit = () => {
-    if (balance) {
-      setBalanceDraft({
-        cashBalance: balance.cashBalance,
-      });
-    }
-    setBalanceEditField(null);
-  };
-  const handleBalanceDraftChange = (field: BalanceField, value: number | null) => {
-    setBalanceDraft((current) => ({
-      ...current,
-      [field]: value ?? 0,
-    }));
-  };
-  const handleBalanceSave = async () => {
-    if (!id || !balanceEditField) return;
-    if (!Number.isFinite(balanceDraft.cashBalance)) {
-      message.error('Введите корректное число');
-      return;
-    }
-
-    setBalanceSubmitting(true);
-    try {
-      await updateBalance(Number(id), {
-        cashBalance: balanceDraft.cashBalance,
-      });
-      message.success('Баланс обновлён');
-      setBalanceEditField(null);
-      await fetchFinanceData();
-    } catch {
-      message.error('Ошибка сохранения баланса');
-    } finally {
-      setBalanceSubmitting(false);
-    }
-  };
   const handleDeleteTx = async (txId: number) => {
     if (!id) return;
     try { await deleteTransaction(Number(id), txId); message.success('Транзакция удалена'); fetchFinanceData(); }
@@ -633,64 +609,13 @@ const PortfolioDetailPage: React.FC = () => {
     [stocks],
   );
   const previewStocksValue = balance?.stocksValue ?? 0;
-  const previewTotalPortfolioValue = previewStocksValue + balanceDraft.cashBalance;
+  const txRemainder = useMemo(() => computeTransactionRemainder(transactions), [transactions]);
+  const txTypeTotals = useMemo(() => computeTransactionTypeTotals(transactions), [transactions]);
+  const txTotalPortfolioValue = useMemo(
+    () => computeTransactionPortfolioTotal(previewStocksValue, txRemainder),
+    [previewStocksValue, txRemainder],
+  );
 
-  const renderBalanceRow = (field: BalanceField, label: string) => {
-    const isEditing = balanceEditField === field;
-
-    return (
-      <div
-        key={field}
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
-        }}
-      >
-        <div>
-          <Text type="secondary">{label}</Text>
-          {!isEditing && <div><Text strong style={{ fontSize: 18 }}>{formatCurrency(balanceDraft[field])}</Text></div>}
-        </div>
-        {isEditing ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <InputNumber
-              value={balanceDraft[field]}
-              onChange={(value) => handleBalanceDraftChange(field, value)}
-              step={0.01}
-              precision={2}
-              size="small"
-              style={{ width: 140 }}
-            />
-            <Button
-              type="text"
-              size="small"
-              icon={<CheckOutlined />}
-              loading={balanceSubmitting}
-              aria-label={`Сохранить ${label.toLowerCase()}`}
-              onClick={handleBalanceSave}
-            />
-            <Button
-              type="text"
-              size="small"
-              icon={<CloseOutlined />}
-              disabled={balanceSubmitting}
-              aria-label={`Отменить редактирование ${label.toLowerCase()}`}
-              onClick={cancelBalanceEdit}
-            />
-          </div>
-        ) : (
-          <Button
-            type="text"
-            size="small"
-            icon={<EditOutlined />}
-            aria-label={`Редактировать ${label.toLowerCase()}`}
-            onClick={() => startBalanceEdit(field)}
-          />
-        )}
-      </div>
-    );
-  };
 
   // ── Columns ────────────────────────────────────────────────
   const positionColumns = [
@@ -1131,12 +1056,12 @@ const PortfolioDetailPage: React.FC = () => {
                   <>
                     {/* Balance summary */}
                     {balance && (
-                      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                         <Col xs={24} sm={8}>
                           <Card>
                             <Text type="secondary">Итого портфель</Text>
                             <Title level={4} style={{ margin: 0 }}>
-                              {formatCurrency(balanceEditField ? previewTotalPortfolioValue : balance.totalPortfolioValue)}
+                              {formatCurrency(txTotalPortfolioValue)}
                             </Title>
                           </Card>
                         </Col>
@@ -1148,11 +1073,46 @@ const PortfolioDetailPage: React.FC = () => {
                         </Col>
                         <Col xs={24} sm={8}>
                           <Card>
-                            {renderBalanceRow('cashBalance', 'Денежный баланс')}
+                            <Text type="secondary">Остаток</Text>
+                            <Title level={4} style={{ margin: 0 }}>{formatCurrency(txRemainder)}</Title>
                           </Card>
                         </Col>
                       </Row>
                     )}
+
+                    {/* Transaction type totals */}
+                    <Row gutter={[16, 8]} style={{ marginBottom: 16 }}>
+                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
+                        <Card size={SUMMARY_CARD_SIZE}>
+                          <Text type="secondary">Пополнения</Text>
+                          <div><Text strong>{formatCurrency(txTypeTotals.Deposit)}</Text></div>
+                        </Card>
+                      </Col>
+                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
+                        <Card size={SUMMARY_CARD_SIZE}>
+                          <Text type="secondary">Вывод</Text>
+                          <div><Text strong>{formatCurrency(txTypeTotals.Withdrawal)}</Text></div>
+                        </Card>
+                      </Col>
+                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
+                        <Card size={SUMMARY_CARD_SIZE}>
+                          <Text type="secondary">Покупка</Text>
+                          <div><Text strong>{formatCurrency(txTypeTotals.Buy)}</Text></div>
+                        </Card>
+                      </Col>
+                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
+                        <Card size={SUMMARY_CARD_SIZE}>
+                          <Text type="secondary">Продажа</Text>
+                          <div><Text strong>{formatCurrency(txTypeTotals.Sell)}</Text></div>
+                        </Card>
+                      </Col>
+                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
+                        <Card size={SUMMARY_CARD_SIZE}>
+                          <Text type="secondary">Дивиденды</Text>
+                          <div><Text strong>{formatCurrency(txTypeTotals.Dividend)}</Text></div>
+                        </Card>
+                      </Col>
+                    </Row>
 
                     {/* Toolbar */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
