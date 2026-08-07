@@ -1056,63 +1056,63 @@ const PortfolioDetailPage: React.FC = () => {
                   <>
                     {/* Balance summary */}
                     {balance && (
-                      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                        <Col xs={24} sm={8}>
-                          <Card>
+                      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                        <div style={{ flex: '1 1 0', minWidth: 120 }}>
+                          <Card style={{ height: '100%' }}>
                             <Text type="secondary">Итого портфель</Text>
                             <Title level={4} style={{ margin: 0 }}>
                               {formatCurrency(txTotalPortfolioValue)}
                             </Title>
                           </Card>
-                        </Col>
-                        <Col xs={24} sm={8}>
-                          <Card>
+                        </div>
+                        <div style={{ flex: '1 1 0', minWidth: 120 }}>
+                          <Card style={{ height: '100%' }}>
                             <Text type="secondary">Стоимость акций</Text>
                             <Title level={4} style={{ margin: 0 }}>{formatCurrency(balance.stocksValue)}</Title>
                           </Card>
-                        </Col>
-                        <Col xs={24} sm={8}>
-                          <Card>
+                        </div>
+                        <div style={{ flex: '1 1 0', minWidth: 120 }}>
+                          <Card style={{ height: '100%' }}>
                             <Text type="secondary">Остаток</Text>
                             <Title level={4} style={{ margin: 0 }}>{formatCurrency(txRemainder)}</Title>
                           </Card>
-                        </Col>
-                      </Row>
+                        </div>
+                      </div>
                     )}
 
                     {/* Transaction type totals */}
-                    <Row gutter={[16, 8]} style={{ marginBottom: 16 }}>
-                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
-                        <Card size={SUMMARY_CARD_SIZE}>
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                      <div style={{ flex: '1 1 0', minWidth: 100 }}>
+                        <Card size={SUMMARY_CARD_SIZE} style={{ height: '100%' }}>
                           <Text type="secondary">Пополнения</Text>
                           <div><Text strong>{formatCurrency(txTypeTotals.Deposit)}</Text></div>
                         </Card>
-                      </Col>
-                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
-                        <Card size={SUMMARY_CARD_SIZE}>
+                      </div>
+                      <div style={{ flex: '1 1 0', minWidth: 100 }}>
+                        <Card size={SUMMARY_CARD_SIZE} style={{ height: '100%' }}>
                           <Text type="secondary">Вывод</Text>
                           <div><Text strong>{formatCurrency(txTypeTotals.Withdrawal)}</Text></div>
                         </Card>
-                      </Col>
-                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
-                        <Card size={SUMMARY_CARD_SIZE}>
+                      </div>
+                      <div style={{ flex: '1 1 0', minWidth: 100 }}>
+                        <Card size={SUMMARY_CARD_SIZE} style={{ height: '100%' }}>
                           <Text type="secondary">Покупка</Text>
                           <div><Text strong>{formatCurrency(txTypeTotals.Buy)}</Text></div>
                         </Card>
-                      </Col>
-                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
-                        <Card size={SUMMARY_CARD_SIZE}>
+                      </div>
+                      <div style={{ flex: '1 1 0', minWidth: 100 }}>
+                        <Card size={SUMMARY_CARD_SIZE} style={{ height: '100%' }}>
                           <Text type="secondary">Продажа</Text>
                           <div><Text strong>{formatCurrency(txTypeTotals.Sell)}</Text></div>
                         </Card>
-                      </Col>
-                      <Col xs={12} sm={8} md={8} lg={4} xl={4}>
-                        <Card size={SUMMARY_CARD_SIZE}>
+                      </div>
+                      <div style={{ flex: '1 1 0', minWidth: 100 }}>
+                        <Card size={SUMMARY_CARD_SIZE} style={{ height: '100%' }}>
                           <Text type="secondary">Дивиденды</Text>
                           <div><Text strong>{formatCurrency(txTypeTotals.Dividend)}</Text></div>
                         </Card>
-                      </Col>
-                    </Row>
+                      </div>
+                    </div>
 
                     {/* Toolbar */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
