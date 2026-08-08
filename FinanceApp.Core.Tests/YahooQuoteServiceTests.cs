@@ -602,6 +602,93 @@ public class YahooQuoteServiceTests
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
+    // ── day high / low tests ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetQuoteAsync_ReturnsDayHighAndLow_WhenPresentInMeta()
+    {
+        const string response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 520.5,
+                    "chartPreviousClose": 514.0,
+                    "regularMarketDayHigh": 525.0,
+                    "regularMarketDayLow": 512.5,
+                    "marketState": "REGULAR"
+                  },
+                  "timestamp": [1720000000],
+                  "indicators": {
+                    "quote": [{ "close": [520.5] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Quote);
+        Assert.Equal(525.0m, result.Quote!.DayHigh);
+        Assert.Equal(512.5m, result.Quote.DayLow);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_DayHighAndLow_NullWhenAbsent()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(ValidChartResponse);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Quote);
+        Assert.Null(result.Quote!.DayHigh);
+        Assert.Null(result.Quote.DayLow);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_DayHighAndLow_NullWhenZero()
+    {
+        const string response = """
+            {
+              "chart": {
+                "result": [{
+                  "meta": {
+                    "currency": "EUR",
+                    "regularMarketPrice": 520.5,
+                    "chartPreviousClose": 514.0,
+                    "regularMarketDayHigh": 0,
+                    "regularMarketDayLow": 0,
+                    "marketState": "REGULAR"
+                  },
+                  "timestamp": [1720000000],
+                  "indicators": {
+                    "quote": [{ "close": [520.5] }]
+                  }
+                }]
+              }
+            }
+            """;
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Quote);
+        Assert.Null(result.Quote!.DayHigh);
+        Assert.Null(result.Quote.DayLow);
+    }
+
     // ── candle selection tests ────────────────────────────────────────────────
 
     [Fact]

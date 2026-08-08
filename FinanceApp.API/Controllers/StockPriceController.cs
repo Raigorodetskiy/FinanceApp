@@ -80,6 +80,8 @@ public class StockPriceController : ControllerBase
             string priceSession;
             DateTime? priceTimestampUtc;
             string? delayWarning = null;
+            decimal? rawDayHigh = null;
+            decimal? rawDayLow = null;
 
             if (normalizedExchange == StockExchanges.Frankfurt)
             {
@@ -99,6 +101,8 @@ public class StockPriceController : ControllerBase
                 priceSession = quote.PriceSession;
                 priceTimestampUtc = quote.PriceTimestampUtc;
                 delayWarning = quote.IsDelayed ? quote.DelayReason : null;
+                rawDayHigh = quote.DayHigh;
+                rawDayLow = quote.DayLow;
             }
             else
             {
@@ -119,6 +123,8 @@ public class StockPriceController : ControllerBase
                 priceTimestampUtc = quote.QuoteTimestampUnix > 0
                     ? DateTimeOffset.FromUnixTimeSeconds(quote.QuoteTimestampUnix).UtcDateTime
                     : null;
+                rawDayHigh = quote.DayHigh;
+                rawDayLow = quote.DayLow;
             }
 
             // Optional pre-market enrichment via finanzen.net (experimental, disabled by default).
@@ -182,7 +188,9 @@ public class StockPriceController : ControllerBase
                 priceSession,
                 priceTimestampUtc,
                 priceSource,
-                delayWarning));
+                delayWarning,
+                rawDayHigh,
+                rawDayLow));
         }
         catch (Exception)
         {

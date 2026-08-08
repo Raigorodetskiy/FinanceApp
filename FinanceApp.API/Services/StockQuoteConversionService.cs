@@ -16,7 +16,9 @@ public interface IStockQuoteConversionService
         string priceSession = "REGULAR",
         DateTime? priceTimestampUtc = null,
         string? priceSource = null,
-        string? delayWarning = null);
+        string? delayWarning = null,
+        decimal? rawDayHigh = null,
+        decimal? rawDayLow = null);
     StockHistoryPointResponse BuildHistoryPointResponse(StockHistoricalPrice historicalPrice, CurrencyConversionContext conversionContext);
 }
 
@@ -62,11 +64,16 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
         string priceSession = "REGULAR",
         DateTime? priceTimestampUtc = null,
         string? priceSource = null,
-        string? delayWarning = null)
+        string? delayWarning = null,
+        decimal? rawDayHigh = null,
+        decimal? rawDayLow = null)
     {
         var normalizedCurrentPrice = conversionContext.Normalize(rawCurrentPrice);
         var normalizedPreviousClose = conversionContext.Normalize(rawPreviousClose);
         var normalizedChange = normalizedCurrentPrice - normalizedPreviousClose;
+
+        decimal? normalizedDayHigh = rawDayHigh.HasValue ? conversionContext.Normalize(rawDayHigh.Value) : null;
+        decimal? normalizedDayLow = rawDayLow.HasValue ? conversionContext.Normalize(rawDayLow.Value) : null;
 
         return new StockQuoteResponse
         {
@@ -84,6 +91,12 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
             CurrentPriceEur = conversionContext.ConvertToEur(rawCurrentPrice),
             ChangeEur = conversionContext.ConvertNormalizedToEur(normalizedChange),
             PercentChange = percentChange,
+            RawDayHigh = rawDayHigh,
+            RawDayLow = rawDayLow,
+            NormalizedDayHigh = normalizedDayHigh,
+            NormalizedDayLow = normalizedDayLow,
+            DayHighEur = normalizedDayHigh.HasValue ? conversionContext.ConvertNormalizedToEur(normalizedDayHigh.Value) : null,
+            DayLowEur = normalizedDayLow.HasValue ? conversionContext.ConvertNormalizedToEur(normalizedDayLow.Value) : null,
             MarketState = marketState,
             PriceSession = priceSession,
             PriceTimestampUtc = priceTimestampUtc,
