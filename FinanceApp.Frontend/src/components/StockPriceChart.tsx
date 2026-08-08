@@ -321,6 +321,30 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     )
   );
 
+  const renderDayPriceStat = (
+    label: string,
+    quote: typeof liveQuote,
+    displayVal: number | null,
+    rawVal: number | null,
+    currencyCode: string,
+    valueColor: string,
+  ) => (
+    <div>
+      <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>{label}</div>
+      {displayVal == null ? (
+        <div style={{ fontSize: 15, fontWeight: 600, color: COLOR_SECONDARY_TEXT }}>—</div>
+      ) : (
+        <div style={{ fontSize: 15, fontWeight: 600, color: valueColor }}>
+          {rawVal != null && quote?.quoteUnitMultiplier !== 1 && quote?.currency != null ? (
+            <Tooltip title={`Исходное значение: ${rawVal.toFixed(2)} ${quote.currency}`}>
+              <span>{formatCurrencyValue(displayVal, currencyCode)}</span>
+            </Tooltip>
+          ) : formatCurrencyValue(displayVal, currencyCode)}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
       id={panelId}
@@ -495,6 +519,26 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     </div>
                   )}
                 </div>
+                {renderDayPriceStat(
+                  'Макс. за день',
+                  liveQuote,
+                  historyHasEurConversion
+                    ? (liveQuote?.dayHighEur ?? null)
+                    : (liveQuote?.normalizedDayHigh ?? liveQuote?.rawDayHigh ?? null),
+                  liveQuote?.rawDayHigh ?? null,
+                  displayCurrencyCode,
+                  COLOR_POSITIVE,
+                )}
+                {renderDayPriceStat(
+                  'Мин. за день',
+                  liveQuote,
+                  historyHasEurConversion
+                    ? (liveQuote?.dayLowEur ?? null)
+                    : (liveQuote?.normalizedDayLow ?? liveQuote?.rawDayLow ?? null),
+                  liveQuote?.rawDayLow ?? null,
+                  displayCurrencyCode,
+                  COLOR_NEGATIVE,
+                )}
                 <div>
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     {periodSummary.baselineLabel}

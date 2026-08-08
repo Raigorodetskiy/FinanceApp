@@ -51,7 +51,11 @@ public sealed record YahooQuoteData(
     /// Human-readable reason why the quote is considered delayed/stale, if applicable.
     /// Null when the quote is considered fresh or when no active session could be determined.
     /// </summary>
-    string? DelayReason = null);
+    string? DelayReason = null,
+    /// <summary>Current regular-session day high (<c>regularMarketDayHigh</c>). Null when absent or zero.</summary>
+    decimal? DayHigh = null,
+    /// <summary>Current regular-session day low (<c>regularMarketDayLow</c>). Null when absent or zero.</summary>
+    decimal? DayLow = null);
 
 public sealed class YahooQuoteService : IYahooQuoteService
 {
@@ -191,6 +195,11 @@ public sealed class YahooQuoteService : IYahooQuoteService
             var estimateCurrency = GetOptionalString(meta, "financialCurrency");
             var marketState = ParseMarketState(meta, timeProvider);
 
+            decimal? dayHigh = TryGetDecimal(meta, "regularMarketDayHigh", out var parsedDayHigh) && parsedDayHigh > 0
+                ? parsedDayHigh : null;
+            decimal? dayLow = TryGetDecimal(meta, "regularMarketDayLow", out var parsedDayLow) && parsedDayLow > 0
+                ? parsedDayLow : null;
+
             // Yahoo chart always returns regularMarketPrice regardless of the current session.
             // PriceSession is therefore always "REGULAR"; MarketState reflects the current session.
             const string priceSession = "REGULAR";
@@ -219,7 +228,9 @@ public sealed class YahooQuoteService : IYahooQuoteService
                 priceSession,
                 priceTimestampUtc,
                 isDelayed,
-                delayReason));
+                delayReason,
+                dayHigh,
+                dayLow));
         }
         catch (JsonException)
         {

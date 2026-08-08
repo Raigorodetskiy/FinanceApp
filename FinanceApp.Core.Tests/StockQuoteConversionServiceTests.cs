@@ -281,6 +281,60 @@ public class StockQuoteConversionServiceTests
         Assert.False(quote.IsStale);
     }
 
+    [Fact]
+    public async Task DayHighLow_NormalizedAndConvertedToEur_WhenPresent()
+    {
+        // GBp→GBP: multiplier 0.01; rate GBP→EUR 1.15
+        var service = CreateService(("GBP", 1.15m));
+        var context = await service.GetConversionContextAsync("GBp", null);
+
+        var quote = service.BuildQuoteResponse("BARC.L", 525.40m, 500m, 5.08m, "REGULAR", context,
+            rawDayHigh: 530m, rawDayLow: 510m);
+
+        // NormalizedDayHigh = 530 * 0.01 = 5.30
+        Assert.Equal(5.30m, quote.NormalizedDayHigh);
+        Assert.Equal(5.10m, quote.NormalizedDayLow);
+        // DayHighEur = 5.30 * 1.15 = 6.095
+        Assert.Equal(5.30m * 1.15m, quote.DayHighEur);
+        Assert.Equal(5.10m * 1.15m, quote.DayLowEur);
+        // Raw values preserved
+        Assert.Equal(530m, quote.RawDayHigh);
+        Assert.Equal(510m, quote.RawDayLow);
+    }
+
+    [Fact]
+    public async Task DayHighLow_NullWhenRawIsNull()
+    {
+        var service = CreateService(("EUR", 1m));
+        var context = await service.GetConversionContextAsync("EUR", null);
+
+        var quote = service.BuildQuoteResponse("TEST", 100m, 98m, 2m, "REGULAR", context);
+
+        Assert.Null(quote.RawDayHigh);
+        Assert.Null(quote.RawDayLow);
+        Assert.Null(quote.NormalizedDayHigh);
+        Assert.Null(quote.NormalizedDayLow);
+        Assert.Null(quote.DayHighEur);
+        Assert.Null(quote.DayLowEur);
+    }
+
+    [Fact]
+    public async Task DayHighLow_EurConversionNull_WhenNoRate()
+    {
+        var service = CreateService(); // no rates configured
+        var context = await service.GetConversionContextAsync("USD", null);
+
+        var quote = service.BuildQuoteResponse("MSFT", 200m, 198m, 1m, "REGULAR", context,
+            rawDayHigh: 205m, rawDayLow: 195m);
+
+        Assert.Equal(205m, quote.RawDayHigh);
+        Assert.Equal(195m, quote.RawDayLow);
+        Assert.Equal(205m, quote.NormalizedDayHigh); // USD multiplier = 1
+        Assert.Equal(195m, quote.NormalizedDayLow);
+        Assert.Null(quote.DayHighEur);  // no rate available
+        Assert.Null(quote.DayLowEur);
+    }
+
     private sealed class FakeTimeProvider : TimeProvider
     {
         private readonly DateTimeOffset _utcNow;

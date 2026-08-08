@@ -65,6 +65,18 @@ export interface StockQuoteResponse {
   currentPriceEur: number | null;
   changeEur: number | null;
   percentChange: number;
+  /** Current regular-session day high in raw quote units. Null when unavailable. */
+  rawDayHigh: number | null;
+  /** Current regular-session day low in raw quote units. Null when unavailable. */
+  rawDayLow: number | null;
+  /** Day high after normalization (e.g. GBp → GBP). Null when unavailable. */
+  normalizedDayHigh: number | null;
+  /** Day low after normalization. Null when unavailable. */
+  normalizedDayLow: number | null;
+  /** Day high converted to EUR. Null when unavailable or no rate. */
+  dayHighEur: number | null;
+  /** Day low converted to EUR. Null when unavailable or no rate. */
+  dayLowEur: number | null;
   marketState: string;
   /** Session the returned price belongs to (e.g. "REGULAR", "LAST"). Distinct from marketState. */
   priceSession: string;

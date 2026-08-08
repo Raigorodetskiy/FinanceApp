@@ -43,7 +43,11 @@ public sealed record FinnhubQuoteData(
     /// Session the price belongs to.  Finnhub exposes a generic "current/last" price that
     /// cannot be reliably attributed to a specific session, so this is always <c>"LAST"</c>.
     /// </summary>
-    string PriceSession = "LAST");
+    string PriceSession = "LAST",
+    /// <summary>Current regular-session day high as returned by Finnhub ("h"). Null when absent or zero.</summary>
+    decimal? DayHigh = null,
+    /// <summary>Current regular-session day low as returned by Finnhub ("l"). Null when absent or zero.</summary>
+    decimal? DayLow = null);
 
 public sealed class FinnhubQuoteService : IFinnhubQuoteService
 {
@@ -235,6 +239,9 @@ public sealed class FinnhubQuoteService : IFinnhubQuoteService
                 : previousClose > 0 ? (currentPrice - previousClose) / previousClose * 100m : 0m;
             var timestamp = TryGetInt64(root, "t", out var parsedTimestamp) ? parsedTimestamp : 0L;
 
+            decimal? dayHigh = TryGetDecimal(root, "h", out var parsedDayHigh) && parsedDayHigh > 0 ? parsedDayHigh : null;
+            decimal? dayLow = TryGetDecimal(root, "l", out var parsedDayLow) && parsedDayLow > 0 ? parsedDayLow : null;
+
             return FinnhubQuoteResult.Success(new FinnhubQuoteData(
                 symbol,
                 currentPrice,
@@ -246,7 +253,9 @@ public sealed class FinnhubQuoteService : IFinnhubQuoteService
                 null,
                 null,
                 null,
-                "UNKNOWN"));
+                "UNKNOWN",
+                DayHigh: dayHigh,
+                DayLow: dayLow));
         }
         catch (JsonException)
         {

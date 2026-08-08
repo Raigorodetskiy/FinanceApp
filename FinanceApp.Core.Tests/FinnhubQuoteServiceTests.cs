@@ -165,6 +165,63 @@ public class FinnhubQuoteServiceTests
     }
 
     [Fact]
+    public async Task GetQuoteAsync_ReturnsDayHighAndLow_WhenPresent()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson("/quote", """{"c":150.25,"o":149.75,"pc":148.50,"dp":1.18,"t":1720000000,"h":152.00,"l":148.10}""");
+        handler.EnqueueJson("/stock/profile2", """{"currency":"USD","estimateCurrency":"USD","country":"US","exchange":"NASDAQ"}""");
+        handler.EnqueueJson("/stock/market-status", """{"isOpen":true,"session":"regular"}""");
+
+        var service = CreateService(handler, memoryCache);
+
+        var result = await service.GetQuoteAsync("AAPL");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Quote);
+        Assert.Equal(152.00m, result.Quote!.DayHigh);
+        Assert.Equal(148.10m, result.Quote.DayLow);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_DayHighAndLow_NullWhenAbsent()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson("/quote", """{"c":150.25,"o":149.75,"pc":148.50,"dp":1.18,"t":1720000000}""");
+        handler.EnqueueJson("/stock/profile2", """{"currency":"USD","estimateCurrency":"USD","country":"US","exchange":"NASDAQ"}""");
+        handler.EnqueueJson("/stock/market-status", """{"isOpen":true,"session":"regular"}""");
+
+        var service = CreateService(handler, memoryCache);
+
+        var result = await service.GetQuoteAsync("AAPL");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Quote);
+        Assert.Null(result.Quote!.DayHigh);
+        Assert.Null(result.Quote.DayLow);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_DayHighAndLow_NullWhenZero()
+    {
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson("/quote", """{"c":150.25,"o":149.75,"pc":148.50,"dp":1.18,"t":1720000000,"h":0,"l":0}""");
+        handler.EnqueueJson("/stock/profile2", """{"currency":"USD","estimateCurrency":"USD","country":"US","exchange":"NASDAQ"}""");
+        handler.EnqueueJson("/stock/market-status", """{"isOpen":true,"session":"regular"}""");
+
+        var service = CreateService(handler, memoryCache);
+
+        var result = await service.GetQuoteAsync("AAPL");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Quote);
+        Assert.Null(result.Quote!.DayHigh);
+        Assert.Null(result.Quote.DayLow);
+    }
+
+    [Fact]
     public async Task GetQuoteAsync_MissingApiKey_ReturnsConfigurationError()
     {
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());

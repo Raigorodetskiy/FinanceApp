@@ -16,6 +16,18 @@ public sealed class StockQuoteResponse
     public decimal? CurrentPriceEur { get; init; }
     public decimal? ChangeEur { get; init; }
     public decimal PercentChange { get; init; }
+    /// <summary>Current regular-session day high in raw quote units. Null when unavailable.</summary>
+    public decimal? RawDayHigh { get; init; }
+    /// <summary>Current regular-session day low in raw quote units. Null when unavailable.</summary>
+    public decimal? RawDayLow { get; init; }
+    /// <summary>Day high after quote-unit normalization (e.g. GBp → GBP). Null when unavailable.</summary>
+    public decimal? NormalizedDayHigh { get; init; }
+    /// <summary>Day low after quote-unit normalization. Null when unavailable.</summary>
+    public decimal? NormalizedDayLow { get; init; }
+    /// <summary>Day high converted to EUR. Null when unavailable or no rate.</summary>
+    public decimal? DayHighEur { get; init; }
+    /// <summary>Day low converted to EUR. Null when unavailable or no rate.</summary>
+    public decimal? DayLowEur { get; init; }
     public string MarketState { get; init; } = "CLOSED";
     /// <summary>
     /// Session that the returned price belongs to (e.g. "REGULAR", "LAST").
