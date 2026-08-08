@@ -63,7 +63,33 @@ public sealed class StockHistoryResponse
     public DateTime? RateTimestampUtc { get; init; }
     public string? RateSource { get; init; }
     public string? ConversionWarning { get; init; }
+    public StockHistoryVolumeMetricsResponse VolumeMetrics { get; init; } = new();
     public IReadOnlyList<StockHistoryPointResponse> Points { get; init; } = Array.Empty<StockHistoryPointResponse>();
+}
+
+public sealed class StockHistoryVolumeMetricsResponse
+{
+    public decimal? AverageVolume20 { get; init; }
+    public decimal? AverageVolume50 { get; init; }
+    public decimal? RelativeVolume { get; init; }
+    /// <summary>
+    /// Latest close × latest volume using the same display-price basis as the chart:
+    /// EUR when conversion is available, otherwise normalized quote currency units.
+    /// </summary>
+    public decimal? Turnover { get; init; }
+    /// <summary>
+    /// Currency code for <see cref="Turnover"/>. Usually EUR when conversion is available;
+    /// otherwise the normalized quote currency (or raw quote currency when normalization
+    /// leaves the unit unchanged but no normalized code is available).
+    /// </summary>
+    public string? TurnoverCurrency { get; init; }
+    public DateTime? LatestMetricsTimestamp { get; init; }
+    /// <summary>
+    /// True when the service could reliably exclude an in-progress candle and picked
+    /// a completed candle for the latest volume metrics. False when it falls back to
+    /// the latest returned candle because completion cannot be determined reliably.
+    /// </summary>
+    public bool UsesCompletedCandle { get; init; }
 }
 
 

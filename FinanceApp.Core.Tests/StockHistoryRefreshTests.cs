@@ -260,6 +260,166 @@ public class StockHistoryRefreshTests
         Assert.Single(response.Points);
     }
 
+    [Fact]
+    public async Task RefreshHistoryAsync_PersistsYahooVolume_AndReturnsItFromHistory()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var intradayBase = DateTimeOffset.UtcNow.AddMinutes(-30);
+        intradayBase = new DateTimeOffset(
+            intradayBase.Year,
+            intradayBase.Month,
+            intradayBase.Day,
+            intradayBase.Hour,
+            (intradayBase.Minute / 10) * 10,
+            0,
+            TimeSpan.Zero);
+
+        var handler = new SequenceHandler(
+            SuccessChartJson(1704067200, 10m, 111),
+            SuccessChartJson(1704672000, 20m, 222),
+            SuccessChartJson(1705276800, 30m, 333),
+            SuccessChartJson(1705881600, 40m, 444),
+            SuccessChartJson(
+                (intradayBase.ToUnixTimeSeconds(), 50m, 40L),
+                (intradayBase.AddMinutes(5).ToUnixTimeSeconds(), 55m, 60L)));
+        var service = CreateService(context, handler);
+
+        await service.RefreshHistoryAsync(stock);
+
+        var monthlyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == 1 && x.Interval == "1mo");
+        var dailyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == 1 && x.Interval == "1d");
+        var intradayRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == 1 && x.Interval == "10m");
+
+        Assert.Equal(111, monthlyRow.Volume);
+        Assert.Equal(333, dailyRow.Volume);
+        Assert.Equal(100, intradayRow.Volume);
+
+        var todayHistory = await service.GetHistoryAsync(stock, "today");
+        var todayPoint = Assert.Single(todayHistory.Points);
+        Assert.Equal(100, todayPoint.Volume);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_ComputesVolumeMetrics_FromSelectedListingHistory()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+
+        var startDate = DateTime.UtcNow.Date.AddDays(-50);
+        for (var i = 0; i < 50; i++)
+        {
+            context.StockHistoricalPrices.Add(new StockHistoricalPrice
+            {
+                StockId = 1,
+                Interval = "1d",
+                Timestamp = startDate.AddDays(i),
+                Open = 100m + i,
+                High = 100m + i,
+                Low = 100m + i,
+                Close = 100m + i,
+                QuoteCurrency = "USD",
+                FinancialCurrency = "USD",
+                NormalizedQuoteCurrency = "USD",
+                QuoteUnitMultiplier = 1m,
+                Volume = i + 1
+            });
+        }
+
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new SequenceHandler());
+        var response = await service.GetHistoryAsync(stock, "6m");
+
+        Assert.Equal(40.5m, response.VolumeMetrics.AverageVolume20);
+        Assert.Equal(25.5m, response.VolumeMetrics.AverageVolume50);
+        Assert.Equal(50m / 40.5m, response.VolumeMetrics.RelativeVolume);
+        Assert.Equal(149m * 50m, response.VolumeMetrics.Turnover);
+        Assert.Equal("EUR", response.VolumeMetrics.TurnoverCurrency);
+        Assert.True(response.VolumeMetrics.UsesCompletedCandle);
+        Assert.Equal(startDate.AddDays(49), response.VolumeMetrics.LatestMetricsTimestamp);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_WithInsufficientPeriods_ReturnsNullAverageMetrics()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+
+        var startDate = DateTime.UtcNow.Date.AddDays(-19);
+        for (var i = 0; i < 19; i++)
+        {
+            context.StockHistoricalPrices.Add(new StockHistoricalPrice
+            {
+                StockId = 1,
+                Interval = "1d",
+                Timestamp = startDate.AddDays(i),
+                Open = 20m + i,
+                High = 20m + i,
+                Low = 20m + i,
+                Close = 20m + i,
+                QuoteCurrency = "USD",
+                FinancialCurrency = "USD",
+                NormalizedQuoteCurrency = "USD",
+                QuoteUnitMultiplier = 1m,
+                Volume = 100 + i
+            });
+        }
+
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new SequenceHandler());
+        var response = await service.GetHistoryAsync(stock, "6m");
+
+        Assert.Null(response.VolumeMetrics.AverageVolume20);
+        Assert.Null(response.VolumeMetrics.AverageVolume50);
+        Assert.Null(response.VolumeMetrics.RelativeVolume);
+        Assert.Equal(38m * 118m, response.VolumeMetrics.Turnover);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_WithZeroVolumeBaseline_AvoidsZeroAverageAndRelativeVolume()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+
+        var startDate = DateTime.UtcNow.Date.AddDays(-20);
+        for (var i = 0; i < 20; i++)
+        {
+            context.StockHistoricalPrices.Add(new StockHistoricalPrice
+            {
+                StockId = 1,
+                Interval = "1d",
+                Timestamp = startDate.AddDays(i),
+                Open = 10m,
+                High = 10m,
+                Low = 10m,
+                Close = 10m,
+                QuoteCurrency = "USD",
+                FinancialCurrency = "USD",
+                NormalizedQuoteCurrency = "USD",
+                QuoteUnitMultiplier = 1m,
+                Volume = 0
+            });
+        }
+
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new SequenceHandler());
+        var response = await service.GetHistoryAsync(stock, "6m");
+
+        Assert.Null(response.VolumeMetrics.AverageVolume20);
+        Assert.Null(response.VolumeMetrics.AverageVolume50);
+        Assert.Null(response.VolumeMetrics.RelativeVolume);
+        Assert.Null(response.VolumeMetrics.Turnover);
+    }
+
     private static AppDbContext CreateInMemoryContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -307,8 +467,19 @@ public class StockHistoryRefreshTests
             NullLogger<StockHistoryService>.Instance);
     }
 
-    private static string SuccessChartJson(long unixTimestamp, decimal close) =>
-        $@"{{""chart"":{{""result"":[{{""meta"":{{""currency"":""USD"",""financialCurrency"":""USD""}},""timestamp"":[{unixTimestamp}],""indicators"":{{""quote"":[{{""open"":[{close}],""high"":[{close}],""low"":[{close}],""close"":[{close}],""volume"":[100]}}]}}}}]}}}}";
+    private static string SuccessChartJson(long unixTimestamp, decimal close, long volume = 100L) =>
+        SuccessChartJson((unixTimestamp, close, volume));
+
+    private static string SuccessChartJson(params (long Timestamp, decimal Close, long Volume)[] candles)
+    {
+        var timestamps = string.Join(",", candles.Select(x => x.Timestamp));
+        var opens = string.Join(",", candles.Select(x => x.Close));
+        var highs = string.Join(",", candles.Select(x => x.Close));
+        var lows = string.Join(",", candles.Select(x => x.Close));
+        var closes = string.Join(",", candles.Select(x => x.Close));
+        var volumes = string.Join(",", candles.Select(x => x.Volume));
+        return $@"{{""chart"":{{""result"":[{{""meta"":{{""currency"":""USD"",""financialCurrency"":""USD""}},""timestamp"":[{timestamps}],""indicators"":{{""quote"":[{{""open"":[{opens}],""high"":[{highs}],""low"":[{lows}],""close"":[{closes}],""volume"":[{volumes}]}}]}}}}]}}}}";
+    }
 
     private static string EmptyChartJson() => """{"chart":{"result":[]}}""";
 
