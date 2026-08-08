@@ -21,6 +21,10 @@ import {
 import { buildHistoryChartData } from './stockPriceChartData';
 import type { HistoryChartPoint } from './stockPriceChartData';
 import { buildFinanzenNetUrl } from '../utils/finanzenNet';
+import {
+  DAY_HIGH_LOW_VALUE_FONT_SIZE,
+  getDayHighLowDisplay,
+} from './dayHighLow';
 import type {
   StockHistoryRange,
   StockHistoryResponse,
@@ -249,6 +253,11 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     liveQuote != null && liveQuote.quoteUnitMultiplier !== 1 && liveQuote.normalizedQuoteCurrency
       ? `${liveQuote.normalizedCurrentPrice.toFixed(3)} ${liveQuote.normalizedQuoteCurrency}`
       : null;
+
+  const dayHighLowDisplay = useMemo(() => {
+    const todayUtcDate = new Date().toISOString().slice(0, 10);
+    return getDayHighLowDisplay(liveQuote, historyData, historyHasEurConversion, todayUtcDate);
+  }, [liveQuote, historyData, historyHasEurConversion]);
   const latestVolumePoint = useMemo(() => {
     if (!volumeMetrics?.latestMetricsTimestamp) {
       return null;
@@ -328,16 +337,21 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     rawVal: number | null,
     currencyCode: string,
     valueColor: string,
+    statTooltip?: string | null,
   ) => (
     <div>
       <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>{label}</div>
       {displayVal == null ? (
-        <div style={{ fontSize: 15, fontWeight: 600, color: COLOR_SECONDARY_TEXT }}>—</div>
+        <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: COLOR_SECONDARY_TEXT }}>—</div>
       ) : (
-        <div style={{ fontSize: 15, fontWeight: 600, color: valueColor }}>
+        <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: valueColor }}>
           {rawVal != null && quote?.quoteUnitMultiplier !== 1 && quote?.currency != null ? (
             <Tooltip title={`Исходное значение: ${rawVal.toFixed(2)} ${quote.currency}`}>
               <span>{formatCurrencyValue(displayVal, currencyCode)}</span>
+            </Tooltip>
+          ) : statTooltip != null ? (
+            <Tooltip title={statTooltip}>
+              <span style={{ cursor: 'help' }}>{formatCurrencyValue(displayVal, currencyCode)}</span>
             </Tooltip>
           ) : formatCurrencyValue(displayVal, currencyCode)}
         </div>
@@ -520,24 +534,26 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                   )}
                 </div>
                 {renderDayPriceStat(
-                  'Макс. за день',
+                  dayHighLowDisplay.high.label,
                   liveQuote,
-                  historyHasEurConversion
-                    ? (liveQuote?.dayHighEur ?? null)
-                    : (liveQuote?.normalizedDayHigh ?? liveQuote?.rawDayHigh ?? null),
-                  liveQuote?.rawDayHigh ?? null,
+                  dayHighLowDisplay.high.value,
+                  dayHighLowDisplay.high.rawValue,
                   displayCurrencyCode,
                   COLOR_POSITIVE,
+                  dayHighLowDisplay.high.fallbackDate != null
+                    ? `Данные сессии ${dayHighLowDisplay.high.fallbackDate}`
+                    : null,
                 )}
                 {renderDayPriceStat(
-                  'Мин. за день',
+                  dayHighLowDisplay.low.label,
                   liveQuote,
-                  historyHasEurConversion
-                    ? (liveQuote?.dayLowEur ?? null)
-                    : (liveQuote?.normalizedDayLow ?? liveQuote?.rawDayLow ?? null),
-                  liveQuote?.rawDayLow ?? null,
+                  dayHighLowDisplay.low.value,
+                  dayHighLowDisplay.low.rawValue,
                   displayCurrencyCode,
                   COLOR_NEGATIVE,
+                  dayHighLowDisplay.low.fallbackDate != null
+                    ? `Данные сессии ${dayHighLowDisplay.low.fallbackDate}`
+                    : null,
                 )}
                 <div>
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
