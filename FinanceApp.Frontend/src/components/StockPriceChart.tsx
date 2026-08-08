@@ -4,6 +4,8 @@ import { LinkOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
+  Bar,
+  BarChart,
   LineChart,
   Line,
   CartesianGrid,
@@ -16,9 +18,10 @@ import { getStockHistory, refreshStockHistory } from '../services/api';
 import {
   getStockPriceChartSummary,
 } from './stockPriceChartSummary';
+import { buildHistoryChartData } from './stockPriceChartData';
+import type { HistoryChartPoint } from './stockPriceChartData';
 import { buildFinanzenNetUrl } from '../utils/finanzenNet';
 import type {
-  StockHistoryPoint,
   StockHistoryRange,
   StockHistoryResponse,
   StockQuoteResponse,
@@ -29,17 +32,11 @@ dayjs.extend(utc);
 
 const { Text } = Typography;
 
-const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-const MIN_GAP_MARKER_OFFSET_MS = 1;
-const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
-  '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
-  today: SHORT_INTRADAY_GAP_THRESHOLD_MS,
-};
-
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const COLOR_PRIMARY = '#1677ff';
 const COLOR_SECONDARY_TEXT = '#8c8c8c';
+const COLOR_VOLUME = '#91caff';
 
 const xAxisFormatByRange: Record<StockHistoryRange, string> = {
   '5y': 'MM.YYYY',
@@ -51,14 +48,6 @@ const xAxisFormatByRange: Record<StockHistoryRange, string> = {
   '1w': 'DD.MM HH:mm',
   '24h': 'HH:mm',
   today: 'HH:mm',
-};
-
-type HistoryChartPoint = {
-  timestamp: string;
-  timestampMs: number;
-  closeChart: number | null;
-  rawClose: number;
-  chartIndex?: number;
 };
 
 export interface StockPriceChartProps {
@@ -87,6 +76,12 @@ const formatCurrencyValue = (value: number, currencyCode: string | null | undefi
 
 const formatRawQuote = (quote: StockQuoteResponse): string =>
   `${quote.rawCurrentPrice.toFixed(2)} ${quote.currency ?? quote.normalizedQuoteCurrency ?? '—'}`;
+
+const formatNumber = (value: number, maximumFractionDigits = 2): string =>
+  new Intl.NumberFormat('ru-RU', { maximumFractionDigits }).format(value);
+
+const formatCompactNumber = (value: number): string =>
+  new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 
 const StockPriceChart: React.FC<StockPriceChartProps> = ({
   panelId,
@@ -157,46 +152,9 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   const historyCurrencyCode = historyHasEurConversion
     ? 'EUR'
     : historyResponse?.normalizedQuoteCurrency ?? historyResponse?.currency ?? null;
+  const volumeMetrics = historyResponse?.volumeMetrics ?? null;
 
-  const historyChartData = useMemo<HistoryChartPoint[]>(() => {
-    const sortedPoints: HistoryChartPoint[] = historyData
-      .map((point: StockHistoryPoint) => ({
-        timestamp: point.timestamp,
-        timestampMs: dayjs.utc(point.timestamp).valueOf(),
-        closeChart: point.closeEur ?? point.closeNormalized,
-        rawClose: point.closeRaw,
-      }))
-      .sort((left, right) => left.timestampMs - right.timestampMs);
-
-    if (historyRange === '1w') {
-      return sortedPoints.map((pt, idx) => ({ ...pt, chartIndex: idx }));
-    }
-
-    const gapThresholdMs = historyGapThresholdMsByRange[historyRange];
-    if (!gapThresholdMs || sortedPoints.length < 2) {
-      return sortedPoints;
-    }
-
-    const pointsWithGaps: HistoryChartPoint[] = [sortedPoints[0]];
-    let previousPoint = sortedPoints[0];
-    for (let i = 1; i < sortedPoints.length; i += 1) {
-      const currentPoint = sortedPoints[i];
-      const gapMs = currentPoint.timestampMs - previousPoint.timestampMs;
-      if (gapMs > gapThresholdMs) {
-        const gapTimestampMs = previousPoint.timestampMs + MIN_GAP_MARKER_OFFSET_MS;
-        pointsWithGaps.push({
-          timestamp: dayjs(gapTimestampMs).toISOString(),
-          timestampMs: gapTimestampMs,
-          closeChart: null,
-          rawClose: previousPoint.rawClose,
-        });
-      }
-      pointsWithGaps.push(currentPoint);
-      previousPoint = currentPoint;
-    }
-
-    return pointsWithGaps;
-  }, [historyData, historyRange]);
+  const historyChartData = useMemo(() => buildHistoryChartData(historyData, historyRange), [historyData, historyRange]);
 
   const weeklyIndexToTimestampMs = useMemo(() => {
     const map = new Map<number, number>();
@@ -291,6 +249,77 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     liveQuote != null && liveQuote.quoteUnitMultiplier !== 1 && liveQuote.normalizedQuoteCurrency
       ? `${liveQuote.normalizedCurrentPrice.toFixed(3)} ${liveQuote.normalizedQuoteCurrency}`
       : null;
+  const latestVolumePoint = useMemo(() => {
+    if (!volumeMetrics?.latestMetricsTimestamp) {
+      return null;
+    }
+
+    return historyData.find((point) => point.timestamp === volumeMetrics.latestMetricsTimestamp) ?? null;
+  }, [historyData, volumeMetrics?.latestMetricsTimestamp]);
+  const volumeMetricItems = useMemo(() => [
+    {
+      key: 'volume',
+      label: 'Объём',
+      tooltip: volumeMetrics?.usesCompletedCandle
+        ? 'Объём последней завершённой свечи в выбранном диапазоне.'
+        : 'Объём последней доступной свечи в выбранном диапазоне.',
+      value: latestVolumePoint == null ? '—' : formatNumber(latestVolumePoint.volume, 0),
+    },
+    {
+      key: 'averageVolume20',
+      label: 'Ø20',
+      tooltip: 'Средний объём за последние 20 свечей выбранного диапазона.',
+      value: volumeMetrics?.averageVolume20 == null ? '—' : formatNumber(volumeMetrics.averageVolume20),
+    },
+    {
+      key: 'averageVolume50',
+      label: 'Ø50',
+      tooltip: 'Средний объём за последние 50 свечей выбранного диапазона.',
+      value: volumeMetrics?.averageVolume50 == null ? '—' : formatNumber(volumeMetrics.averageVolume50),
+    },
+    {
+      key: 'relativeVolume',
+      label: 'RVOL',
+      tooltip: 'Относительный объём = последний объём / средний объём за 20 периодов.',
+      value: volumeMetrics?.relativeVolume == null ? '—' : `${volumeMetrics.relativeVolume.toFixed(2)}x`,
+    },
+    {
+      key: 'turnover',
+      label: 'Оборот',
+      tooltip: 'Цена закрытия × объём. Использует ту же валютную нормализацию, что и график цены.',
+      value: volumeMetrics?.turnover == null
+        ? '—'
+        : formatCurrencyValue(volumeMetrics.turnover, volumeMetrics.turnoverCurrency),
+    },
+  ], [latestVolumePoint, volumeMetrics]);
+  const renderXAxis = (hide = false) => (
+    historyRange === '1w' ? (
+      <XAxis
+        hide={hide}
+        type="number"
+        dataKey="chartIndex"
+        scale="linear"
+        domain={['dataMin', 'dataMax']}
+        tickFormatter={(idx: number) => {
+          const ts = resolveWeeklyTs(idx);
+          return ts != null
+            ? dayjs.utc(ts).local().format(xAxisFormatByRange['1w'])
+            : '';
+        }}
+      />
+    ) : (
+      <XAxis
+        hide={hide}
+        type="number"
+        dataKey="timestampMs"
+        scale="time"
+        domain={['dataMin', 'dataMax']}
+        tickFormatter={(value: number) =>
+          dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])
+        }
+      />
+    )
+  );
 
   return (
     <div
@@ -483,35 +512,49 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 </div>
               </div>
             </div>
+            <div
+              style={{
+                minWidth: 280,
+                flex: '1 1 320px',
+                padding: '8px 12px',
+                border: '1px solid #d0e8ff',
+                borderRadius: 8,
+                background: '#fff',
+              }}
+            >
+              <div className="stock-price-chart-summary-header">
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Объём и активность торгов
+                </Text>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+                  gap: 10,
+                  marginTop: 8,
+                }}
+              >
+                {volumeMetricItems.map((item) => (
+                  <div key={item.key}>
+                    <Tooltip title={item.tooltip}>
+                      <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2, cursor: 'help' }}>
+                        {item.label}
+                      </div>
+                    </Tooltip>
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           <div style={{ width: '100%', height: 240 }}>
             <ResponsiveContainer>
-              <LineChart data={historyChartData}>
+              <LineChart data={historyChartData} syncId={`stock-history-${stockId}`}>
                 <CartesianGrid strokeDasharray="3 3" />
-                {historyRange === '1w' ? (
-                  <XAxis
-                    type="number"
-                    dataKey="chartIndex"
-                    scale="linear"
-                    domain={['dataMin', 'dataMax']}
-                    tickFormatter={(idx: number) => {
-                      const ts = resolveWeeklyTs(idx);
-                      return ts != null
-                        ? dayjs.utc(ts).local().format(xAxisFormatByRange['1w'])
-                        : '';
-                    }}
-                  />
-                ) : (
-                  <XAxis
-                    type="number"
-                    dataKey="timestampMs"
-                    scale="time"
-                    domain={['dataMin', 'dataMax']}
-                    tickFormatter={(value: number) =>
-                      dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])
-                    }
-                  />
-                )}
+                {renderXAxis()}
                 <YAxis
                   domain={['auto', 'auto']}
                   tickFormatter={(value: number) =>
@@ -553,6 +596,37 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                   connectNulls={false}
                 />
               </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div style={{ width: '100%', height: 128 }}>
+            <ResponsiveContainer>
+              <BarChart data={historyChartData} syncId={`stock-history-${stockId}`}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                {renderXAxis(true)}
+                <YAxis tickFormatter={(value: number) => formatCompactNumber(value)} width={60} />
+                <RechartsTooltip
+                  labelFormatter={(value: number) => {
+                    if (historyRange === '1w') {
+                      const ts = resolveWeeklyTs(value);
+                      return ts != null ? dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm') : '';
+                    }
+                    return dayjs.utc(value).local().format('DD.MM.YYYY HH:mm');
+                  }}
+                  formatter={(value: unknown) => {
+                    if (value == null) {
+                      return ['Нет данных', 'Объём'];
+                    }
+
+                    return [formatNumber(Number(value), 0), 'Объём'];
+                  }}
+                />
+                <Bar
+                  dataKey="volumeChart"
+                  name="Объём"
+                  fill={COLOR_VOLUME}
+                  isAnimationActive={false}
+                />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>

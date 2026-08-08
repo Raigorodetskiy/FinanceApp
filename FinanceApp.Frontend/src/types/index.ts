@@ -111,7 +111,18 @@ export interface StockHistoryResponse {
   rateTimestampUtc: string | null;
   rateSource: string | null;
   conversionWarning: string | null;
+  volumeMetrics: StockHistoryVolumeMetrics;
   points: StockHistoryPoint[];
+}
+
+export interface StockHistoryVolumeMetrics {
+  averageVolume20: number | null;
+  averageVolume50: number | null;
+  relativeVolume: number | null;
+  turnover: number | null;
+  turnoverCurrency: string | null;
+  latestMetricsTimestamp: string | null;
+  usesCompletedCandle: boolean;
 }
 
 export interface StockHistoryRefreshResponse {

@@ -135,6 +135,7 @@ public class StockHistoryService : IStockHistoryService
             currencyMetadata?.QuoteCurrency,
             currencyMetadata?.FinancialCurrency,
             cancellationToken);
+        var volumeMetrics = BuildVolumeMetrics(data, interval, conversionContext);
 
         return new StockHistoryResponse
         {
@@ -148,6 +149,7 @@ public class StockHistoryService : IStockHistoryService
             RateTimestampUtc = conversionContext.ExchangeRate.RateTimestampUtc,
             RateSource = conversionContext.ExchangeRate.Source,
             ConversionWarning = conversionContext.Warning,
+            VolumeMetrics = volumeMetrics,
             Points = data
                 .Select(point => _stockQuoteConversionService.BuildHistoryPointResponse(point, conversionContext))
                 .ToList()
@@ -373,6 +375,131 @@ public class StockHistoryService : IStockHistoryService
             .Where(x => x.StockId == stockId && x.Interval == interval && x.Timestamp >= from)
             .OrderBy(x => x.Timestamp)
             .ToListAsync(cancellationToken);
+    }
+
+    private static StockHistoryVolumeMetricsResponse BuildVolumeMetrics(
+        IReadOnlyList<StockHistoricalPrice> data,
+        string interval,
+        CurrencyConversionContext conversionContext)
+    {
+        if (data.Count == 0)
+        {
+            return new StockHistoryVolumeMetricsResponse();
+        }
+
+        var latestContext = ResolveLatestMetricsPoint(data, interval);
+        if (latestContext.Point is null)
+        {
+            return new StockHistoryVolumeMetricsResponse
+            {
+                UsesCompletedCandle = latestContext.UsesCompletedCandle
+            };
+        }
+
+        var latestIndex = latestContext.Index;
+        var averageVolume20 = TryCalculateAverageVolume(data, latestIndex, 20);
+        var averageVolume50 = TryCalculateAverageVolume(data, latestIndex, 50);
+        var latestVolume = latestContext.Point.Volume > 0 ? latestContext.Point.Volume : (long?)null;
+
+        var closeNormalized = conversionContext.Normalize(latestContext.Point.Close);
+        var closeForTurnover = conversionContext.ConvertNormalizedToEur(closeNormalized) ?? closeNormalized;
+        var turnoverCurrency = conversionContext.ExchangeRate.RateToEur is not null
+            ? "EUR"
+            : conversionContext.Metadata.NormalizedQuoteCurrency ?? conversionContext.Metadata.QuoteCurrency;
+
+        decimal? turnover = null;
+        if (latestVolume is > 0 && closeForTurnover > 0m)
+        {
+            turnover = closeForTurnover * latestVolume.Value;
+        }
+
+        decimal? relativeVolume = null;
+        if (latestVolume is > 0 && averageVolume20 is > 0m)
+        {
+            relativeVolume = latestVolume.Value / averageVolume20.Value;
+        }
+
+        return new StockHistoryVolumeMetricsResponse
+        {
+            AverageVolume20 = averageVolume20,
+            AverageVolume50 = averageVolume50,
+            RelativeVolume = relativeVolume,
+            Turnover = turnover,
+            TurnoverCurrency = turnoverCurrency,
+            LatestMetricsTimestamp = latestContext.Point.Timestamp,
+            UsesCompletedCandle = latestContext.UsesCompletedCandle
+        };
+    }
+
+    private static decimal? TryCalculateAverageVolume(IReadOnlyList<StockHistoricalPrice> data, int latestIndex, int periods)
+    {
+        var startIndex = latestIndex - periods + 1;
+        if (startIndex < 0)
+        {
+            return null;
+        }
+
+        decimal totalVolume = 0m;
+        for (var i = startIndex; i <= latestIndex; i++)
+        {
+            totalVolume += data[i].Volume;
+        }
+
+        var average = totalVolume / periods;
+        return average > 0m ? average : null;
+    }
+
+    private static LatestMetricsContext ResolveLatestMetricsPoint(IReadOnlyList<StockHistoricalPrice> data, string interval)
+    {
+        if (data.Count == 0)
+        {
+            return new LatestMetricsContext(null, -1, false);
+        }
+
+        if (TryGetIntradayIntervalDuration(interval, out var intervalDuration))
+        {
+            var now = DateTime.UtcNow;
+            for (var i = data.Count - 1; i >= 0; i--)
+            {
+                if ((data[i].Timestamp + intervalDuration) <= now)
+                {
+                    return new LatestMetricsContext(data[i], i, true);
+                }
+            }
+
+            return new LatestMetricsContext(null, -1, true);
+        }
+
+        if (string.Equals(interval, "1d", StringComparison.Ordinal))
+        {
+            var today = DateTime.UtcNow.Date;
+            for (var i = data.Count - 1; i >= 0; i--)
+            {
+                if (data[i].Timestamp.Date < today)
+                {
+                    return new LatestMetricsContext(data[i], i, true);
+                }
+            }
+        }
+
+        var latestIndex = data.Count - 1;
+        return new LatestMetricsContext(data[latestIndex], latestIndex, false);
+    }
+
+    private static bool TryGetIntradayIntervalDuration(string interval, out TimeSpan duration)
+    {
+        switch (interval)
+        {
+            case "10m":
+                duration = TimeSpan.FromMinutes(10);
+                return true;
+            case "1h":
+                duration = TimeSpan.FromHours(1);
+                return true;
+            default:
+                duration = default;
+                return false;
+        }
     }
 
     private static bool NeedsMetadataBackfill(StockHistoricalPrice price) =>
@@ -699,4 +826,9 @@ public class StockHistoryService : IStockHistoryService
         public static StockHistorySyncResult Success() => new(false);
         public static StockHistorySyncResult RateLimited() => new(true);
     }
+
+    private sealed record LatestMetricsContext(
+        StockHistoricalPrice? Point,
+        int Index,
+        bool UsesCompletedCandle);
 }
