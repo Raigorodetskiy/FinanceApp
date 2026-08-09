@@ -36,6 +36,19 @@ export const DAY_HIGH_FALLBACK_LABEL = 'Макс. последней сесси�
 /** Label used when high/low is a fallback from the last completed session. */
 export const DAY_LOW_FALLBACK_LABEL = 'Мин. последней сессии';
 
+/**
+ * Combined heading for the compact min–max block when both values come from
+ * the live / current-session quote.
+ */
+export const DAY_RANGE_LIVE_LABEL = 'Мин.–макс. за день';
+
+/**
+ * Combined heading for the compact min–max block when at least one value
+ * comes from the latest completed historical session (weekend / closed-market
+ * fallback).
+ */
+export const DAY_RANGE_FALLBACK_LABEL = 'Мин.–макс. последней сессии';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface DayHighLowEntry {
@@ -188,3 +201,15 @@ export const getDayHighLowDisplay = (
 
   return { high, low };
 };
+
+/**
+ * Returns the combined heading label for the compact min–max block.
+ *
+ * Uses the live label when *neither* bound comes from historical fallback;
+ * uses the fallback label as soon as at least one bound originates from the
+ * latest completed historical session.
+ */
+export const getDayRangeLabel = (display: DayHighLowDisplay): string =>
+  display.low.isFromHistory || display.high.isFromHistory
+    ? DAY_RANGE_FALLBACK_LABEL
+    : DAY_RANGE_LIVE_LABEL;
