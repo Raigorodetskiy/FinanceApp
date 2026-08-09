@@ -46,6 +46,7 @@ const COLOR_VOLUME = '#91caff';
 export const RANGE_BOUND_COLOR = COLOR_SECONDARY_TEXT;
 export const DAY_RANGE_ARROW_TEXT = ' → ';
 export const BASELINE_BLOCK_STYLE = { marginLeft: 'auto', textAlign: 'right' } as const;
+export const PERIOD_CHANGE_HEADING = 'Изменение от начала периода';
 
 const xAxisFormatByRange: Record<StockHistoryRange, string> = {
   '5y': 'MM.YYYY',
@@ -551,19 +552,19 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     {renderDayRangeBound(dayHighLowDisplay.maximum, displayCurrencyCode)}
                   </div>
                 </div>
-                <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
-                  {periodChangeValue == null
+                <div style={{ color: COLOR_SECONDARY_TEXT, fontSize: 16, fontWeight: 600 }}>
+                  {periodSummary.baselineValue == null
                     ? '—'
-                    : `${formatCurrencyValue(periodChangeValue, displayCurrencyCode)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                    : formatCurrencyValue(periodSummary.baselineValue, displayCurrencyCode)}
                 </div>
                 <div style={BASELINE_BLOCK_STYLE}>
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
-                    {periodSummary.baselineLabel}
+                    {PERIOD_CHANGE_HEADING}
                   </div>
-                  <div style={{ color: COLOR_SECONDARY_TEXT, fontSize: 16, fontWeight: 600 }}>
-                    {periodSummary.baselineValue == null
+                  <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
+                    {periodChangeValue == null
                       ? '—'
-                      : formatCurrencyValue(periodSummary.baselineValue, displayCurrencyCode)}
+                      : `${formatCurrencyValue(periodChangeValue, displayCurrencyCode)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
                   </div>
                 </div>
               </div>
