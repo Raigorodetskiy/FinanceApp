@@ -23,7 +23,10 @@ import {
   DAY_LOW_LIVE_LABEL,
   DAY_HIGH_FALLBACK_LABEL,
   DAY_LOW_FALLBACK_LABEL,
+  DAY_RANGE_LIVE_LABEL,
+  DAY_RANGE_FALLBACK_LABEL,
   getDayHighLowDisplay,
+  getDayRangeLabel,
   getLatestCompletedDailyCandle,
 } from './dayHighLow';
 
@@ -430,5 +433,92 @@ describe('PortfolioDetailPage tables – column alignment keys unchanged', () =>
   it('transaction right-aligned keys do not include dayHigh or dayLow', () => {
     expect(PORTFOLIO_TRANSACTION_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('dayHighEur');
     expect(PORTFOLIO_TRANSACTION_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('dayLowEur');
+  });
+});
+
+// ── Combined compact block: labels and ordering ───────────────────────────────
+
+describe('compact day-range label constants', () => {
+  it('DAY_RANGE_LIVE_LABEL is exactly "Мин.–макс. за день"', () => {
+    expect(DAY_RANGE_LIVE_LABEL).toBe('Мин.–макс. за день');
+  });
+
+  it('DAY_RANGE_FALLBACK_LABEL is exactly "Мин.–макс. последней сессии"', () => {
+    expect(DAY_RANGE_FALLBACK_LABEL).toBe('Мин.–макс. последней сессии');
+  });
+});
+
+describe('getDayRangeLabel', () => {
+  it('returns live label when both high and low come from the live quote', () => {
+    const display = getDayHighLowDisplay(
+      makeQuote({ dayHighEur: 530, dayLowEur: 500 }),
+      [],
+      true,
+      '2026-08-09',
+    );
+    expect(getDayRangeLabel(display)).toBe(DAY_RANGE_LIVE_LABEL);
+  });
+
+  it('returns fallback label when both high and low come from history', () => {
+    const friday = makePoint({ interval: '1d', timestamp: '2026-08-07T00:00:00Z', highEur: 320, lowEur: 295 });
+    const display = getDayHighLowDisplay(null, [friday], true, '2026-08-08');
+    expect(getDayRangeLabel(display)).toBe(DAY_RANGE_FALLBACK_LABEL);
+  });
+
+  it('returns fallback label when high is live but low comes from history', () => {
+    const friday = makePoint({ interval: '1d', timestamp: '2026-08-07T00:00:00Z', highEur: 999, lowEur: 295 });
+    const display = getDayHighLowDisplay(
+      makeQuote({ dayHighEur: 530, dayLowEur: null }),
+      [friday],
+      true,
+      '2026-08-08',
+    );
+    expect(getDayRangeLabel(display)).toBe(DAY_RANGE_FALLBACK_LABEL);
+  });
+
+  it('returns fallback label when low is live but high comes from history', () => {
+    const friday = makePoint({ interval: '1d', timestamp: '2026-08-07T00:00:00Z', highEur: 320, lowEur: 1 });
+    const display = getDayHighLowDisplay(
+      makeQuote({ dayHighEur: null, dayLowEur: 500 }),
+      [friday],
+      true,
+      '2026-08-08',
+    );
+    expect(getDayRangeLabel(display)).toBe(DAY_RANGE_FALLBACK_LABEL);
+  });
+
+  it('returns fallback label when no data is available', () => {
+    const display = getDayHighLowDisplay(null, [], true, '2026-08-08');
+    expect(getDayRangeLabel(display)).toBe(DAY_RANGE_FALLBACK_LABEL);
+  });
+});
+
+describe('compact min-to-max ordering: low.value ≤ high.value', () => {
+  it('low value is numerically ≤ high value when both come from live quote', () => {
+    const display = getDayHighLowDisplay(
+      makeQuote({ dayHighEur: 530, dayLowEur: 500 }),
+      [],
+      true,
+      '2026-08-09',
+    );
+    expect(display.low.value).not.toBeNull();
+    expect(display.high.value).not.toBeNull();
+    expect(display.low.value!).toBeLessThanOrEqual(display.high.value!);
+  });
+
+  it('low value is numerically ≤ high value when both come from history fallback', () => {
+    const friday = makePoint({ interval: '1d', timestamp: '2026-08-07T00:00:00Z', highEur: 320, lowEur: 295 });
+    const display = getDayHighLowDisplay(null, [friday], true, '2026-08-08');
+    expect(display.low.value!).toBeLessThanOrEqual(display.high.value!);
+  });
+});
+
+describe('compact block: font size constants', () => {
+  it('DAY_HIGH_LOW_VALUE_FONT_SIZE is 14px and CURRENT_PRICE_FONT_SIZE is 16px (unchanged)', () => {
+    // Validates that the font sizes exported from dayHighLow.ts match the
+    // requirements: 14px for min/max bounds, 16px for current price.
+    // The gray-color requirement is enforced in StockPriceChart.tsx via COLOR_SECONDARY_TEXT.
+    expect(DAY_HIGH_LOW_VALUE_FONT_SIZE).toBe(14);
+    expect(CURRENT_PRICE_FONT_SIZE).toBe(16);
   });
 });

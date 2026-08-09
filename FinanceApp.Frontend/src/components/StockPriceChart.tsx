@@ -24,6 +24,7 @@ import { buildFinanzenNetUrl } from '../utils/finanzenNet';
 import {
   DAY_HIGH_LOW_VALUE_FONT_SIZE,
   getDayHighLowDisplay,
+  getDayRangeLabel,
 } from './dayHighLow';
 import type {
   StockHistoryRange,
@@ -330,34 +331,39 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     )
   );
 
-  const renderDayPriceStat = (
-    label: string,
-    quote: typeof liveQuote,
-    displayVal: number | null,
-    rawVal: number | null,
+  const renderDayRangeBound = (
+    entry: typeof dayHighLowDisplay.low,
     currencyCode: string,
-    valueColor: string,
-    statTooltip?: string | null,
-  ) => (
-    <div>
-      <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>{label}</div>
-      {displayVal == null ? (
-        <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: COLOR_SECONDARY_TEXT }}>—</div>
-      ) : (
-        <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: valueColor }}>
-          {rawVal != null && quote?.quoteUnitMultiplier !== 1 && quote?.currency != null ? (
-            <Tooltip title={`Исходное значение: ${rawVal.toFixed(2)} ${quote.currency}`}>
-              <span>{formatCurrencyValue(displayVal, currencyCode)}</span>
-            </Tooltip>
-          ) : statTooltip != null ? (
-            <Tooltip title={statTooltip}>
-              <span style={{ cursor: 'help' }}>{formatCurrencyValue(displayVal, currencyCode)}</span>
-            </Tooltip>
-          ) : formatCurrencyValue(displayVal, currencyCode)}
-        </div>
-      )}
-    </div>
-  );
+  ) => {
+    if (entry.value == null) {
+      return <span style={{ color: COLOR_SECONDARY_TEXT }}>—</span>;
+    }
+
+    const formatted = formatCurrencyValue(entry.value, currencyCode);
+
+    const rawTooltip =
+      !entry.isFromHistory &&
+      entry.rawValue != null &&
+      liveQuote?.quoteUnitMultiplier !== 1 &&
+      liveQuote?.currency != null
+        ? `Исходное значение: ${entry.rawValue.toFixed(2)} ${liveQuote.currency}`
+        : null;
+
+    const fallbackTooltip =
+      entry.fallbackDate != null
+        ? `Данные сессии ${entry.fallbackDate}`
+        : null;
+
+    const tooltip = entry.isFromHistory ? fallbackTooltip : rawTooltip;
+
+    return tooltip != null ? (
+      <Tooltip title={tooltip}>
+        <span style={{ color: COLOR_SECONDARY_TEXT, cursor: 'help' }}>{formatted}</span>
+      </Tooltip>
+    ) : (
+      <span style={{ color: COLOR_SECONDARY_TEXT }}>{formatted}</span>
+    );
+  };
 
   return (
     <div
@@ -533,28 +539,16 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     </div>
                   )}
                 </div>
-                {renderDayPriceStat(
-                  dayHighLowDisplay.high.label,
-                  liveQuote,
-                  dayHighLowDisplay.high.value,
-                  dayHighLowDisplay.high.rawValue,
-                  displayCurrencyCode,
-                  COLOR_POSITIVE,
-                  dayHighLowDisplay.high.fallbackDate != null
-                    ? `Данные сессии ${dayHighLowDisplay.high.fallbackDate}`
-                    : null,
-                )}
-                {renderDayPriceStat(
-                  dayHighLowDisplay.low.label,
-                  liveQuote,
-                  dayHighLowDisplay.low.value,
-                  dayHighLowDisplay.low.rawValue,
-                  displayCurrencyCode,
-                  COLOR_NEGATIVE,
-                  dayHighLowDisplay.low.fallbackDate != null
-                    ? `Данные сессии ${dayHighLowDisplay.low.fallbackDate}`
-                    : null,
-                )}
+                <div>
+                  <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
+                    {getDayRangeLabel(dayHighLowDisplay)}
+                  </div>
+                  <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600 }}>
+                    {renderDayRangeBound(dayHighLowDisplay.low, displayCurrencyCode)}
+                    <span style={{ color: COLOR_SECONDARY_TEXT }}>{' → '}</span>
+                    {renderDayRangeBound(dayHighLowDisplay.high, displayCurrencyCode)}
+                  </div>
+                </div>
                 <div>
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     {periodSummary.baselineLabel}
