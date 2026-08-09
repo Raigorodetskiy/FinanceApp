@@ -43,6 +43,8 @@ const COLOR_NEGATIVE = '#cf1322';
 const COLOR_PRIMARY = '#1677ff';
 const COLOR_SECONDARY_TEXT = '#8c8c8c';
 const COLOR_VOLUME = '#91caff';
+export const RANGE_BOUND_COLOR = COLOR_SECONDARY_TEXT;
+export const DAY_RANGE_ARROW_TEXT = ' → ';
 
 const xAxisFormatByRange: Record<StockHistoryRange, string> = {
   '5y': 'MM.YYYY',
@@ -258,7 +260,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
 
   const dayHighLowDisplay = useMemo(
     () => getDayHighLowDisplay(liveQuote, historyData, historyHasEurConversion),
-    [liveQuote, historyData, historyHasEurConversion, historyRange],
+    [liveQuote, historyData, historyHasEurConversion],
   );
   const latestVolumePoint = useMemo(() => {
     if (!volumeMetrics?.latestMetricsTimestamp) {
@@ -337,7 +339,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     currencyCode: string,
   ) => {
     if (entry.value == null) {
-      return <span style={{ color: COLOR_SECONDARY_TEXT }}>—</span>;
+      return <span style={{ color: RANGE_BOUND_COLOR }}>—</span>;
     }
 
     const formatted = formatCurrencyValue(entry.value, currencyCode);
@@ -357,10 +359,10 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
 
     return tooltip !== '' ? (
       <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tooltip}</span>}>
-        <span style={{ color: COLOR_SECONDARY_TEXT, cursor: 'help' }}>{formatted}</span>
+        <span style={{ color: RANGE_BOUND_COLOR, cursor: 'help' }}>{formatted}</span>
       </Tooltip>
     ) : (
-      <span style={{ color: COLOR_SECONDARY_TEXT }}>{formatted}</span>
+      <span style={{ color: RANGE_BOUND_COLOR }}>{formatted}</span>
     );
   };
 
@@ -542,9 +544,9 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     {getDayRangeLabel(historyRange)}
                   </div>
-                  <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: COLOR_SECONDARY_TEXT }}>
+                  <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: RANGE_BOUND_COLOR }}>
                     {renderDayRangeBound(dayHighLowDisplay.minimum, displayCurrencyCode)}
-                    <span style={{ color: COLOR_SECONDARY_TEXT }}>{' → '}</span>
+                    <span style={{ color: RANGE_BOUND_COLOR }}>{DAY_RANGE_ARROW_TEXT}</span>
                     {renderDayRangeBound(dayHighLowDisplay.maximum, displayCurrencyCode)}
                   </div>
                 </div>

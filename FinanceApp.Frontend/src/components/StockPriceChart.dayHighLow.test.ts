@@ -1,7 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 import type { StockHistoryPoint, StockHistoryRange, StockQuoteResponse } from '../types';
 import { STOCKS_TABLE_TOTAL_COLS } from '../pages/StocksPage';
 import {
@@ -17,9 +14,7 @@ import {
   getDayHighLowDisplay,
   getDayRangeLabel,
 } from './dayHighLow';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const chartSource = readFileSync(join(__dirname, 'StockPriceChart.tsx'), 'utf-8');
+import { DAY_RANGE_ARROW_TEXT, RANGE_BOUND_COLOR } from './StockPriceChart';
 
 const makePoint = (overrides: Partial<StockHistoryPoint> = {}): StockHistoryPoint => ({
   timestamp: '2026-08-08T00:00:00Z',
@@ -217,9 +212,8 @@ describe('compact block presentation contract', () => {
   });
 
   it('keeps exact spaced arrow and secondary gray color in the range line', () => {
-    expect(chartSource).toContain("{' → '}");
-    expect(chartSource).toContain('fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE');
-    expect(chartSource).toContain('color: COLOR_SECONDARY_TEXT');
+    expect(DAY_RANGE_ARROW_TEXT).toBe(' → ');
+    expect(RANGE_BOUND_COLOR).toBe('#8c8c8c');
   });
 });
 

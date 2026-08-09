@@ -42,7 +42,14 @@ export interface DayHighLowDisplay {
   maximum: DayHighLowEntry;
 }
 
-const getUtcDate = (isoTimestamp: string): string => isoTimestamp.slice(0, 10);
+const getUtcDate = (timestamp: string): string => {
+  const parsed = Date.parse(timestamp);
+  if (Number.isFinite(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 10);
+  }
+
+  return timestamp.slice(0, 10);
+};
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
