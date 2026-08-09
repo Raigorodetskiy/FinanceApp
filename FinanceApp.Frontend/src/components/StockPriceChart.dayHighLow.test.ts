@@ -14,7 +14,7 @@ import {
   getDayHighLowDisplay,
   getDayRangeLabel,
 } from './dayHighLow';
-import { DAY_RANGE_ARROW_TEXT, RANGE_BOUND_COLOR } from './StockPriceChart';
+import { DAY_RANGE_ARROW_TEXT, RANGE_BOUND_COLOR, BASELINE_BLOCK_STYLE } from './StockPriceChart';
 
 const makePoint = (overrides: Partial<StockHistoryPoint> = {}): StockHistoryPoint => ({
   timestamp: '2026-08-08T00:00:00Z',
@@ -214,6 +214,11 @@ describe('compact block presentation contract', () => {
   it('keeps exact spaced arrow and secondary gray color in the range line', () => {
     expect(DAY_RANGE_ARROW_TEXT).toBe(' → ');
     expect(RANGE_BOUND_COLOR).toBe('#8c8c8c');
+  });
+
+  it('baseline block is pushed right with marginLeft auto and right-aligned text', () => {
+    expect(BASELINE_BLOCK_STYLE.marginLeft).toBe('auto');
+    expect(BASELINE_BLOCK_STYLE.textAlign).toBe('right');
   });
 });
 
