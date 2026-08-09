@@ -45,6 +45,7 @@ const COLOR_SECONDARY_TEXT = '#8c8c8c';
 const COLOR_VOLUME = '#91caff';
 export const RANGE_BOUND_COLOR = COLOR_SECONDARY_TEXT;
 export const DAY_RANGE_ARROW_TEXT = ' → ';
+export const BASELINE_BLOCK_STYLE = { marginLeft: 'auto', textAlign: 'right' } as const;
 
 const xAxisFormatByRange: Record<StockHistoryRange, string> = {
   '5y': 'MM.YYYY',
@@ -550,7 +551,12 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     {renderDayRangeBound(dayHighLowDisplay.maximum, displayCurrencyCode)}
                   </div>
                 </div>
-                <div>
+                <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
+                  {periodChangeValue == null
+                    ? '—'
+                    : `${formatCurrencyValue(periodChangeValue, displayCurrencyCode)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
+                </div>
+                <div style={BASELINE_BLOCK_STYLE}>
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     {periodSummary.baselineLabel}
                   </div>
@@ -559,11 +565,6 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                       ? '—'
                       : formatCurrencyValue(periodSummary.baselineValue, displayCurrencyCode)}
                   </div>
-                </div>
-                <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
-                  {periodChangeValue == null
-                    ? '—'
-                    : `${formatCurrencyValue(periodChangeValue, displayCurrencyCode)} (${periodChangePercent == null ? '—' : formatSigned(periodChangePercent, '%')})`}
                 </div>
               </div>
             </div>
