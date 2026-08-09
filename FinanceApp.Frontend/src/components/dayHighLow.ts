@@ -1,215 +1,184 @@
-/**
- * Day high / day low display logic for StockPriceChart.
- *
- * Priority:
- *   1. Live quote value (rawDayHigh / rawDayLow → normalised / EUR) when present.
- *   2. High / low of the latest **completed** daily (`1d`) candle from the
- *      already-loaded history response, when the quote value is unavailable
- *      (e.g. weekends or market-closed state).
- *
- * "Completed" candle rule (conservative, exchange-agnostic):
- *   A `1d` candle is considered completed when its UTC date is strictly earlier
- *   than today's UTC date.  On a Saturday this yields Friday's candle; on a
- *   Monday morning (before the session opens) it still yields Friday's candle.
- *   The current in-progress daily candle is never used.
- */
-
-import type { StockHistoryPoint, StockQuoteResponse } from '../types';
+import type {
+  StockHistoryPoint,
+  StockHistoryRange,
+  StockQuoteResponse,
+} from '../types';
 
 // ── Font-size constants (exported so tests can assert them) ───────────────────
 
-/** Font size for day high / day low values. Slightly smaller than current price. */
+/** Font size for compact range min/max values. Slightly smaller than current price. */
 export const DAY_HIGH_LOW_VALUE_FONT_SIZE = 14;
 
 /** Font size for the current price display. */
 export const CURRENT_PRICE_FONT_SIZE = 16;
 
-// ── Labels ────────────────────────────────────────────────────────────────────
-
-/** Label used when high/low comes from the live/current-session quote. */
-export const DAY_HIGH_LIVE_LABEL = 'Макс. за день';
-/** Label used when high/low comes from the live/current-session quote. */
-export const DAY_LOW_LIVE_LABEL = 'Мин. за день';
-
-/** Label used when high/low is a fallback from the last completed session. */
-export const DAY_HIGH_FALLBACK_LABEL = 'Макс. последней сессии';
-/** Label used when high/low is a fallback from the last completed session. */
-export const DAY_LOW_FALLBACK_LABEL = 'Мин. последней сессии';
-
-/**
- * Combined heading for the compact min–max block when both values come from
- * the live / current-session quote.
- */
-export const DAY_RANGE_LIVE_LABEL = 'Мин.–макс. за день';
-
-/**
- * Combined heading for the compact min–max block when at least one value
- * comes from the latest completed historical session (weekend / closed-market
- * fallback).
- */
-export const DAY_RANGE_FALLBACK_LABEL = 'Мин.–макс. последней сессии';
+export const RANGE_MIN_MAX_LABELS: Record<StockHistoryRange, string> = {
+  today: 'Мин.–макс. сегодня',
+  '24h': 'Мин.–макс. за 24 ч.',
+  '1w': 'Мин.–макс. за 1 нед.',
+  '1m': 'Мин.–макс. за 1 мес.',
+  '3m': 'Мин.–макс. за 3 мес.',
+  '6m': 'Мин.–макс. за 6 мес.',
+  '1y': 'Мин.–макс. за 1 год',
+  '3y': 'Мин.–макс. за 3 года',
+  '5y': 'Мин.–макс. за 5 лет',
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface DayHighLowEntry {
   /** Numeric value in the display currency, or null when unavailable. */
   value: number | null;
-  /** Raw value in the provider's original quote units (for unit-multiplier tooltip). Null when not applicable. */
+  /** Raw value in quote units for tooltip details. */
   rawValue: number | null;
-  /** UI label: "Макс. за день" or "Макс. последней сессии" (or the Low equivalents). */
-  label: string;
-  /**
-   * ISO date string (YYYY-MM-DD) of the session the value belongs to.
-   * Populated only for fallback (history) values; null for live quote values.
-   */
-  fallbackDate: string | null;
-  /** True when the value originates from historical data rather than the live quote. */
-  isFromHistory: boolean;
+  /** UTC timestamp of the candle/quote that produced the bound. */
+  timestampUtc: string | null;
+  /** True when value originates from the live quote. */
+  isFromLiveQuote: boolean;
 }
 
 export interface DayHighLowDisplay {
-  high: DayHighLowEntry;
-  low: DayHighLowEntry;
+  minimum: DayHighLowEntry;
+  maximum: DayHighLowEntry;
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-/**
- * Returns the UTC date portion (YYYY-MM-DD) of an ISO timestamp string.
- * Used to compare candle dates against the current UTC date.
- */
-const utcDateOf = (isoTimestamp: string): string => isoTimestamp.slice(0, 10);
-
-/**
- * Finds the latest completed `1d` candle from history points.
- *
- * "Completed" means the candle's UTC date is strictly before `todayUtcDate`
- * (format `YYYY-MM-DD`).  This conservative rule ensures the in-progress
- * current daily candle is never returned.
- *
- * @param points     History points (any mix of intervals).
- * @param todayUtcDate  Today's date in `YYYY-MM-DD` format (UTC).
- */
-export const getLatestCompletedDailyCandle = (
-  points: StockHistoryPoint[],
-  todayUtcDate: string,
-): StockHistoryPoint | null => {
-  let latest: StockHistoryPoint | null = null;
-
-  for (const point of points) {
-    if (point.interval !== '1d') {
-      continue;
-    }
-
-    const candleDate = utcDateOf(point.timestamp);
-    if (candleDate >= todayUtcDate) {
-      // Candle is today or in the future – not yet completed.
-      continue;
-    }
-
-    if (latest === null || candleDate > utcDateOf(latest.timestamp)) {
-      latest = point;
-    }
+const getUtcDate = (timestamp: string): string => {
+  const parsed = Date.parse(timestamp);
+  if (Number.isFinite(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 10);
   }
 
+  return timestamp.slice(0, 10);
+};
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const pickHistoryBound = (
+  point: StockHistoryPoint,
+  bound: 'low' | 'high',
+  historyHasEurConversion: boolean,
+): number | null => {
+  const eurValue = bound === 'low' ? point.lowEur : point.highEur;
+  const normalizedValue = bound === 'low' ? point.lowNormalized : point.highNormalized;
+  const rawValue = bound === 'low' ? point.lowRaw : point.highRaw;
+
+  if (historyHasEurConversion) {
+    return eurValue ?? normalizedValue ?? rawValue ?? null;
+  }
+
+  return normalizedValue ?? rawValue ?? null;
+};
+
+const pickLiveBound = (
+  quote: StockQuoteResponse | null | undefined,
+  bound: 'low' | 'high',
+  historyHasEurConversion: boolean,
+): number | null => {
+  const eurValue = bound === 'low' ? quote?.dayLowEur : quote?.dayHighEur;
+  const normalizedValue = bound === 'low' ? quote?.normalizedDayLow : quote?.normalizedDayHigh;
+  const rawValue = bound === 'low' ? quote?.rawDayLow : quote?.rawDayHigh;
+
+  if (historyHasEurConversion) {
+    return eurValue ?? normalizedValue ?? rawValue ?? null;
+  }
+
+  return normalizedValue ?? rawValue ?? null;
+};
+
+const getLatestHistoryTimestampMsForDate = (
+  points: StockHistoryPoint[],
+  utcDate: string,
+): number | null => {
+  let latest: number | null = null;
+  for (const point of points) {
+    if (getUtcDate(point.timestamp) !== utcDate) {
+      continue;
+    }
+
+    const timestampMs = Date.parse(point.timestamp);
+    if (!Number.isFinite(timestampMs)) {
+      continue;
+    }
+
+    latest = latest == null ? timestampMs : Math.max(latest, timestampMs);
+  }
   return latest;
 };
 
-// ── Public API ────────────────────────────────────────────────────────────────
+const createEmptyEntry = (): DayHighLowEntry => ({
+  value: null,
+  rawValue: null,
+  timestampUtc: null,
+  isFromLiveQuote: false,
+});
 
-/**
- * Computes what to display for day high and day low in the chart details area.
- *
- * High and low are resolved **independently**: the quote value is used whenever
- * it is non-null; the history fallback is used only when the quote value is absent.
- *
- * @param liveQuote            Current quote from the API (may be null).
- * @param historyPoints        History points already loaded by StockPriceChart (any range/interval).
- * @param historyHasEurConversion  Whether the history response includes EUR-converted values.
- * @param todayUtcDate         Today's UTC date in `YYYY-MM-DD` format.  Caller provides
- *                             this so that the function remains pure / testable.
- */
 export const getDayHighLowDisplay = (
   liveQuote: StockQuoteResponse | null | undefined,
   historyPoints: StockHistoryPoint[],
   historyHasEurConversion: boolean,
-  todayUtcDate: string,
 ): DayHighLowDisplay => {
-  // Resolve the live quote values in the display currency.
-  const liveHighDisplay = historyHasEurConversion
-    ? (liveQuote?.dayHighEur ?? null)
-    : (liveQuote?.normalizedDayHigh ?? liveQuote?.rawDayHigh ?? null);
+  let minimum = createEmptyEntry();
+  let maximum = createEmptyEntry();
 
-  const liveLowDisplay = historyHasEurConversion
-    ? (liveQuote?.dayLowEur ?? null)
-    : (liveQuote?.normalizedDayLow ?? liveQuote?.rawDayLow ?? null);
+  for (const point of historyPoints) {
+    const lowValue = pickHistoryBound(point, 'low', historyHasEurConversion);
+    if (isFiniteNumber(lowValue) && (minimum.value == null || lowValue < minimum.value)) {
+      minimum = {
+        value: lowValue,
+        rawValue: isFiniteNumber(point.lowRaw) ? point.lowRaw : null,
+        timestampUtc: point.timestamp,
+        isFromLiveQuote: false,
+      };
+    }
 
-  // Only look up the fallback candle when at least one of the values is missing.
-  const needsFallback = liveHighDisplay === null || liveLowDisplay === null;
-  const fallbackCandle = needsFallback
-    ? getLatestCompletedDailyCandle(historyPoints, todayUtcDate)
-    : null;
+    const highValue = pickHistoryBound(point, 'high', historyHasEurConversion);
+    if (isFiniteNumber(highValue) && (maximum.value == null || highValue > maximum.value)) {
+      maximum = {
+        value: highValue,
+        rawValue: isFiniteNumber(point.highRaw) ? point.highRaw : null,
+        timestampUtc: point.timestamp,
+        isFromLiveQuote: false,
+      };
+    }
+  }
 
-  const getFallbackDate = (candle: StockHistoryPoint | null): string | null =>
-    candle ? utcDateOf(candle.timestamp) : null;
+  const liveTimestampUtc = liveQuote?.priceTimestampUtc;
+  if (liveTimestampUtc != null) {
+    const liveTimestampMs = Date.parse(liveTimestampUtc);
+    if (Number.isFinite(liveTimestampMs)) {
+      const liveDate = getUtcDate(liveTimestampUtc);
+      const rangeContainsLiveDay = historyPoints.some((point) => getUtcDate(point.timestamp) === liveDate);
+      if (rangeContainsLiveDay) {
+        const latestHistoryOnLiveDateMs = getLatestHistoryTimestampMsForDate(historyPoints, liveDate);
+        const liveIsFresherThanHistory =
+          latestHistoryOnLiveDateMs == null || liveTimestampMs > latestHistoryOnLiveDateMs;
 
-  const getFallbackHighValue = (candle: StockHistoryPoint | null): number | null => {
-    if (candle === null) return null;
-    if (historyHasEurConversion) return candle.highEur ?? null;
-    return candle.highNormalized ?? candle.highRaw ?? null;
-  };
+        if (liveIsFresherThanHistory) {
+          const liveLowValue = pickLiveBound(liveQuote, 'low', historyHasEurConversion);
+          if (isFiniteNumber(liveLowValue) && (minimum.value == null || liveLowValue < minimum.value)) {
+            minimum = {
+              value: liveLowValue,
+              rawValue: isFiniteNumber(liveQuote?.rawDayLow) ? liveQuote.rawDayLow : null,
+              timestampUtc: liveTimestampUtc,
+              isFromLiveQuote: true,
+            };
+          }
 
-  const getFallbackLowValue = (candle: StockHistoryPoint | null): number | null => {
-    if (candle === null) return null;
-    if (historyHasEurConversion) return candle.lowEur ?? null;
-    return candle.lowNormalized ?? candle.lowRaw ?? null;
-  };
-
-  const high: DayHighLowEntry =
-    liveHighDisplay !== null
-      ? {
-          value: liveHighDisplay,
-          rawValue: liveQuote?.rawDayHigh ?? null,
-          label: DAY_HIGH_LIVE_LABEL,
-          fallbackDate: null,
-          isFromHistory: false,
+          const liveHighValue = pickLiveBound(liveQuote, 'high', historyHasEurConversion);
+          if (isFiniteNumber(liveHighValue) && (maximum.value == null || liveHighValue > maximum.value)) {
+            maximum = {
+              value: liveHighValue,
+              rawValue: isFiniteNumber(liveQuote?.rawDayHigh) ? liveQuote.rawDayHigh : null,
+              timestampUtc: liveTimestampUtc,
+              isFromLiveQuote: true,
+            };
+          }
         }
-      : {
-          value: getFallbackHighValue(fallbackCandle),
-          rawValue: null,
-          label: DAY_HIGH_FALLBACK_LABEL,
-          fallbackDate: getFallbackDate(fallbackCandle),
-          isFromHistory: true,
-        };
+      }
+    }
+  }
 
-  const low: DayHighLowEntry =
-    liveLowDisplay !== null
-      ? {
-          value: liveLowDisplay,
-          rawValue: liveQuote?.rawDayLow ?? null,
-          label: DAY_LOW_LIVE_LABEL,
-          fallbackDate: null,
-          isFromHistory: false,
-        }
-      : {
-          value: getFallbackLowValue(fallbackCandle),
-          rawValue: null,
-          label: DAY_LOW_FALLBACK_LABEL,
-          fallbackDate: getFallbackDate(fallbackCandle),
-          isFromHistory: true,
-        };
-
-  return { high, low };
+  return { minimum, maximum };
 };
 
-/**
- * Returns the combined heading label for the compact min–max block.
- *
- * Uses the live label when *neither* bound comes from historical fallback;
- * uses the fallback label as soon as at least one bound originates from the
- * latest completed historical session.
- */
-export const getDayRangeLabel = (display: DayHighLowDisplay): string =>
-  display.low.isFromHistory || display.high.isFromHistory
-    ? DAY_RANGE_FALLBACK_LABEL
-    : DAY_RANGE_LIVE_LABEL;
+export const getDayRangeLabel = (range: StockHistoryRange): string => RANGE_MIN_MAX_LABELS[range];

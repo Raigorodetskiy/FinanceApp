@@ -23,6 +23,7 @@ import type { HistoryChartPoint } from './stockPriceChartData';
 import { buildFinanzenNetUrl } from '../utils/finanzenNet';
 import {
   DAY_HIGH_LOW_VALUE_FONT_SIZE,
+  CURRENT_PRICE_FONT_SIZE,
   getDayHighLowDisplay,
   getDayRangeLabel,
 } from './dayHighLow';
@@ -42,6 +43,8 @@ const COLOR_NEGATIVE = '#cf1322';
 const COLOR_PRIMARY = '#1677ff';
 const COLOR_SECONDARY_TEXT = '#8c8c8c';
 const COLOR_VOLUME = '#91caff';
+export const RANGE_BOUND_COLOR = COLOR_SECONDARY_TEXT;
+export const DAY_RANGE_ARROW_TEXT = ' → ';
 
 const xAxisFormatByRange: Record<StockHistoryRange, string> = {
   '5y': 'MM.YYYY',
@@ -255,10 +258,10 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       ? `${liveQuote.normalizedCurrentPrice.toFixed(3)} ${liveQuote.normalizedQuoteCurrency}`
       : null;
 
-  const dayHighLowDisplay = useMemo(() => {
-    const todayUtcDate = new Date().toISOString().slice(0, 10);
-    return getDayHighLowDisplay(liveQuote, historyData, historyHasEurConversion, todayUtcDate);
-  }, [liveQuote, historyData, historyHasEurConversion]);
+  const dayHighLowDisplay = useMemo(
+    () => getDayHighLowDisplay(liveQuote, historyData, historyHasEurConversion),
+    [liveQuote, historyData, historyHasEurConversion],
+  );
   const latestVolumePoint = useMemo(() => {
     if (!volumeMetrics?.latestMetricsTimestamp) {
       return null;
@@ -332,36 +335,34 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   );
 
   const renderDayRangeBound = (
-    entry: typeof dayHighLowDisplay.low,
+    entry: typeof dayHighLowDisplay.minimum,
     currencyCode: string,
   ) => {
     if (entry.value == null) {
-      return <span style={{ color: COLOR_SECONDARY_TEXT }}>—</span>;
+      return <span style={{ color: RANGE_BOUND_COLOR }}>—</span>;
     }
 
     const formatted = formatCurrencyValue(entry.value, currencyCode);
 
-    const rawTooltip =
-      !entry.isFromHistory &&
-      entry.rawValue != null &&
-      liveQuote?.quoteUnitMultiplier !== 1 &&
-      liveQuote?.currency != null
-        ? `Исходное значение: ${entry.rawValue.toFixed(2)} ${liveQuote.currency}`
+    const rawValue = entry.rawValue;
+    const rawValueDiffers = rawValue != null && Math.abs(rawValue - entry.value) > 1e-9;
+    const rawValueText =
+      rawValueDiffers && historyResponse?.currency != null
+        ? `Исходное значение: ${rawValue.toFixed(2)} ${historyResponse.currency}`
+        : null;
+    const timestampText =
+      entry.timestampUtc != null
+        ? `${entry.isFromLiveQuote ? 'Время котировки' : 'Свеча'}: ${dayjs.utc(entry.timestampUtc).local().format('DD.MM.YYYY HH:mm')}`
         : null;
 
-    const fallbackTooltip =
-      entry.fallbackDate != null
-        ? `Данные сессии ${entry.fallbackDate}`
-        : null;
+    const tooltip = [timestampText, rawValueText].filter((value): value is string => value != null).join('\n');
 
-    const tooltip = entry.isFromHistory ? fallbackTooltip : rawTooltip;
-
-    return tooltip != null ? (
-      <Tooltip title={tooltip}>
-        <span style={{ color: COLOR_SECONDARY_TEXT, cursor: 'help' }}>{formatted}</span>
+    return tooltip !== '' ? (
+      <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tooltip}</span>}>
+        <span style={{ color: RANGE_BOUND_COLOR, cursor: 'help' }}>{formatted}</span>
       </Tooltip>
     ) : (
-      <span style={{ color: COLOR_SECONDARY_TEXT }}>{formatted}</span>
+      <span style={{ color: RANGE_BOUND_COLOR }}>{formatted}</span>
     );
   };
 
@@ -530,7 +531,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     Тек. цена
                   </div>
-                  <div style={{ color: COLOR_PRIMARY, fontSize: 16, fontWeight: 600 }}>
+                  <div style={{ color: COLOR_PRIMARY, fontSize: CURRENT_PRICE_FONT_SIZE, fontWeight: 600 }}>
                     {currentPriceDisplayText}
                   </div>
                   {normalizedQuoteText && (
@@ -541,12 +542,12 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
-                    {getDayRangeLabel(dayHighLowDisplay)}
+                    {getDayRangeLabel(historyRange)}
                   </div>
-                  <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600 }}>
-                    {renderDayRangeBound(dayHighLowDisplay.low, displayCurrencyCode)}
-                    <span style={{ color: COLOR_SECONDARY_TEXT }}>{' → '}</span>
-                    {renderDayRangeBound(dayHighLowDisplay.high, displayCurrencyCode)}
+                  <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: RANGE_BOUND_COLOR }}>
+                    {renderDayRangeBound(dayHighLowDisplay.minimum, displayCurrencyCode)}
+                    <span style={{ color: RANGE_BOUND_COLOR }}>{DAY_RANGE_ARROW_TEXT}</span>
+                    {renderDayRangeBound(dayHighLowDisplay.maximum, displayCurrencyCode)}
                   </div>
                 </div>
                 <div>
