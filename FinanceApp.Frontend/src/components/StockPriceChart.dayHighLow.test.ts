@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import type { StockHistoryPoint, StockHistoryRange, StockQuoteResponse } from '../types';
 import { STOCKS_TABLE_TOTAL_COLS } from '../pages/StocksPage';
 import {
@@ -14,7 +17,15 @@ import {
   getDayHighLowDisplay,
   getDayRangeLabel,
 } from './dayHighLow';
-import { DAY_RANGE_ARROW_TEXT, RANGE_BOUND_COLOR, BASELINE_BLOCK_STYLE } from './StockPriceChart';
+import {
+  DAY_RANGE_ARROW_TEXT,
+  RANGE_BOUND_COLOR,
+  BASELINE_BLOCK_STYLE,
+  PERIOD_CHANGE_HEADING,
+} from './StockPriceChart';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const stockPriceChartSource = readFileSync(join(__dirname, 'StockPriceChart.tsx'), 'utf-8');
 
 const makePoint = (overrides: Partial<StockHistoryPoint> = {}): StockHistoryPoint => ({
   timestamp: '2026-08-08T00:00:00Z',
@@ -219,6 +230,32 @@ describe('compact block presentation contract', () => {
   it('baseline block is pushed right with marginLeft auto and right-aligned text', () => {
     expect(BASELINE_BLOCK_STYLE.marginLeft).toBe('auto');
     expect(BASELINE_BLOCK_STYLE.textAlign).toBe('right');
+  });
+
+  it('uses the exact renamed period-change heading', () => {
+    expect(PERIOD_CHANGE_HEADING).toBe('Изменение от начала периода');
+  });
+});
+
+describe('selected-period summary layout contract', () => {
+  it('renders baseline value before the right-aligned change block', () => {
+    const baselineValueIdx = stockPriceChartSource.indexOf('formatCurrencyValue(periodSummary.baselineValue, displayCurrencyCode)');
+    const rightBlockIdx = stockPriceChartSource.indexOf('<div style={BASELINE_BLOCK_STYLE}>');
+    expect(baselineValueIdx).toBeGreaterThan(-1);
+    expect(rightBlockIdx).toBeGreaterThan(-1);
+    expect(baselineValueIdx).toBeLessThan(rightBlockIdx);
+  });
+
+  it('keeps change value inside the right-aligned block under the renamed heading', () => {
+    expect(stockPriceChartSource).toContain('{PERIOD_CHANGE_HEADING}');
+    expect(stockPriceChartSource).toContain("<div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>");
+    expect(stockPriceChartSource).toContain('formatCurrencyValue(periodChangeValue, displayCurrencyCode)');
+  });
+
+  it('keeps green/red color logic for positive and negative change', () => {
+    expect(stockPriceChartSource).toContain('periodChangeValue >= 0');
+    expect(stockPriceChartSource).toContain('? COLOR_POSITIVE');
+    expect(stockPriceChartSource).toContain(': COLOR_NEGATIVE');
   });
 });
 
