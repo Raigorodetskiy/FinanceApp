@@ -71,10 +71,47 @@ import type {
   OrderStatus,
   Transaction,
   TransactionType,
+  InstrumentCodeType,
   PortfolioBalance,
   StockQuoteResponse,
   UpdateStockQuoteRequest,
 } from '../types';
+
+/** Typed form values for the create/edit transaction modal. */
+interface TxFormValues {
+  type: TransactionType;
+  amount: number;
+  createdAt: Dayjs;
+  stockId?: number | null;
+  description?: string;
+  instrumentCodeType?: InstrumentCodeType | null;
+  instrumentCode?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+}
+
+/**
+ * Derives snapshot code and code type from a stock.
+ * Prefers trimmed ISIN when non-empty, otherwise trimmed ticker.
+ */
+export const deriveSnapshotFromStock = (
+  stock: Stock,
+): { instrumentCode: string; instrumentCodeType: InstrumentCodeType } | null => {
+  const isin = stock.isin?.trim();
+  if (isin) return { instrumentCode: isin, instrumentCodeType: 'ISIN' };
+  const ticker = stock.ticker?.trim();
+  if (ticker) return { instrumentCode: ticker, instrumentCodeType: 'Ticker' };
+  return null;
+};
+
+/** Validates a normalized 12-char ISIN: 2 alpha + 9 alphanumeric + 1 digit. */
+export const isValidIsin = (code: string): boolean => /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(code.trim().toUpperCase());
+
+/** Validates a ticker: non-blank, max 32 chars. */
+export const isValidTicker = (code: string): boolean => {
+  const t = code.trim();
+  return t.length > 0 && t.length <= 32;
+};
 
 dayjs.extend(utc);
 
@@ -259,7 +296,11 @@ const PortfolioDetailPage: React.FC = () => {
   const [txModalOpen, setTxModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [txSubmitting, setTxSubmitting] = useState(false);
-  const [txForm] = Form.useForm();
+  const [txForm] = Form.useForm<TxFormValues>();
+  const [txType, setTxType] = useState<TransactionType>('Deposit');
+  const [txInstrumentCodeType, setTxInstrumentCodeType] = useState<'ISIN' | 'Ticker' | null>(null);
+  // Track whether current code/type values were auto-derived (to allow overwrite on stock change)
+  const txCodeAutoDerived = useRef(false);
 
   // Position modal
   const [posModalOpen, setPosModalOpen] = useState(false);
@@ -524,7 +565,10 @@ const PortfolioDetailPage: React.FC = () => {
   const openNewTxModal = () => {
     setEditingTx(null);
     txForm.resetFields();
+    txCodeAutoDerived.current = false;
    txForm.setFieldsValue({ type: 'Deposit', createdAt: dayjs() });
+    setTxType('Deposit');
+    setTxInstrumentCodeType(null);
     setTxModalOpen(true);
   };
   const openEditTxModal = (tx: Transaction) => {
@@ -535,12 +579,25 @@ const PortfolioDetailPage: React.FC = () => {
      createdAt: dayjs.utc(tx.createdAt).local(),
      stockId: tx.stockId ?? undefined,
      description: tx.description ?? undefined,
+     instrumentCodeType: tx.instrumentCodeType ?? undefined,
+     instrumentCode: tx.instrumentCode ?? undefined,
+     quantity: tx.quantity ?? undefined,
+     unitPrice: tx.unitPrice ?? undefined,
    });
+   txCodeAutoDerived.current = false;
+   setTxType(tx.type);
+   setTxInstrumentCodeType(tx.instrumentCodeType ?? null);
    setTxModalOpen(true);
   };
-  const handleTxSubmit = async (values: { type: TransactionType; amount: number; createdAt: Dayjs; stockId?: number; description?: string }) => {
+  const handleTxSubmit = async (values: TxFormValues) => {
    if (!id) return;
    setTxSubmitting(true);
+   const hideSnapshot = values.type === 'Deposit' || values.type === 'Withdrawal';
+   const normalizeCode = (v?: string | null): string | null => {
+     if (hideSnapshot) return null;
+     const t = (v ?? '').trim();
+     return t.length > 0 ? t : null;
+   };
    try {
      const payload = {
        type: values.type,
@@ -548,6 +605,10 @@ const PortfolioDetailPage: React.FC = () => {
        createdAt: values.createdAt.toISOString(),
        stockId: values.stockId ?? null,
        description: values.description,
+       instrumentCode: normalizeCode(values.instrumentCode),
+       instrumentCodeType: hideSnapshot ? null : (values.instrumentCodeType ?? null),
+       quantity: hideSnapshot ? null : (values.quantity ?? null),
+       unitPrice: hideSnapshot ? null : (values.unitPrice ?? null),
      };
      if (editingTx) {
        await updateTransaction(Number(id), editingTx.id, payload);
@@ -1339,10 +1400,11 @@ const PortfolioDetailPage: React.FC = () => {
         open={txModalOpen}
         onCancel={() => { setTxModalOpen(false); txForm.resetFields(); setEditingTx(null); }}
         footer={null}
+        width={600}
       >
         <Form form={txForm} layout="vertical" onFinish={handleTxSubmit} initialValues={{ type: 'Deposit', createdAt: dayjs() }}>
           <Form.Item label="Тип" name="type" rules={[{ required: true, message: 'Выберите тип' }]}>
-            <Select>
+            <Select onChange={(v: TransactionType) => setTxType(v)}>
               <Select.Option value="Deposit">Пополнение</Select.Option>
               <Select.Option value="Withdrawal">Вывод</Select.Option>
               <Select.Option value="Buy">Покупка</Select.Option>
@@ -1368,11 +1430,146 @@ const PortfolioDetailPage: React.FC = () => {
               showSearch
               optionFilterProp="label"
               options={stockOptions}
+              onChange={(stockId: number | undefined) => {
+                const stock = stockId != null ? stocks.find((s) => s.id === stockId) : undefined;
+                if (stock) {
+                  // Only auto-populate if in edit mode and no saved snapshot, or in create mode / auto-derived
+                  const isEdit = !!editingTx;
+                  const hasSavedSnapshot = isEdit && (editingTx.instrumentCode || editingTx.instrumentCodeType);
+                  if (!hasSavedSnapshot || txCodeAutoDerived.current) {
+                    const derived = deriveSnapshotFromStock(stock);
+                    if (derived) {
+                      txForm.setFieldsValue({
+                        instrumentCode: derived.instrumentCode,
+                        instrumentCodeType: derived.instrumentCodeType,
+                      });
+                     setTxInstrumentCodeType(derived.instrumentCodeType);
+                     txCodeAutoDerived.current = true;
+                   }
+                 }
+                } else {
+                 // Cleared stock — clear auto-derived values only
+                 if (txCodeAutoDerived.current) {
+                   txForm.setFieldsValue({ instrumentCode: undefined, instrumentCodeType: undefined });
+                   setTxInstrumentCodeType(null);
+                   txCodeAutoDerived.current = false;
+                 }
+                }
+              }}
             />
           </Form.Item>
           <Form.Item label="Описание" name="description">
             <Input placeholder="Необязательно" />
           </Form.Item>
+          {/* Instrument snapshot fields — shown for Buy/Sell/Dividend */}
+          {(txType === 'Buy' || txType === 'Sell' || txType === 'Dividend') && (
+            <>
+              <Row gutter={12}>
+                <Col xs={24} sm={8}>
+                  <Form.Item
+                    label="Тип кода"
+                    name="instrumentCodeType"
+                    dependencies={['instrumentCode']}
+                    rules={[
+                      {
+                        validator(_: unknown, value: unknown) {
+                          const code: string | undefined = txForm.getFieldValue('instrumentCode');
+                          const hasCode = !!(code && code.trim());
+                          if (hasCode && !value) return Promise.reject('Укажите тип кода');
+                          if (!hasCode && value) return Promise.reject('Укажите код инструмента');
+                          return Promise.resolve();
+                        },
+                      },
+                    ]}
+                  >
+                    <Select
+                      allowClear
+                      placeholder="ISIN / Ticker"
+                      onChange={(v: 'ISIN' | 'Ticker' | undefined) => {
+                        setTxInstrumentCodeType(v ?? null);
+                        // Re-validate instrumentCode so paired errors clear
+                        txForm.validateFields(['instrumentCode']);
+                      }}
+                    >
+                      <Select.Option value="ISIN">ISIN</Select.Option>
+                      <Select.Option value="Ticker">Ticker</Select.Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={16}>
+                  <Form.Item
+                    label="Код инструмента"
+                    name="instrumentCode"
+                    dependencies={['instrumentCodeType']}
+                    rules={[
+                      {
+                        validator(_: unknown, value: unknown) {
+                          const codeType: InstrumentCodeType | undefined = txForm.getFieldValue('instrumentCodeType');
+                          const code = typeof value === 'string' ? value.trim() : '';
+                          if (codeType && !code) return Promise.reject('Укажите код инструмента');
+                          if (!codeType && code) return Promise.reject('Укажите тип кода');
+                          if (codeType === 'ISIN' && code && !isValidIsin(code)) {
+                            return Promise.reject('Неверный формат ISIN (12 символов: CC + 9 буквенно-цифровых + цифра)');
+                          }
+                          if (codeType === 'Ticker' && code && !isValidTicker(code)) {
+                            return Promise.reject('Тикер не может быть пустым или длиннее 32 символов');
+                          }
+                          return Promise.resolve();
+                        },
+                      },
+                    ]}
+                  >
+                    <Input
+                      placeholder="Необязательно"
+                      maxLength={txInstrumentCodeType === 'ISIN' ? 12 : 32}
+                      onChange={() => {
+                        // Re-validate instrumentCodeType so paired errors clear
+                        txForm.validateFields(['instrumentCodeType']);
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+              {(txType === 'Buy' || txType === 'Sell') && (
+                <Row gutter={12}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      label="Количество"
+                      name="quantity"
+                      rules={[
+                        {
+                          validator(_: unknown, value: unknown) {
+                            if (value == null) return Promise.resolve();
+                            if ((value as number) < 0) return Promise.reject('Количество не может быть отрицательным');
+                            return Promise.resolve();
+                          },
+                        },
+                      ]}
+                    >
+                      <InputNumber min={0} step={0.00000001} precision={8} style={{ width: '100%' }} placeholder="Необязательно" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      label="Цена за единицу (€)"
+                      name="unitPrice"
+                      rules={[
+                        {
+                          validator(_: unknown, value: unknown) {
+                            if (value == null) return Promise.resolve();
+                            if ((value as number) < 0) return Promise.reject('Цена не может быть отрицательной');
+                            return Promise.resolve();
+                          },
+                        },
+                      ]}
+                    >
+                      <InputNumber min={0} step={0.00000001} precision={8} style={{ width: '100%' }} prefix="€" placeholder="Необязательно" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
+            </>
+          )}
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={txSubmitting} block>
               {editingTx ? 'Сохранить' : 'Добавить'}
