@@ -231,12 +231,12 @@ public class FinanceController : ControllerBase
                 return NormalizedTransactionSnapshot.WithError(BadRequest("Stock not found."));
         }
 
-        var normalizedInstrumentCode = NormalizeInstrumentCode(instrumentCode, instrumentCodeType);
+        var normalizedInstrumentCode = TransactionInstrumentSnapshot.NormalizeInstrumentCode(instrumentCode, instrumentCodeType);
         var normalizedInstrumentCodeType = instrumentCodeType;
 
         if (normalizedInstrumentCode == null && normalizedInstrumentCodeType == null && stock != null)
         {
-            (normalizedInstrumentCode, normalizedInstrumentCodeType) = ResolveInstrumentSnapshotFromStock(stock);
+            (normalizedInstrumentCode, normalizedInstrumentCodeType) = TransactionInstrumentSnapshot.ResolveFromStock(stock);
         }
 
         if ((normalizedInstrumentCode is null) != (normalizedInstrumentCodeType is null))
@@ -245,7 +245,7 @@ public class FinanceController : ControllerBase
         if (normalizedInstrumentCode != null)
         {
             if (normalizedInstrumentCode.Length > 32)
-                return NormalizedTransactionSnapshot.WithError(BadRequest("Ticker instrument code must be at most 32 characters."));
+                return NormalizedTransactionSnapshot.WithError(BadRequest("InstrumentCode must be at most 32 characters."));
 
             if (normalizedInstrumentCodeType == InstrumentCodeType.ISIN)
             {
@@ -273,29 +273,6 @@ public class FinanceController : ControllerBase
 
     private static decimal NormalizeMoney(decimal value) =>
         Math.Round(value, Portfolio.MonetaryScale, MidpointRounding.AwayFromZero);
-
-    private static string? NormalizeInstrumentCode(string? instrumentCode, InstrumentCodeType? instrumentCodeType)
-    {
-        if (string.IsNullOrWhiteSpace(instrumentCode))
-            return null;
-
-        var trimmed = instrumentCode.Trim();
-        return instrumentCodeType == InstrumentCodeType.ISIN
-            ? StockIdentifiers.Normalize(trimmed)
-            : trimmed;
-    }
-
-    private static (string? InstrumentCode, InstrumentCodeType? InstrumentCodeType) ResolveInstrumentSnapshotFromStock(Stock stock)
-    {
-        var normalizedIsin = StockIdentifiers.Normalize(stock.Isin);
-        if (!string.IsNullOrEmpty(normalizedIsin))
-            return (normalizedIsin, InstrumentCodeType.ISIN);
-
-        var trimmedTicker = string.IsNullOrWhiteSpace(stock.Ticker) ? null : stock.Ticker.Trim();
-        return string.IsNullOrEmpty(trimmedTicker)
-            ? (null, null)
-            : (trimmedTicker, InstrumentCodeType.Ticker);
-    }
 
     [HttpGet("dividends")]
     public async Task<ActionResult<IEnumerable<Dividend>>> GetDividends(int portfolioId)

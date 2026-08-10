@@ -336,7 +336,7 @@ public class FinanceControllerTests
         });
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
-        Assert.Equal("Ticker instrument code must be at most 32 characters.", badRequest.Value);
+        Assert.Equal("InstrumentCode must be at most 32 characters.", badRequest.Value);
     }
 
     [Fact]

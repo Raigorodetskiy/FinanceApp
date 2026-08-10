@@ -11,6 +11,7 @@ public class TransactionSnapshotPersistenceTests
 {
     private const string PreviousMigration = "20260801120000_AddStockPriceSnapshot";
     private const string CurrentMigration = "20260810082923_AddTransactionInstrumentSnapshots";
+    private const string DefaultConnectionString = "Server=example.invalid;Port=3306;Database=financeapp";
 
     [Fact]
     public void AppDbContext_MapsTransactionSnapshotFields_WithExpectedLengthsPrecisionAndStringConversion()
@@ -84,7 +85,8 @@ public class TransactionSnapshotPersistenceTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseMySql(
-                "Server=127.0.0.1;Port=3306;Database=financeapp;User=root",
+                Environment.GetEnvironmentVariable("FINANCEAPP_TEST_MYSQL_CONNECTION")
+                    ?? DefaultConnectionString,
                 new MariaDbServerVersion(new Version(10, 5, 23)))
             .Options;
 
