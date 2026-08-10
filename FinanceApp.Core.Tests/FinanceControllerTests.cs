@@ -5,6 +5,7 @@ using FinanceApp.Data.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -106,6 +107,424 @@ public class FinanceControllerTests
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.Equal("CreatedAt is required.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WithExplicitSnapshotFields_PersistsNormalizedValues()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 17, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        context.Stocks.Add(new Stock
+        {
+            Id = 71,
+            Ticker = "AAPL",
+            Isin = "US0378331005",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(17, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 125.50m,
+            CreatedAt = new DateTime(2026, 8, 2, 9, 30, 0, DateTimeKind.Utc),
+            StockId = 71,
+            InstrumentCode = " us0378331005 ",
+            InstrumentCodeType = InstrumentCodeType.ISIN,
+            Quantity = 1.23456789m,
+            UnitPrice = 101.23456789m,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Equal("US0378331005", transaction.InstrumentCode);
+        Assert.Equal(InstrumentCodeType.ISIN, transaction.InstrumentCodeType);
+        Assert.Equal(1.23456789m, transaction.Quantity);
+        Assert.Equal(101.23456789m, transaction.UnitPrice);
+        Assert.Equal(-125.50m, transaction.SignedAmount);
+    }
+
+    [Fact]
+    public async Task UpdateTransaction_WithExplicitSnapshot_DoesNotOverwriteFromStockMetadata()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 18, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        context.Stocks.Add(new Stock
+        {
+            Id = 72,
+            Ticker = "NVDA",
+            Isin = "US67066G1040",
+            Name = "NVIDIA",
+            CommonName = "NVIDIA",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        context.Transactions.Add(new Transaction
+        {
+            Id = 90,
+            PortfolioId = 18,
+            Type = TransactionType.Sell,
+            Amount = 50m,
+            SignedAmount = 50m,
+            StockId = 72,
+            CreatedAt = new DateTime(2026, 8, 2, 9, 30, 0, DateTimeKind.Utc),
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.UpdateTransaction(18, 90, new UpdateTransactionDto
+        {
+            Type = TransactionType.Sell,
+            Amount = 55m,
+            CreatedAt = new DateTime(2026, 8, 3, 9, 30, 0, DateTimeKind.Utc),
+            StockId = 72,
+            InstrumentCode = " HIST-123 ",
+            InstrumentCodeType = InstrumentCodeType.Ticker,
+            Quantity = 3m,
+            UnitPrice = 18.5m,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Equal("HIST-123", transaction.InstrumentCode);
+        Assert.Equal(InstrumentCodeType.Ticker, transaction.InstrumentCodeType);
+        Assert.Equal(3m, transaction.Quantity);
+        Assert.Equal(18.5m, transaction.UnitPrice);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WhitespaceInstrumentCode_NormalizesToNull()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 19, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(19, new CreateTransactionDto
+        {
+            Type = TransactionType.Withdrawal,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            InstrumentCode = "   ",
+            InstrumentCodeType = null,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Null(transaction.InstrumentCode);
+        Assert.Null(transaction.InstrumentCodeType);
+        Assert.Null(transaction.Quantity);
+        Assert.Null(transaction.UnitPrice);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WithCodeOnly_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 20, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(20, new CreateTransactionDto
+        {
+            Type = TransactionType.Deposit,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            InstrumentCode = "AAPL",
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("InstrumentCode and InstrumentCodeType must either both be provided or both be null.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WithTypeOnly_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 21, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(21, new CreateTransactionDto
+        {
+            Type = TransactionType.Deposit,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            InstrumentCodeType = InstrumentCodeType.Ticker,
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("InstrumentCode and InstrumentCodeType must either both be provided or both be null.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_InvalidIsin_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 22, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(22, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            InstrumentCode = "bad",
+            InstrumentCodeType = InstrumentCodeType.ISIN,
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal(
+            "ISIN must contain exactly 12 characters: 2 uppercase letters followed by 10 uppercase alphanumeric characters.",
+            badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_EmptyTicker_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 23, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(23, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            InstrumentCode = "   ",
+            InstrumentCodeType = InstrumentCodeType.Ticker,
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("InstrumentCode and InstrumentCodeType must either both be provided or both be null.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_OverlongTicker_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 24, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(24, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            InstrumentCode = new string('T', 33),
+            InstrumentCodeType = InstrumentCodeType.Ticker,
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("Ticker instrument code must be at most 32 characters.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_NegativeQuantity_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 25, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(25, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            Quantity = -1m,
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("Quantity cannot be negative.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_NegativeUnitPrice_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 26, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(26, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            UnitPrice = -1m,
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("UnitPrice cannot be negative.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_AllowsZeroQuantityAndUnitPrice()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 27, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(27, new CreateTransactionDto
+        {
+            Type = TransactionType.Deposit,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            Quantity = 0m,
+            UnitPrice = 0m,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Equal(0m, transaction.Quantity);
+        Assert.Equal(0m, transaction.UnitPrice);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WithStockIdAndOmittedSnapshot_ResolvesIsin()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 28, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        context.Stocks.Add(new Stock
+        {
+            Id = 73,
+            Ticker = "AAPL",
+            Isin = " us0378331005 ",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(28, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            StockId = 73,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Equal("US0378331005", transaction.InstrumentCode);
+        Assert.Equal(InstrumentCodeType.ISIN, transaction.InstrumentCodeType);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WithStockIdAndMissingIsin_FallsBackToTicker()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 29, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        context.Stocks.Add(new Stock
+        {
+            Id = 74,
+            Ticker = " NVDA ",
+            Isin = "   ",
+            Name = "NVIDIA",
+            CommonName = "NVIDIA",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(29, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            StockId = 74,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Equal("NVDA", transaction.InstrumentCode);
+        Assert.Equal(InstrumentCodeType.Ticker, transaction.InstrumentCodeType);
+    }
+
+    [Fact]
+    public async Task CreateTransaction_WithStockIdAndNoUsableInstrumentCode_LeavesSnapshotNull()
+    {
+        await using var context = CreateContext();
+        context.Portfolios.Add(new Portfolio { Id = 30, Name = "Main", UserId = 1, CreatedAt = DateTime.UtcNow });
+        context.Stocks.Add(new Stock
+        {
+            Id = 75,
+            Ticker = "   ",
+            Isin = "   ",
+            Name = "Unknown",
+            CommonName = "Unknown",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, userId: 1);
+
+        var result = await controller.CreateTransaction(30, new CreateTransactionDto
+        {
+            Type = TransactionType.Buy,
+            Amount = 50m,
+            CreatedAt = new DateTime(2026, 8, 4, 9, 30, 0, DateTimeKind.Utc),
+            StockId = 75,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var transaction = Assert.IsType<Transaction>(ok.Value);
+
+        Assert.Null(transaction.InstrumentCode);
+        Assert.Null(transaction.InstrumentCodeType);
+    }
+
+    [Fact]
+    public async Task SerializeTransactionInstrumentCodeType_UsesExactEnumStrings()
+    {
+        var transactionJson = JsonSerializer.Serialize(new Transaction
+        {
+            InstrumentCodeType = InstrumentCodeType.ISIN,
+        });
+        var dtoJson = JsonSerializer.Serialize(new UpdateTransactionDto
+        {
+            InstrumentCodeType = InstrumentCodeType.Ticker,
+        });
+
+        Assert.Contains("\"InstrumentCodeType\":\"ISIN\"", transactionJson);
+        Assert.Contains("\"InstrumentCodeType\":\"Ticker\"", dtoJson);
     }
 
     [Fact]

@@ -82,8 +82,15 @@ public class FinanceController : ControllerBase
     {
         if (!await PortfolioBelongsToUser(portfolioId)) return NotFound();
 
-        var validationError = await ValidateTransactionAsync(dto.Amount, dto.StockId, dto.CreatedAt);
-        if (validationError != null) return validationError;
+        var normalizedSnapshot = await ValidateAndNormalizeTransactionAsync(
+            dto.Amount,
+            dto.StockId,
+            dto.CreatedAt,
+            dto.InstrumentCode,
+            dto.InstrumentCodeType,
+            dto.Quantity,
+            dto.UnitPrice);
+        if (normalizedSnapshot.Error != null) return normalizedSnapshot.Error;
 
         // Derive signed amount from type (enforced server-side, positive user amount)
         var signedAmount = TransactionDirection.DeriveSignedAmount(dto.Type, dto.Amount);
@@ -97,6 +104,10 @@ public class FinanceController : ControllerBase
             StockId = dto.StockId,
             Description = dto.Description,
             CreatedAt = NormalizeClientDateTime(dto.CreatedAt),
+            InstrumentCode = normalizedSnapshot.InstrumentCode,
+            InstrumentCodeType = normalizedSnapshot.InstrumentCodeType,
+            Quantity = normalizedSnapshot.Quantity,
+            UnitPrice = normalizedSnapshot.UnitPrice,
         };
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync();
@@ -120,8 +131,15 @@ public class FinanceController : ControllerBase
         if (transaction.OrderId.HasValue)
             return BadRequest("Order-linked transactions cannot be edited directly.");
 
-        var validationError = await ValidateTransactionAsync(dto.Amount, dto.StockId, dto.CreatedAt);
-        if (validationError != null) return validationError;
+        var normalizedSnapshot = await ValidateAndNormalizeTransactionAsync(
+            dto.Amount,
+            dto.StockId,
+            dto.CreatedAt,
+            dto.InstrumentCode,
+            dto.InstrumentCodeType,
+            dto.Quantity,
+            dto.UnitPrice);
+        if (normalizedSnapshot.Error != null) return normalizedSnapshot.Error;
 
         var signedAmount = TransactionDirection.DeriveSignedAmount(dto.Type, dto.Amount);
 
@@ -131,6 +149,10 @@ public class FinanceController : ControllerBase
         transaction.StockId = dto.StockId;
         transaction.Description = dto.Description;
         transaction.CreatedAt = NormalizeClientDateTime(dto.CreatedAt);
+        transaction.InstrumentCode = normalizedSnapshot.InstrumentCode;
+        transaction.InstrumentCodeType = normalizedSnapshot.InstrumentCodeType;
+        transaction.Quantity = normalizedSnapshot.Quantity;
+        transaction.UnitPrice = normalizedSnapshot.UnitPrice;
 
         await _context.SaveChangesAsync();
 
@@ -177,21 +199,65 @@ public class FinanceController : ControllerBase
         };
     }
 
-    private async Task<ActionResult?> ValidateTransactionAsync(
+    private async Task<NormalizedTransactionSnapshot> ValidateAndNormalizeTransactionAsync(
         decimal amount,
         int? stockId,
-        DateTime createdAt)
+        DateTime createdAt,
+        string? instrumentCode,
+        InstrumentCodeType? instrumentCodeType,
+        decimal? quantity,
+        decimal? unitPrice)
     {
         if (amount <= 0)
-            return BadRequest("Amount must be greater than zero.");
+            return NormalizedTransactionSnapshot.WithError(BadRequest("Amount must be greater than zero."));
 
         if (createdAt == default)
-            return BadRequest("CreatedAt is required.");
+            return NormalizedTransactionSnapshot.WithError(BadRequest("CreatedAt is required."));
 
-        if (stockId.HasValue && !await _context.Stocks.AnyAsync(s => s.Id == stockId.Value))
-            return BadRequest("Stock not found.");
+        if (quantity < 0m)
+            return NormalizedTransactionSnapshot.WithError(BadRequest("Quantity cannot be negative."));
 
-        return null;
+        if (unitPrice < 0m)
+            return NormalizedTransactionSnapshot.WithError(BadRequest("UnitPrice cannot be negative."));
+
+        Stock? stock = null;
+        if (stockId.HasValue)
+        {
+            stock = await _context.Stocks
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == stockId.Value);
+
+            if (stock == null)
+                return NormalizedTransactionSnapshot.WithError(BadRequest("Stock not found."));
+        }
+
+        var normalizedInstrumentCode = NormalizeInstrumentCode(instrumentCode, instrumentCodeType);
+        var normalizedInstrumentCodeType = instrumentCodeType;
+
+        if (normalizedInstrumentCode == null && normalizedInstrumentCodeType == null && stock != null)
+        {
+            (normalizedInstrumentCode, normalizedInstrumentCodeType) = ResolveInstrumentSnapshotFromStock(stock);
+        }
+
+        if (normalizedInstrumentCode == null ^ normalizedInstrumentCodeType.HasValue)
+            return NormalizedTransactionSnapshot.WithError(BadRequest("InstrumentCode and InstrumentCodeType must either both be provided or both be null."));
+
+        if (normalizedInstrumentCode != null)
+        {
+            if (normalizedInstrumentCode.Length > 32)
+                return NormalizedTransactionSnapshot.WithError(BadRequest("Ticker instrument code must be at most 32 characters."));
+
+            if (normalizedInstrumentCodeType == InstrumentCodeType.ISIN)
+            {
+                if (!StockIdentifiers.IsValidIsin(normalizedInstrumentCode))
+                {
+                    return NormalizedTransactionSnapshot.WithError(BadRequest(
+                        "ISIN must contain exactly 12 characters: 2 uppercase letters followed by 10 uppercase alphanumeric characters."));
+                }
+            }
+        }
+
+        return new NormalizedTransactionSnapshot(null, normalizedInstrumentCode, normalizedInstrumentCodeType, quantity, unitPrice);
     }
 
     private static DateTime NormalizeClientDateTime(DateTime value)
@@ -207,6 +273,29 @@ public class FinanceController : ControllerBase
 
     private static decimal NormalizeMoney(decimal value) =>
         Math.Round(value, Portfolio.MonetaryScale, MidpointRounding.AwayFromZero);
+
+    private static string? NormalizeInstrumentCode(string? instrumentCode, InstrumentCodeType? instrumentCodeType)
+    {
+        if (string.IsNullOrWhiteSpace(instrumentCode))
+            return null;
+
+        var trimmed = instrumentCode.Trim();
+        return instrumentCodeType == InstrumentCodeType.ISIN
+            ? StockIdentifiers.Normalize(trimmed)
+            : trimmed;
+    }
+
+    private static (string? InstrumentCode, InstrumentCodeType? InstrumentCodeType) ResolveInstrumentSnapshotFromStock(Stock stock)
+    {
+        var normalizedIsin = StockIdentifiers.Normalize(stock.Isin);
+        if (!string.IsNullOrEmpty(normalizedIsin))
+            return (normalizedIsin, InstrumentCodeType.ISIN);
+
+        var trimmedTicker = string.IsNullOrWhiteSpace(stock.Ticker) ? null : stock.Ticker.Trim();
+        return string.IsNullOrEmpty(trimmedTicker)
+            ? (null, null)
+            : (trimmedTicker, InstrumentCodeType.Ticker);
+    }
 
     [HttpGet("dividends")]
     public async Task<ActionResult<IEnumerable<Dividend>>> GetDividends(int portfolioId)
@@ -261,6 +350,11 @@ public class CreateTransactionDto
     public DateTime CreatedAt { get; set; }
     public int? StockId { get; set; }
     public string? Description { get; set; }
+    public string? InstrumentCode { get; set; }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public InstrumentCodeType? InstrumentCodeType { get; set; }
+    public decimal? Quantity { get; set; }
+    public decimal? UnitPrice { get; set; }
 }
 
 public class UpdateTransactionDto
@@ -271,6 +365,11 @@ public class UpdateTransactionDto
     public DateTime CreatedAt { get; set; }
     public int? StockId { get; set; }
     public string? Description { get; set; }
+    public string? InstrumentCode { get; set; }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public InstrumentCodeType? InstrumentCodeType { get; set; }
+    public decimal? Quantity { get; set; }
+    public decimal? UnitPrice { get; set; }
 }
 
 public class UpdatePortfolioBalanceDto
@@ -291,4 +390,15 @@ public class CreateDividendDto
     public int StockId { get; set; }
     public decimal Amount { get; set; }
     public DateTime PaidAt { get; set; }
+}
+
+internal sealed record NormalizedTransactionSnapshot(
+    ActionResult? Error,
+    string? InstrumentCode,
+    InstrumentCodeType? InstrumentCodeType,
+    decimal? Quantity,
+    decimal? UnitPrice)
+{
+    public static NormalizedTransactionSnapshot WithError(ActionResult error) =>
+        new(error, null, null, null, null);
 }

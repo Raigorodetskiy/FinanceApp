@@ -116,6 +116,7 @@ public class OrdersController : ControllerBase
                 var stockTicker = order.Stock?.Ticker ?? string.Empty;
                 var typeLabel = order.Type == OrderType.Buy ? "Покупка" : "Продажа";
                 var description = $"{typeLabel} — {stockTicker} · {stockName}";
+                var (instrumentCode, instrumentCodeType) = ResolveInstrumentSnapshotFromStock(order.Stock);
 
                 _context.Transactions.Add(new Transaction
                 {
@@ -127,12 +128,31 @@ public class OrdersController : ControllerBase
                     OrderId = orderId,
                     Description = description,
                     CreatedAt = order.ExecutedAt!.Value,
+                    InstrumentCode = instrumentCode,
+                    InstrumentCodeType = instrumentCodeType,
+                    Quantity = order.Quantity,
+                    UnitPrice = order.Price,
                 });
             }
         }
 
         await _context.SaveChangesAsync();
         return Ok(order);
+    }
+
+    private static (string? InstrumentCode, InstrumentCodeType? InstrumentCodeType) ResolveInstrumentSnapshotFromStock(Stock? stock)
+    {
+        if (stock == null)
+            return (null, null);
+
+        var normalizedIsin = StockIdentifiers.Normalize(stock.Isin);
+        if (!string.IsNullOrEmpty(normalizedIsin))
+            return (normalizedIsin, InstrumentCodeType.ISIN);
+
+        var trimmedTicker = string.IsNullOrWhiteSpace(stock.Ticker) ? null : stock.Ticker.Trim();
+        return string.IsNullOrEmpty(trimmedTicker)
+            ? (null, null)
+            : (trimmedTicker, InstrumentCodeType.Ticker);
     }
 
     [HttpDelete("{orderId}")]

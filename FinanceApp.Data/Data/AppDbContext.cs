@@ -27,6 +27,15 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.StockId)
                 .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(x => x.InstrumentCode)
+                .HasMaxLength(32);
+            entity.Property(x => x.InstrumentCodeType)
+                .HasConversion<string>()
+                .HasMaxLength(8);
+            entity.Property(x => x.Quantity)
+                .HasPrecision(18, 8);
+            entity.Property(x => x.UnitPrice)
+                .HasPrecision(18, 8);
         });
 
         modelBuilder.Entity<StockHistoricalPrice>(entity =>

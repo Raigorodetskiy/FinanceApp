@@ -162,6 +162,7 @@ export interface Order {
 }
 
 export type TransactionType = 'Deposit' | 'Withdrawal' | 'Buy' | 'Sell' | 'Dividend';
+export type InstrumentCodeType = 'ISIN' | 'Ticker';
 
 export interface Transaction {
   id: number;
@@ -174,6 +175,10 @@ export interface Transaction {
   stockId: number | null;
   stock: Stock | null;
   orderId: number | null;
+  instrumentCode: string | null;
+  instrumentCodeType: InstrumentCodeType | null;
+  quantity: number | null;
+  unitPrice: number | null;
 }
 
 export interface Dividend {
@@ -200,6 +205,10 @@ export interface CreateTransactionRequest {
   createdAt: string;
   stockId?: number | null;
   description?: string;
+  instrumentCode?: string | null;
+  instrumentCodeType?: InstrumentCodeType | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
 }
 
 export interface UpdateTransactionRequest {
@@ -208,6 +217,10 @@ export interface UpdateTransactionRequest {
   createdAt: string;
   stockId?: number | null;
   description?: string;
+  instrumentCode?: string | null;
+  instrumentCodeType?: InstrumentCodeType | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
 }
 
 export interface UpdatePortfolioBalanceRequest {
