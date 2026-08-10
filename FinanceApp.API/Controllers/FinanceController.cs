@@ -239,7 +239,7 @@ public class FinanceController : ControllerBase
             (normalizedInstrumentCode, normalizedInstrumentCodeType) = ResolveInstrumentSnapshotFromStock(stock);
         }
 
-        if (normalizedInstrumentCode == null ^ normalizedInstrumentCodeType.HasValue)
+        if ((normalizedInstrumentCode is null) != (normalizedInstrumentCodeType is null))
             return NormalizedTransactionSnapshot.WithError(BadRequest("InstrumentCode and InstrumentCodeType must either both be provided or both be null."));
 
         if (normalizedInstrumentCode != null)
