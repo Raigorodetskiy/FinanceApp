@@ -22,6 +22,10 @@ const tx = (
   stockId: null,
   stock: null,
   orderId: null,
+  instrumentCode: null,
+  instrumentCodeType: null,
+  quantity: null,
+  unitPrice: null,
 });
 
 describe('computeTransactionRemainder', () => {

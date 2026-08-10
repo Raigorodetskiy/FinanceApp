@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 namespace FinanceApp.Core.Models;
 
 public enum TransactionType { Deposit, Withdrawal, Buy, Sell, Dividend }
+public enum InstrumentCodeType { ISIN, Ticker }
 
 public class Transaction
 {
@@ -25,6 +26,14 @@ public class Transaction
 
     // Optional order link for idempotent order-execution transactions
     public int? OrderId { get; set; }
+
+    public string? InstrumentCode { get; set; }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public InstrumentCodeType? InstrumentCodeType { get; set; }
+    [Column(TypeName = "decimal(18,8)")]
+    public decimal? Quantity { get; set; }
+    [Column(TypeName = "decimal(18,8)")]
+    public decimal? UnitPrice { get; set; }
 
     public decimal GetEffectiveSignedAmount() => TransactionDirection.ResolveSignedAmount(Type, Amount, SignedAmount);
 

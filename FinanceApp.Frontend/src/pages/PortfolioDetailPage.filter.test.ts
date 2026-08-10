@@ -14,6 +14,10 @@ const makeTransaction = (overrides: Partial<Transaction> = {}): Transaction => (
   stockId: null,
   stock: null,
   orderId: null,
+  instrumentCode: null,
+  instrumentCodeType: null,
+  quantity: null,
+  unitPrice: null,
   ...overrides,
 });
 
