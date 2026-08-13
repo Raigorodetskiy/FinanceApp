@@ -85,3 +85,12 @@ body {
   padding-left: 6px !important;
   padding-right: 6px !important;
 }
+
+/* ── Table grid (растр): thin vertical cell dividers ───────────────────────
+   Applies to all app tables (stocks, positions, transactions, orders).
+   Uses border-right so the last column naturally has no trailing line.
+   chart-panel-row cells and the last-child column are excluded.            */
+.ant-table-wrapper .ant-table-thead > tr > th:not(:last-child),
+.ant-table-wrapper .ant-table-tbody > tr:not(.chart-panel-row) > td:not(:last-child) {
+  border-right: 1px solid #e8e8e8 !important;
+}
