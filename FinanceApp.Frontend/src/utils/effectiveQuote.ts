@@ -113,7 +113,7 @@ export const buildRefreshStockSet = (
  * 4. Tie-break: primary stock wins; otherwise the stock with the lower `id` wins.
  * 5. If no valid candidate exists (including the primary), fall back to the primary's
  *    stored price without changing `sourceExchange`/`sourceStockId`.
- * 5. The alternative-exchange label is shown only when a different Stock record is used.
+ * 6. The alternative-exchange label is shown only when a different Stock record is used.
  *
  * Only already-EUR-normalised price fields (`currentPrice`, `currentPriceChange`,
  * `currentPriceChangePercent`) are used, so no currency conversion is needed here.
