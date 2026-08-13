@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Stock } from '../types';
 import {
+  FRESH_QUOTE_WINDOW_MS,
   isStockPriceStale,
   normalizeStockName,
   resolveEffectiveQuote,
@@ -10,8 +11,25 @@ import {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const NOW = new Date('2026-08-13T12:00:00Z').getTime();
-const FRESH = '2026-08-13T10:00:00Z'; // 2 h ago – not stale
-const STALE = '2026-08-12T09:00:00Z'; // ~27 h ago – stale
+
+/** 2 minutes ago – fresh (within 10-minute window). */
+const FRESH_2M = new Date(NOW - 2 * 60 * 1000).toISOString();
+/** 7 minutes ago – fresh (within 10-minute window). */
+const FRESH_7M = new Date(NOW - 7 * 60 * 1000).toISOString();
+/** 8 minutes ago – fresh (within 10-minute window). */
+const FRESH_8M = new Date(NOW - 8 * 60 * 1000).toISOString();
+/** Exactly 10 minutes ago – boundary: still fresh. */
+const FRESH_10M = new Date(NOW - 10 * 60 * 1000).toISOString();
+/** 11 minutes ago – stale (outside 10-minute window). */
+const STALE_11M = new Date(NOW - 11 * 60 * 1000).toISOString();
+/** ~27 hours ago – clearly stale. */
+const STALE_27H = new Date(NOW - 27 * 60 * 60 * 1000).toISOString();
+/** 1 minute in the future – not fresh (future timestamp). */
+const FUTURE_1M = new Date(NOW + 1 * 60 * 1000).toISOString();
+
+/** Shorthand aliases used by legacy tests. */
+const FRESH = FRESH_2M;
+const STALE = STALE_27H;
 
 const makeStock = (overrides: Partial<Stock> & Pick<Stock, 'id'>): Stock => ({
   ticker: `T${overrides.id}`,
@@ -114,8 +132,8 @@ describe('Req 6 – stale alternative is not selected', () => {
   });
 
   it('checks isStockPriceStale correctly', () => {
-    const fresh = makeStock({ id: 1, currentPriceAt: FRESH });
-    const stale = makeStock({ id: 2, currentPriceAt: STALE });
+    const fresh = makeStock({ id: 1, currentPriceAt: FRESH_2M });
+    const stale = makeStock({ id: 2, currentPriceAt: STALE_27H });
     const noTs = makeStock({ id: 3, currentPriceAt: null });
     expect(isStockPriceStale(fresh, NOW)).toBe(false);
     expect(isStockPriceStale(stale, NOW)).toBe(true);
@@ -128,8 +146,8 @@ describe('Req 6 – stale alternative is not selected', () => {
 describe('Req 7 – most recent alternative chosen; deterministic tie-break', () => {
   it('picks the candidate with the most recent currentPriceAt', () => {
     const primary = makeStock({ id: 1, currentPrice: 100, currentPriceAt: STALE, commonName: 'tesla' });
-    const altOlder = makeStock({ id: 2, currentPrice: 200, currentPriceAt: '2026-08-13T09:00:00Z', commonName: 'tesla', exchange: 'Frankfurt' });
-    const altNewer = makeStock({ id: 3, currentPrice: 210, currentPriceAt: '2026-08-13T11:00:00Z', commonName: 'tesla', exchange: 'Frankfurt' });
+    const altOlder = makeStock({ id: 2, currentPrice: 200, currentPriceAt: FRESH_7M, commonName: 'tesla', exchange: 'Frankfurt' });
+    const altNewer = makeStock({ id: 3, currentPrice: 210, currentPriceAt: FRESH_2M, commonName: 'tesla', exchange: 'Frankfurt' });
     const eq = resolveEffectiveQuote(primary, [primary, altOlder, altNewer], NOW);
     expect(eq.currentPrice).toBe(210);
     expect(eq.sourceStockId).toBe(3);
@@ -216,5 +234,76 @@ describe('Req 10 – original position identity preserved', () => {
     const alt = makeStock({ id: 2, currentPrice: 200, currentPriceAt: FRESH, commonName: 'acme', exchange: 'Frankfurt' });
     resolveEffectiveQuote(primary, [primary, alt], NOW);
     expect(primary.currentPrice).toBe(100);
+  });
+});
+
+// ── 11. 10-minute freshness window specifics ──────────────────────────────────
+
+describe('Req 11 – 10-minute freshness window', () => {
+  it('FRESH_QUOTE_WINDOW_MS equals 10 minutes', () => {
+    expect(FRESH_QUOTE_WINDOW_MS).toBe(10 * 60 * 1000);
+  });
+
+  it('primary 8 min ago, alternative 1 min ago → alternative chosen', () => {
+    const alt1M = new Date(NOW - 1 * 60 * 1000).toISOString();
+    const primary = makeStock({ id: 1, currentPrice: 100, currentPriceAt: FRESH_8M, commonName: 'acme' });
+    const alt = makeStock({ id: 2, currentPrice: 110, currentPriceAt: alt1M, commonName: 'acme', exchange: 'Frankfurt' });
+    const eq = resolveEffectiveQuote(primary, [primary, alt], NOW);
+    expect(eq.currentPrice).toBe(110);
+    expect(eq.sourceStockId).toBe(2);
+  });
+
+  it('primary 2 min ago, alternative 7 min ago → primary chosen', () => {
+    const primary = makeStock({ id: 1, currentPrice: 100, currentPriceAt: FRESH_2M, commonName: 'acme' });
+    const alt = makeStock({ id: 2, currentPrice: 110, currentPriceAt: FRESH_7M, commonName: 'acme', exchange: 'Frankfurt' });
+    const eq = resolveEffectiveQuote(primary, [primary, alt], NOW);
+    expect(eq.currentPrice).toBe(100);
+    expect(eq.sourceStockId).toBeNull();
+  });
+
+  it('alternative 11 min ago → not selected, fallback to primary stored price', () => {
+    const primary = makeStock({ id: 1, currentPrice: 50, currentPriceAt: STALE, commonName: 'acme' });
+    const alt = makeStock({ id: 2, currentPrice: 110, currentPriceAt: STALE_11M, commonName: 'acme', exchange: 'Frankfurt' });
+    const eq = resolveEffectiveQuote(primary, [primary, alt], NOW);
+    expect(eq.currentPrice).toBe(50);
+    expect(eq.sourceStockId).toBeNull();
+  });
+
+  it('all candidates older than 10 min → fallback to primary stored price', () => {
+    const primary = makeStock({ id: 1, currentPrice: 50, currentPriceAt: STALE_11M, commonName: 'acme' });
+    const alt = makeStock({ id: 2, currentPrice: 110, currentPriceAt: STALE_27H, commonName: 'acme', exchange: 'Frankfurt' });
+    const eq = resolveEffectiveQuote(primary, [primary, alt], NOW);
+    expect(eq.currentPrice).toBe(50);
+    expect(eq.sourceStockId).toBeNull();
+  });
+
+  it('timestamp exactly 10 minutes ago → considered fresh', () => {
+    const primary = makeStock({ id: 1, currentPrice: 99, currentPriceAt: FRESH_10M, commonName: 'acme' });
+    expect(isStockPriceStale(primary, NOW)).toBe(false);
+    const eq = resolveEffectiveQuote(primary, [primary], NOW);
+    expect(eq.currentPrice).toBe(99);
+    expect(eq.sourceStockId).toBeNull();
+  });
+
+  it('timestamp from the future → not fresh', () => {
+    const primary = makeStock({ id: 1, currentPrice: 99, currentPriceAt: FUTURE_1M });
+    expect(isStockPriceStale(primary, NOW)).toBe(true);
+  });
+
+  it('same timestamp for primary and alternative → primary chosen', () => {
+    const primary = makeStock({ id: 1, currentPrice: 100, currentPriceAt: FRESH_2M, commonName: 'acme' });
+    const alt = makeStock({ id: 2, currentPrice: 110, currentPriceAt: FRESH_2M, commonName: 'acme', exchange: 'Frankfurt' });
+    const eq = resolveEffectiveQuote(primary, [primary, alt], NOW);
+    expect(eq.currentPrice).toBe(100);
+    expect(eq.sourceStockId).toBeNull();
+  });
+
+  it('same timestamp for two alternatives with stale primary → lower id wins', () => {
+    const primary = makeStock({ id: 5, currentPrice: 50, currentPriceAt: STALE, commonName: 'acme' });
+    const altA = makeStock({ id: 3, currentPrice: 200, currentPriceAt: FRESH_2M, commonName: 'acme', exchange: 'Frankfurt' });
+    const altB = makeStock({ id: 7, currentPrice: 300, currentPriceAt: FRESH_2M, commonName: 'acme', exchange: 'LSE' });
+    const eq = resolveEffectiveQuote(primary, [primary, altA, altB], NOW);
+    expect(eq.sourceStockId).toBe(3); // lower id wins
+    expect(eq.currentPrice).toBe(200);
   });
 });

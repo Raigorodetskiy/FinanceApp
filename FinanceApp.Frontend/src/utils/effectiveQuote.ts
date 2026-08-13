@@ -1,7 +1,11 @@
 import type { Stock, StockExchange } from '../types';
 
-/** Price age threshold matching StockQuoteResponse.isStale (>24 h). */
-const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+/**
+ * Maximum age (in milliseconds) for a quote to be considered fresh.
+ * A quote is fresh when its `currentPriceAt` is within this window relative to
+ * the current moment (`Date.now()` at evaluation time).
+ */
+export const FRESH_QUOTE_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
 export interface EffectiveQuote {
   currentPrice: number;
@@ -47,26 +51,30 @@ export const stocksMatch = (a: Stock, b: Stock): boolean => {
 };
 
 /**
- * Returns true when the stored stock price is considered stale.
- * A price is stale when `currentPriceAt` is absent, unparseable, or older than
- * 24 hours – mirroring the `isStale` flag on `StockQuoteResponse`.
+ * Returns true when the stored stock price is not fresh.
+ * A price is fresh only when `currentPriceAt` is present, parseable, and within
+ * the last `FRESH_QUOTE_WINDOW_MS` (10 minutes) relative to `now`.
+ * Timestamps in the future are also considered not fresh.
  */
 export const isStockPriceStale = (stock: Stock, now: number = Date.now()): boolean => {
   if (!stock.currentPriceAt) return true;
   const ts = Date.parse(stock.currentPriceAt);
   if (!isFinite(ts)) return true;
-  return now - ts > STALE_THRESHOLD_MS;
+  const age = now - ts;
+  return age < 0 || age > FRESH_QUOTE_WINDOW_MS;
 };
 
 /**
  * Resolves the most appropriate current price for a portfolio position.
  *
- * - If the primary stock's price is **not** stale, returns the primary's own price.
- * - If the primary's price **is** stale, finds an equivalent stock (matched by
- *   `stocksMatch`) on any other exchange whose price is not stale, and returns
- *   the one with the most recent `currentPriceAt`.
- * - Tie-break: lower stock `id` wins (deterministic).
- * - If no fresh alternative exists, falls back to the primary's price.
+ * Algorithm:
+ * 1. Build candidates from the primary stock and all equivalent stocks (matched by
+ *    `stocksMatch`) that have a fresh quote (within the last 10 minutes).
+ * 2. Among all fresh candidates, select the one with the most recent `currentPriceAt`.
+ * 3. Tie-break: primary stock wins; otherwise the stock with the lower `id` wins.
+ * 4. If no fresh candidate exists (including the primary), fall back to the primary's
+ *    stored price without changing `sourceExchange`/`sourceStockId`.
+ * 5. The alternative-exchange label is shown only when a different Stock record is used.
  *
  * Only already-EUR-normalised price fields (`currentPrice`, `currentPriceChange`,
  * `currentPriceChangePercent`) are used, so no currency conversion is needed here.
@@ -76,23 +84,14 @@ export const resolveEffectiveQuote = (
   allStocks: Stock[],
   now: number = Date.now(),
 ): EffectiveQuote => {
-  if (!isStockPriceStale(primary, now)) {
-    return {
-      currentPrice: primary.currentPrice,
-      currentPriceChange: primary.currentPriceChange ?? null,
-      currentPriceChangePercent: primary.currentPriceChangePercent ?? null,
-      currentPriceAt: primary.currentPriceAt ?? null,
-      sourceExchange: null,
-      sourceStockId: null,
-    };
-  }
-
-  // Candidates: other stocks that match the primary and have a fresh price.
-  const candidates = allStocks.filter(
-    (s) => s.id !== primary.id && stocksMatch(s, primary) && !isStockPriceStale(s, now),
+  // Build fresh candidates: primary (if fresh) + matching stocks from other exchanges.
+  const freshCandidates = allStocks.filter(
+    (s) =>
+      (s.id === primary.id || stocksMatch(s, primary)) && !isStockPriceStale(s, now),
   );
 
-  if (candidates.length === 0) {
+  if (freshCandidates.length === 0) {
+    // No fresh quote available – keep primary's stored price.
     return {
       currentPrice: primary.currentPrice,
       currentPriceChange: primary.currentPriceChange ?? null,
@@ -103,14 +102,29 @@ export const resolveEffectiveQuote = (
     };
   }
 
-  // Select the candidate with the most recent timestamp; tie-break by lower id.
-  const best = candidates.reduce((prev, curr) => {
+  // Select the candidate with the most recent timestamp.
+  // Tie-break: primary stock wins; otherwise lower id wins.
+  const best = freshCandidates.reduce((prev, curr) => {
     const prevTs = prev.currentPriceAt ? Date.parse(prev.currentPriceAt) : -Infinity;
     const currTs = curr.currentPriceAt ? Date.parse(curr.currentPriceAt) : -Infinity;
     if (currTs > prevTs) return curr;
     if (currTs < prevTs) return prev;
+    // Equal timestamps: primary wins; otherwise lower id wins.
+    if (prev.id === primary.id) return prev;
+    if (curr.id === primary.id) return curr;
     return curr.id < prev.id ? curr : prev;
   });
+
+  if (best.id === primary.id) {
+    return {
+      currentPrice: best.currentPrice,
+      currentPriceChange: best.currentPriceChange ?? null,
+      currentPriceChangePercent: best.currentPriceChangePercent ?? null,
+      currentPriceAt: best.currentPriceAt ?? null,
+      sourceExchange: null,
+      sourceStockId: null,
+    };
+  }
 
   return {
     currentPrice: best.currentPrice,
