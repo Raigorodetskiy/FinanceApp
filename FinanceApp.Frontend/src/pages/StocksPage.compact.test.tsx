@@ -192,6 +192,27 @@ describe('Stocks table – index.css scoped nowrap rule for change headers', () 
 });
 
 
+describe('index.css – table grid (растр) vertical dividers', () => {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const cssText = readFileSync(join(__dirname, '../index.css'), 'utf-8');
+
+  it('adds a border-right rule for thead th (excluding last child)', () => {
+    expect(cssText).toMatch(
+      /\.ant-table-wrapper\s+\.ant-table-thead\s*>\s*tr\s*>\s*th:not\(:last-child\)/,
+    );
+  });
+
+  it('adds a border-right rule for tbody td (excluding chart-panel-row and last child)', () => {
+    expect(cssText).toMatch(
+      /\.ant-table-wrapper\s+\.ant-table-tbody\s*>\s*tr:not\(\.chart-panel-row\)\s*>\s*td:not\(:last-child\)/,
+    );
+  });
+
+  it('uses #e8e8e8 (light gray) for the vertical divider colour', () => {
+    expect(cssText).toMatch(/border-right:\s*1px\s+solid\s+#e8e8e8/);
+  });
+});
+
 describe('Stocks table – right-aligned monetary columns', () => {
   it('right-aligns current, daily-change, and API price columns only', () => {
     expect([...STOCKS_RIGHT_ALIGNED_MONEY_KEYS]).toEqual(['savedPrice', 'changeEur', 'apiPrice']);
