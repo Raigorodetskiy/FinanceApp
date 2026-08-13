@@ -62,7 +62,11 @@ import StockPriceChart from '../components/StockPriceChart';
 import StockExchangeTag, { EXCHANGE_ABBREVIATION } from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import { isQuoteDelayed } from '../utils/quote';
-import { resolveEffectiveQuote, type EffectiveQuote } from '../utils/effectiveQuote';
+import {
+  buildRefreshStockSet,
+  resolveEffectiveQuote,
+  type EffectiveQuote,
+} from '../utils/effectiveQuote';
 import type {
   Portfolio,
   Stock,
@@ -410,9 +414,10 @@ const PortfolioDetailPage: React.FC = () => {
     quotesRefreshingRef.current = true;
     setQuotesRefreshing(true);
     try {
-      const uniqueStocks = portfolio.items
-        .map((item) => item.stock)
-        .filter((s, idx, arr) => s?.ticker?.trim() && arr.findIndex((x) => x.id === s.id) === idx);
+      const uniqueStocks = buildRefreshStockSet(
+        portfolio.items.map((item) => item.stock),
+        stocks,
+      );
 
       const results = await Promise.allSettled(
         uniqueStocks.map(async (stock) => {
@@ -497,7 +502,7 @@ const PortfolioDetailPage: React.FC = () => {
       quotesRefreshingRef.current = false;
       setQuotesRefreshing(false);
     }
-  }, [portfolio]);
+  }, [portfolio, stocks]);
 
   // ── Orders ─────────────────────────────────────────────────
   const openAddOrderModal = () => { setEditingOrder(null); orderForm.resetFields(); setOrderModalOpen(true); };
@@ -642,9 +647,9 @@ const PortfolioDetailPage: React.FC = () => {
   const items = portfolio?.items ?? [];
 
   // ── Effective quote resolution ────────────────────────────────────────────
-  // When a position's stored price is stale (>24 h old or absent), the most
-  // recent non-stale price for an equivalent stock on another exchange is used
-  // instead.  Identity fields (id, ticker, exchange, name) are never replaced.
+  // When a position's stored price is outside the current 10-minute freshness
+  // window (or missing), the most recent fresh quote for an equivalent stock on
+  // another exchange is used instead. Identity fields are never replaced.
   const effectiveQuoteMap = useMemo(() => {
     const map = new Map<number, EffectiveQuote>();
     for (const item of items) {

@@ -51,6 +51,35 @@ export const stocksMatch = (a: Stock, b: Stock): boolean => {
 };
 
 /**
+ * Builds the unique set of stocks whose quotes should be refreshed for a
+ * portfolio: each portfolio stock plus already-loaded equivalent stocks from
+ * other exchanges, reusing the same strict matching rules as effective quotes.
+ */
+export const buildRefreshStockSet = (
+  portfolioStocks: readonly Stock[],
+  allStocks: readonly Stock[],
+): Stock[] => {
+  const refreshStocks: Stock[] = [];
+  const seenIds = new Set<number>();
+
+  for (const candidate of [...portfolioStocks, ...allStocks]) {
+    if (!candidate.ticker?.trim()) continue;
+
+    const matchesPortfolio = portfolioStocks.some(
+      (portfolioStock) =>
+        candidate.id === portfolioStock.id || stocksMatch(candidate, portfolioStock),
+    );
+
+    if (!matchesPortfolio || seenIds.has(candidate.id)) continue;
+
+    seenIds.add(candidate.id);
+    refreshStocks.push(candidate);
+  }
+
+  return refreshStocks;
+};
+
+/**
  * Returns true when the stored stock price is not fresh.
  * A price is fresh only when `currentPriceAt` is present, parseable, and within
  * the last `FRESH_QUOTE_WINDOW_MS` (10 minutes) relative to `now`.
