@@ -218,12 +218,14 @@ export const computeTransactionTypeTotals = (
   return result;
 };
 
-const getTransactionDescription = (t: Transaction): string => {
+export const getTransactionDescription = (t: Transaction): string => {
+  const description = t.description?.trim();
+  if (description) return description;
   if (t.stock) {
     const exAbbr = EXCHANGE_ABBREVIATION[t.stock.exchange] ?? t.stock.exchange;
     return `${TX_TYPE_LABELS[t.type]} — ${t.stock.ticker} [${exAbbr}] · ${t.stock.name}`;
   }
-  return t.description ?? TX_TYPE_LABELS[t.type];
+  return TX_TYPE_LABELS[t.type];
 };
 
 const formatCurrency = (value: number) => fmtCur(value, '€');
