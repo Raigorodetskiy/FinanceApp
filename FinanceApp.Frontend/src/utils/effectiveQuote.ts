@@ -62,18 +62,25 @@ export const buildRefreshStockSet = (
   const refreshStocks: Stock[] = [];
   const seenIds = new Set<number>();
 
-  for (const candidate of [...portfolioStocks, ...allStocks]) {
-    if (!candidate.ticker?.trim()) continue;
+  const addCandidate = (candidate: Stock) => {
+    if (!candidate.ticker?.trim()) return;
 
     const matchesPortfolio = portfolioStocks.some(
       (portfolioStock) =>
         candidate.id === portfolioStock.id || stocksMatch(candidate, portfolioStock),
     );
 
-    if (!matchesPortfolio || seenIds.has(candidate.id)) continue;
+    if (!matchesPortfolio || seenIds.has(candidate.id)) return;
 
     seenIds.add(candidate.id);
     refreshStocks.push(candidate);
+  };
+
+  for (const candidate of portfolioStocks) {
+    addCandidate(candidate);
+  }
+  for (const candidate of allStocks) {
+    addCandidate(candidate);
   }
 
   return refreshStocks;
