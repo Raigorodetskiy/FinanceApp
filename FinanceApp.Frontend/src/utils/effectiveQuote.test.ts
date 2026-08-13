@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Stock } from '../types';
+import type { PortfolioItem, Stock } from '../types';
 import {
+  buildRefreshStockSet,
   FRESH_QUOTE_WINDOW_MS,
   isStockPriceStale,
   normalizeStockName,
@@ -42,6 +43,63 @@ const makeStock = (overrides: Partial<Stock> & Pick<Stock, 'id'>): Stock => ({
   currentPriceAt: FRESH,
   updatedAt: FRESH,
   ...overrides,
+});
+
+const makePortfolioItem = (
+  stock: Stock,
+  overrides: Partial<PortfolioItem> = {},
+): PortfolioItem => ({
+  id: overrides.id ?? stock.id,
+  portfolioId: overrides.portfolioId ?? 1,
+  stockId: overrides.stockId ?? stock.id,
+  stock,
+  quantity: overrides.quantity ?? 1,
+  buyPrice: overrides.buyPrice ?? 100,
+  boughtAt: overrides.boughtAt ?? FRESH,
+});
+
+describe('buildRefreshStockSet', () => {
+  it('includes the original portfolio stock', () => {
+    const primary = makeStock({ id: 1, ticker: 'SGA1', commonName: 'Seagate' });
+    expect(buildRefreshStockSet([primary], [])).toEqual([primary]);
+  });
+
+  it('includes a matching alternative by CommonName', () => {
+    const primary = makeStock({ id: 1, ticker: 'SGA1', name: 'Seagate Technology Holdings plc', commonName: 'Seagate' });
+    const alternative = makeStock({ id: 2, ticker: 'STX', name: 'Different Exchange Name', commonName: 'Seagate', exchange: 'Frankfurt' });
+    expect(buildRefreshStockSet([primary], [alternative])).toEqual([primary, alternative]);
+  });
+
+  it('includes a fallback match by exact normalized Name', () => {
+    const primary = makeStock({ id: 1, ticker: 'AAPL', name: ' Apple Inc ', commonName: '' });
+    const alternative = makeStock({ id: 2, ticker: 'APC', name: 'apple inc', commonName: '', exchange: 'Frankfurt' });
+    expect(buildRefreshStockSet([primary], [alternative])).toEqual([primary, alternative]);
+  });
+
+  it('excludes unrelated stocks', () => {
+    const primary = makeStock({ id: 1, ticker: 'SGA1', commonName: 'Seagate' });
+    const unrelated = makeStock({ id: 2, ticker: 'NVDA', commonName: 'Nvidia' });
+    expect(buildRefreshStockSet([primary], [unrelated])).toEqual([primary]);
+  });
+
+  it('deduplicates duplicate stock ids', () => {
+    const primary = makeStock({ id: 1, ticker: 'SGA1', commonName: 'Seagate' });
+    const duplicate = makeStock({ id: 1, ticker: 'SGA1', commonName: 'Seagate', currentPrice: 999 });
+    const alternative = makeStock({ id: 2, ticker: 'STX', commonName: 'Seagate', exchange: 'Frankfurt' });
+    expect(buildRefreshStockSet([primary], [duplicate, alternative, alternative])).toEqual([
+      primary,
+      alternative,
+    ]);
+  });
+
+  it('excludes stocks with an empty ticker', () => {
+    const primary = makeStock({ id: 1, ticker: 'SGA1', commonName: 'Seagate' });
+    const emptyTickerPrimary = makeStock({ id: 2, ticker: '   ', commonName: 'Seagate' });
+    const emptyTickerAlternative = makeStock({ id: 3, ticker: '', commonName: 'Seagate' });
+    expect(
+      buildRefreshStockSet([primary, emptyTickerPrimary], [emptyTickerAlternative]),
+    ).toEqual([primary]);
+  });
 });
 
 // ── 1. Primary fresh quote stays selected ────────────────────────────────────
@@ -234,6 +292,31 @@ describe('Req 10 – original position identity preserved', () => {
     const alt = makeStock({ id: 2, currentPrice: 200, currentPriceAt: FRESH, commonName: 'acme', exchange: 'Frankfurt' });
     resolveEffectiveQuote(primary, [primary, alt], NOW);
     expect(primary.currentPrice).toBe(100);
+  });
+
+  it('portfolio item keeps its original stock identity after applying an alternative effective quote', () => {
+    const primary = makeStock({ id: 1, ticker: 'STX', name: 'Seagate Technology Holdings plc', currentPrice: 756, currentPriceAt: STALE, commonName: 'Seagate' });
+    const alt = makeStock({ id: 2, ticker: 'SEG', name: 'Different Exchange Name', currentPrice: 812, currentPriceAt: FRESH, commonName: 'Seagate', exchange: 'Frankfurt' });
+    const item = makePortfolioItem(primary, { quantity: 3, buyPrice: 700 });
+    const eq = resolveEffectiveQuote(primary, [primary, alt], NOW);
+
+    const effectiveItem = {
+      ...item,
+      stock: {
+        ...item.stock,
+        currentPrice: eq.currentPrice,
+        currentPriceChange: eq.currentPriceChange,
+        currentPriceChangePercent: eq.currentPriceChangePercent,
+        currentPriceAt: eq.currentPriceAt,
+      },
+    };
+
+    expect(effectiveItem.stock.currentPrice).toBe(812);
+    expect(effectiveItem.stockId).toBe(primary.id);
+    expect(effectiveItem.stock.id).toBe(primary.id);
+    expect(effectiveItem.stock.ticker).toBe('STX');
+    expect(effectiveItem.stock.exchange).toBe('NYSE');
+    expect(item.stockId).toBe(primary.id);
   });
 });
 
