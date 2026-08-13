@@ -22,7 +22,30 @@ export interface EffectiveQuote {
    * `null` means the primary stock itself.
    */
   sourceStockId: number | null;
+  /**
+   * Human-readable diagnostic summary explaining how the effective quote was
+   * resolved. Includes each candidate's freshness status and the selection reason.
+   * Intended for tooltip display or `console.info` in development.
+   */
+  diagnosticInfo: string;
 }
+
+/**
+ * Parses a quote timestamp string as a UTC epoch millisecond value.
+ *
+ * - ISO 8601 strings that already carry `Z` or an explicit UTC offset are
+ *   parsed without modification.
+ * - Strings that look like ISO 8601 but carry no timezone designator are
+ *   treated as UTC (a trailing `Z` is appended). This covers MySQL `datetime`
+ *   values that store the UTC clock but are serialized without a suffix.
+ * - Empty, null, undefined, or unparseable values return `NaN`.
+ */
+export const parseUtcTimestamp = (value: string | null | undefined): number => {
+  if (!value) return NaN;
+  // Already has Z or an explicit UTC offset (+HH:MM, -HH:MM, +HHMM, etc.)
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  return Date.parse(normalized);
+};
 
 /**
  * Normalises a stock name for comparison: trim + lower-case.
@@ -94,7 +117,7 @@ export const buildRefreshStockSet = (
  */
 export const isStockPriceStale = (stock: Stock, now: number = Date.now()): boolean => {
   if (!stock.currentPriceAt) return true;
-  const ts = Date.parse(stock.currentPriceAt);
+  const ts = parseUtcTimestamp(stock.currentPriceAt);
   if (!isFinite(ts)) return true;
   const age = now - ts;
   return age < 0 || age > FRESH_QUOTE_WINDOW_MS;
@@ -120,14 +143,38 @@ export const resolveEffectiveQuote = (
   allStocks: Stock[],
   now: number = Date.now(),
 ): EffectiveQuote => {
-  // Build fresh candidates: primary (if fresh) + matching stocks from other exchanges.
-  const freshCandidates = allStocks.filter(
+  /** Returns a human-readable status label for a single candidate. */
+  const candidateStatus = (s: Stock): string => {
+    if (!s.currentPriceAt) return 'invalid (no timestamp)';
+    const ts = parseUtcTimestamp(s.currentPriceAt);
+    if (!isFinite(ts)) return 'invalid (unparseable)';
+    const ageMs = now - ts;
+    const ageMin = (ageMs / 60_000).toFixed(1);
+    if (ageMs < 0) return `future (+${(-ageMs / 60_000).toFixed(1)} min)`;
+    if (ageMs > FRESH_QUOTE_WINDOW_MS) return `stale (${ageMin} min ago)`;
+    return `fresh (${ageMin} min ago)`;
+  };
+
+  // Build candidates: primary + all matching stocks from any exchange.
+  const candidates = allStocks.filter(
+    (s) => s.id === primary.id || stocksMatch(s, primary),
+  );
+
+  // Build fresh candidates (same set, filtered by freshness).
+  const freshCandidates = candidates.filter((s) => !isStockPriceStale(s, now));
+
+  // Build per-candidate diagnostic lines using the same fixed `now`.
+  const candidateLines = candidates.map(
     (s) =>
-      (s.id === primary.id || stocksMatch(s, primary)) && !isStockPriceStale(s, now),
+      `  Stock ${s.id} (${s.ticker ?? '?'} / ${s.exchange}): raw="${s.currentPriceAt ?? ''}" utc="${s.currentPriceAt ? new Date(parseUtcTimestamp(s.currentPriceAt)).toISOString() : 'n/a'}" status=${candidateStatus(s)}`,
   );
 
   if (freshCandidates.length === 0) {
     // No fresh quote available – keep primary's stored price.
+    const diagnostic =
+      `primary=${primary.id} (${primary.ticker ?? '?'} / ${primary.exchange}) now=${new Date(now).toISOString()}\n` +
+      `candidates:\n${candidateLines.join('\n')}\n` +
+      `result: fallback to primary stored price (no fresh candidate)`;
     return {
       currentPrice: primary.currentPrice,
       currentPriceChange: primary.currentPriceChange ?? null,
@@ -135,14 +182,15 @@ export const resolveEffectiveQuote = (
       currentPriceAt: primary.currentPriceAt ?? null,
       sourceExchange: null,
       sourceStockId: null,
+      diagnosticInfo: diagnostic,
     };
   }
 
   // Select the candidate with the most recent timestamp.
   // Tie-break: primary stock wins; otherwise lower id wins.
   const best = freshCandidates.reduce((prev, curr) => {
-    const prevTs = prev.currentPriceAt ? Date.parse(prev.currentPriceAt) : -Infinity;
-    const currTs = curr.currentPriceAt ? Date.parse(curr.currentPriceAt) : -Infinity;
+    const prevTs = parseUtcTimestamp(prev.currentPriceAt);
+    const currTs = parseUtcTimestamp(curr.currentPriceAt);
     if (currTs > prevTs) return curr;
     if (currTs < prevTs) return prev;
     // Equal timestamps: primary wins; otherwise lower id wins.
@@ -150,6 +198,16 @@ export const resolveEffectiveQuote = (
     if (curr.id === primary.id) return curr;
     return curr.id < prev.id ? curr : prev;
   });
+
+  const selectionReason =
+    best.id === primary.id
+      ? `selected primary (Stock ${best.id})`
+      : `selected alternative Stock ${best.id} (${best.ticker ?? '?'} / ${best.exchange})`;
+
+  const diagnostic =
+    `primary=${primary.id} (${primary.ticker ?? '?'} / ${primary.exchange}) now=${new Date(now).toISOString()}\n` +
+    `candidates:\n${candidateLines.join('\n')}\n` +
+    `result: ${selectionReason}`;
 
   if (best.id === primary.id) {
     return {
@@ -159,6 +217,7 @@ export const resolveEffectiveQuote = (
       currentPriceAt: best.currentPriceAt ?? null,
       sourceExchange: null,
       sourceStockId: null,
+      diagnosticInfo: diagnostic,
     };
   }
 
@@ -169,5 +228,6 @@ export const resolveEffectiveQuote = (
     currentPriceAt: best.currentPriceAt ?? null,
     sourceExchange: best.exchange,
     sourceStockId: best.id,
+    diagnosticInfo: diagnostic,
   };
 };
