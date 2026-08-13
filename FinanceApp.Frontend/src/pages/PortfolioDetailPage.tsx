@@ -811,7 +811,7 @@ const PortfolioDetailPage: React.FC = () => {
         if (eq?.sourceExchange) {
           const abbr = EXCHANGE_ABBREVIATION[eq.sourceExchange] ?? eq.sourceExchange;
           return (
-            <Tooltip title={<span style={diagStyle}>{`Котировка с биржи ${abbr} — основная цена устарела\n\n${eq.diagnosticInfo}`}</span>}>
+            <Tooltip title={<span style={diagStyle}>{`Котировка с биржи ${abbr}\n\n${eq.diagnosticInfo}`}</span>}>
               <span style={{ whiteSpace: 'nowrap', cursor: 'default' }}>
                 {priceNode}{' '}
                 <Tag style={{ fontSize: 10, padding: '0 3px', marginInlineEnd: 0, opacity: 0.85 }}>{abbr}</Tag>
