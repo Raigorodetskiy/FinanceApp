@@ -145,8 +145,8 @@ export const resolveEffectiveQuote = (
 ): EffectiveQuote => {
   /** Returns a human-readable status label for a single candidate. */
   const candidateStatus = (s: Stock): string => {
-    const ts = parseUtcTimestamp(s.currentPriceAt);
     if (!s.currentPriceAt) return 'invalid (no timestamp)';
+    const ts = parseUtcTimestamp(s.currentPriceAt);
     if (!isFinite(ts)) return 'invalid (unparseable)';
     const ageMs = now - ts;
     const ageMin = (ageMs / 60_000).toFixed(1);
