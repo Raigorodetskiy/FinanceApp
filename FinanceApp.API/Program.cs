@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using MySqlConnector;
 using System.Text;
 using System.Text.Json.Serialization;
+using FinanceApp.API.Infrastructure;
 using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
 
@@ -39,6 +40,8 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(new UtcNullableDateTimeJsonConverter());
     });
 
 builder.Services.AddEndpointsApiExplorer();

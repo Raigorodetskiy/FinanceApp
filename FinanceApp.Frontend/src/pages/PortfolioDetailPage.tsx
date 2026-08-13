@@ -654,7 +654,11 @@ const PortfolioDetailPage: React.FC = () => {
     const map = new Map<number, EffectiveQuote>();
     for (const item of items) {
       if (!map.has(item.stock.id)) {
-        map.set(item.stock.id, resolveEffectiveQuote(item.stock, stocks));
+        const eq = resolveEffectiveQuote(item.stock, stocks);
+        map.set(item.stock.id, eq);
+        if (import.meta.env.DEV) {
+          console.info('[effectiveQuote]', eq.diagnosticInfo);
+        }
       }
     }
     return map;
@@ -806,11 +810,18 @@ const PortfolioDetailPage: React.FC = () => {
         if (eq?.sourceExchange) {
           const abbr = EXCHANGE_ABBREVIATION[eq.sourceExchange] ?? eq.sourceExchange;
           return (
-            <Tooltip title={`Котировка с биржи ${abbr} — основная цена устарела`}>
+            <Tooltip title={<span style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11 }}>{`Котировка с биржи ${abbr} — основная цена устарела\n\n${eq.diagnosticInfo}`}</span>}>
               <span style={{ whiteSpace: 'nowrap', cursor: 'default' }}>
                 {priceNode}{' '}
                 <Tag style={{ fontSize: 10, padding: '0 3px', marginInlineEnd: 0, opacity: 0.85 }}>{abbr}</Tag>
               </span>
+            </Tooltip>
+          );
+        }
+        if (eq?.diagnosticInfo) {
+          return (
+            <Tooltip title={<span style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11 }}>{eq.diagnosticInfo}</span>}>
+              <span style={{ cursor: 'default' }}>{priceNode}</span>
             </Tooltip>
           );
         }

@@ -5,6 +5,7 @@ import {
   FRESH_QUOTE_WINDOW_MS,
   isStockPriceStale,
   normalizeStockName,
+  parseUtcTimestamp,
   resolveEffectiveQuote,
   stocksMatch,
 } from './effectiveQuote';
@@ -388,5 +389,165 @@ describe('Req 11 – 10-minute freshness window', () => {
     const eq = resolveEffectiveQuote(primary, [primary, altA, altB], NOW);
     expect(eq.sourceStockId).toBe(3); // lower id wins
     expect(eq.currentPrice).toBe(200);
+  });
+});
+
+// ── 12. parseUtcTimestamp – UTC parsing requirements ─────────────────────────
+
+describe('Req 12 – parseUtcTimestamp', () => {
+  // Req 12.1 – no-timezone string treated as UTC
+  it('ISO string without timezone is treated as UTC', () => {
+    const ts = parseUtcTimestamp('2026-08-13T20:00:00');
+    expect(ts).toBe(Date.parse('2026-08-13T20:00:00Z'));
+  });
+
+  // Req 12.2 – string with Z is unchanged
+  it('ISO string with Z is parsed without modification', () => {
+    const ts = parseUtcTimestamp('2026-08-13T20:00:00Z');
+    expect(ts).toBe(Date.parse('2026-08-13T20:00:00Z'));
+  });
+
+  // Req 12.3 – string with +02:00 is correctly converted
+  it('ISO string with +02:00 offset maps to correct UTC epoch', () => {
+    const ts = parseUtcTimestamp('2026-08-13T22:00:00+02:00');
+    expect(ts).toBe(Date.parse('2026-08-13T20:00:00Z'));
+  });
+
+  // Req 12.4 – invalid / null / undefined return NaN
+  it('null returns NaN', () => {
+    expect(parseUtcTimestamp(null)).toBeNaN();
+  });
+
+  it('undefined returns NaN', () => {
+    expect(parseUtcTimestamp(undefined)).toBeNaN();
+  });
+
+  it('empty string returns NaN', () => {
+    expect(parseUtcTimestamp('')).toBeNaN();
+  });
+
+  it('non-date string returns NaN', () => {
+    expect(parseUtcTimestamp('not-a-date')).toBeNaN();
+  });
+
+  // Req 12.5 – future timestamp is rejected by isStockPriceStale
+  it('future timestamp is stale', () => {
+    const futureTs = new Date(NOW + 5 * 60 * 1000).toISOString();
+    const stock = makeStock({ id: 1, currentPriceAt: futureTs });
+    expect(isStockPriceStale(stock, NOW)).toBe(true);
+  });
+
+  // Req 12.6 – exactly 10 minutes is fresh
+  it('timestamp exactly 10 minutes ago is fresh', () => {
+    const exactlyTenMin = new Date(NOW - FRESH_QUOTE_WINDOW_MS).toISOString();
+    const stock = makeStock({ id: 1, currentPriceAt: exactlyTenMin });
+    expect(isStockPriceStale(stock, NOW)).toBe(false);
+  });
+
+  // Req 12.7 – 10 minutes + 1 ms is stale
+  it('timestamp 10 minutes and 1 ms ago is stale', () => {
+    const justOverTenMin = new Date(NOW - FRESH_QUOTE_WINDOW_MS - 1).toISOString();
+    const stock = makeStock({ id: 1, currentPriceAt: justOverTenMin });
+    expect(isStockPriceStale(stock, NOW)).toBe(true);
+  });
+});
+
+// ── 13. Seagate fixture (UTC parsing + Seagate scenario) ─────────────────────
+
+describe('Req 13 – Seagate fixture', () => {
+  // Observed data from the real API:
+  //   Frankfurt, Stock 8:  currentPriceAt = "2026-08-13T06:00:59"  (no Z)
+  //   NYSE,      Stock 54: currentPriceAt = "2026-08-13T20:00:00"  (no Z)
+  //   Server UTC at check: 2026-08-13T20:54:11Z
+  const SEAGATE_NOW = Date.parse('2026-08-13T20:54:11Z');
+  const FRANKFURT_TS = '2026-08-13T06:00:59';  // ~54 min before 20:00, but ~14h54m before now
+  const NYSE_TS = '2026-08-13T20:00:00';        // 54 min before SEAGATE_NOW
+
+  // Req 13.1 – both timestamps treated as UTC
+  it('Frankfurt timestamp (no Z) is parsed as UTC', () => {
+    const ts = parseUtcTimestamp(FRANKFURT_TS);
+    expect(ts).toBe(Date.parse('2026-08-13T06:00:59Z'));
+  });
+
+  it('NYSE timestamp (no Z) is parsed as UTC', () => {
+    const ts = parseUtcTimestamp(NYSE_TS);
+    expect(ts).toBe(Date.parse('2026-08-13T20:00:00Z'));
+  });
+
+  // Req 13.2 – both are stale at SEAGATE_NOW (54+ min old each)
+  it('Frankfurt quote is stale at SEAGATE_NOW', () => {
+    const stock = makeStock({ id: 8, currentPriceAt: FRANKFURT_TS });
+    expect(isStockPriceStale(stock, SEAGATE_NOW)).toBe(true);
+  });
+
+  it('NYSE quote is stale at SEAGATE_NOW (54 min > 10 min window)', () => {
+    const stock = makeStock({ id: 54, currentPriceAt: NYSE_TS });
+    expect(isStockPriceStale(stock, SEAGATE_NOW)).toBe(true);
+  });
+
+  // Req 13.3 – resolveEffectiveQuote falls back to primary, diagnostic explains
+  it('resolveEffectiveQuote falls back to primary and diagnostic mentions fallback', () => {
+    const frankfurt = makeStock({
+      id: 8,
+      ticker: '847',
+      exchange: 'Frankfurt',
+      currentPrice: 756,
+      currentPriceAt: FRANKFURT_TS,
+      commonName: 'Seagate Technology Holdings PLC',
+      name: 'Seagate Technology Holdings PLC',
+    });
+    const nyse = makeStock({
+      id: 54,
+      ticker: 'STX',
+      exchange: 'NYSE',
+      currentPrice: 798.83,
+      currentPriceAt: NYSE_TS,
+      commonName: 'Seagate Technology Holdings PLC',
+      name: 'Seagate Technology Holdings PLC',
+    });
+
+    const eq = resolveEffectiveQuote(frankfurt, [frankfurt, nyse], SEAGATE_NOW);
+
+    // Both stale → fall back to primary stored price
+    expect(eq.currentPrice).toBe(756);
+    expect(eq.sourceStockId).toBeNull();
+    expect(eq.sourceExchange).toBeNull();
+    // Diagnostic should mention "fallback"
+    expect(eq.diagnosticInfo).toContain('fallback');
+    // Diagnostic should mention both stocks
+    expect(eq.diagnosticInfo).toContain('Stock 8');
+    expect(eq.diagnosticInfo).toContain('Stock 54');
+    // Diagnostic should mention both are stale
+    expect(eq.diagnosticInfo).toContain('stale');
+  });
+
+  // Req 13.4 – fresh NYSE quote (within 10 min) IS selected
+  it('fresh NYSE quote (within 10 min) is selected as alternative', () => {
+    const freshNow = Date.parse('2026-08-13T20:05:00Z'); // 5 min after 20:00:00
+    const frankfurt = makeStock({
+      id: 8,
+      ticker: '847',
+      exchange: 'Frankfurt',
+      currentPrice: 756,
+      currentPriceAt: FRANKFURT_TS, // stale at freshNow too (~14h)
+      commonName: 'Seagate Technology Holdings PLC',
+      name: 'Seagate Technology Holdings PLC',
+    });
+    const nyse = makeStock({
+      id: 54,
+      ticker: 'STX',
+      exchange: 'NYSE',
+      currentPrice: 798.83,
+      currentPriceAt: NYSE_TS, // 5 min old at freshNow → fresh
+      commonName: 'Seagate Technology Holdings PLC',
+      name: 'Seagate Technology Holdings PLC',
+    });
+
+    const eq = resolveEffectiveQuote(frankfurt, [frankfurt, nyse], freshNow);
+
+    expect(eq.currentPrice).toBe(798.83);
+    expect(eq.sourceStockId).toBe(54);
+    expect(eq.sourceExchange).toBe('NYSE');
+    expect(eq.diagnosticInfo).toContain('Stock 54');
   });
 });
