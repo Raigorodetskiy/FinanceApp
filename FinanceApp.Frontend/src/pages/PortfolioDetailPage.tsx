@@ -62,6 +62,7 @@ import StockPriceChart from '../components/StockPriceChart';
 import StockExchangeTag, { EXCHANGE_ABBREVIATION } from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import { isQuoteDelayed } from '../utils/quote';
+import { resolveEffectiveQuote, type EffectiveQuote } from '../utils/effectiveQuote';
 import type {
   Portfolio,
   Stock,
@@ -640,8 +641,40 @@ const PortfolioDetailPage: React.FC = () => {
 
   const items = portfolio?.items ?? [];
 
+  // ── Effective quote resolution ────────────────────────────────────────────
+  // When a position's stored price is stale (>24 h old or absent), the most
+  // recent non-stale price for an equivalent stock on another exchange is used
+  // instead.  Identity fields (id, ticker, exchange, name) are never replaced.
+  const effectiveQuoteMap = useMemo(() => {
+    const map = new Map<number, EffectiveQuote>();
+    for (const item of items) {
+      if (!map.has(item.stock.id)) {
+        map.set(item.stock.id, resolveEffectiveQuote(item.stock, stocks));
+      }
+    }
+    return map;
+  }, [items, stocks]);
+
+  const effectiveItems = useMemo(
+    () => items.map((item) => {
+      const eq = effectiveQuoteMap.get(item.stock.id);
+      if (!eq) return item;
+      return {
+        ...item,
+        stock: {
+          ...item.stock,
+          currentPrice: eq.currentPrice,
+          currentPriceChange: eq.currentPriceChange,
+          currentPriceChangePercent: eq.currentPriceChangePercent,
+          currentPriceAt: eq.currentPriceAt,
+        },
+      };
+    }),
+    [items, effectiveQuoteMap],
+  );
+
   const sortedItems = useMemo(() => {
-    return [...items].sort((a, b) => {
+    return [...effectiveItems].sort((a, b) => {
       const nameA = a.stock?.name ?? '';
       const nameB = b.stock?.name ?? '';
       if (!nameA && nameB) return 1;
@@ -652,10 +685,10 @@ const PortfolioDetailPage: React.FC = () => {
       if (tickerCmp !== 0) return tickerCmp;
       return a.id - b.id;
     });
-  }, [items]);
+  }, [effectiveItems]);
 
-  const summary = computeSummary(items);
-  const dailyChangeSummary = computePortfolioDailyChange(items);
+  const summary = computeSummary(effectiveItems);
+  const dailyChangeSummary = computePortfolioDailyChange(effectiveItems);
 
   const pendingOrders = orders.filter((o) => o.status === 'Pending');
   const executedOrders = orders.filter((o) => o.status === 'Executed' || o.status === 'Cancelled');
@@ -762,7 +795,21 @@ const PortfolioDetailPage: React.FC = () => {
       title: 'Тек. цена', key: 'currentPrice', align: 'right' as const,
       render: (_: unknown, record: PositionTableRow) => {
         if (isPositionChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        return fmtCur((record as PortfolioItem).stock.currentPrice, '€');
+        const item = record as PortfolioItem;
+        const priceNode = fmtCur(item.stock.currentPrice, '€');
+        const eq = effectiveQuoteMap.get(item.stock.id);
+        if (eq?.sourceExchange) {
+          const abbr = EXCHANGE_ABBREVIATION[eq.sourceExchange] ?? eq.sourceExchange;
+          return (
+            <Tooltip title={`Котировка с биржи ${abbr} — основная цена устарела`}>
+              <span style={{ whiteSpace: 'nowrap', cursor: 'default' }}>
+                {priceNode}{' '}
+                <Tag style={{ fontSize: 10, padding: '0 3px', marginInlineEnd: 0, opacity: 0.85 }}>{abbr}</Tag>
+              </span>
+            </Tooltip>
+          );
+        }
+        return priceNode;
       },
     },
     {
