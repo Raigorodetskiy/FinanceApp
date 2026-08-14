@@ -11,6 +11,8 @@ public sealed class YahooFinanceOptions
     public TimeSpan CooldownDuration { get; init; } = TimeSpan.FromMinutes(30);
     public TimeSpan QuoteCacheDuration { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(10);
+    public TimeSpan FundamentalsCacheDuration { get; init; } = TimeSpan.FromHours(24);
+    public TimeSpan EarningsCacheDuration { get; init; } = TimeSpan.FromHours(6);
     /// <summary>
     /// How far a quote's provider timestamp may trail the current time before the quote is
     /// considered stale/delayed during an active trading session (REGULAR, PRE, or POST).

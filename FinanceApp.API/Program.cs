@@ -131,8 +131,10 @@ builder.Services.AddSingleton<IFinanzenNetQuoteService, FinanzenNetQuoteService>
 builder.Services.AddSingleton<IYahooRequestCoordinator, YahooRequestCoordinator>();
 builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
 builder.Services.AddScoped<IYahooQuoteService, YahooQuoteService>();
+builder.Services.AddScoped<IYahooFundamentalsService, YahooFundamentalsService>();
 builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
+builder.Services.AddScoped<IFundamentalsService, FundamentalsService>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();
