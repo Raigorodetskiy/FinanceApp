@@ -32,6 +32,23 @@ public class YahooQuoteServiceTests
         """;
 
     [Fact]
+    public async Task GetQuoteAsync_DoesNotRequireCrumbOrCookieHeaders()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.EnqueueJson(ValidChartResponse);
+        HttpRequestMessage? capturedRequest = null;
+        handler.OnRequest = request => capturedRequest = request;
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(capturedRequest);
+        Assert.DoesNotContain("crumb=", capturedRequest!.RequestUri!.Query, StringComparison.OrdinalIgnoreCase);
+        Assert.False(capturedRequest.Headers.TryGetValues("Cookie", out _));
+    }
+
+    [Fact]
     public async Task GetQuoteAsync_ReturnsQuoteWithCorrectValues()
     {
         var handler = new StubHttpMessageHandler();
@@ -1256,6 +1273,7 @@ public class YahooQuoteServiceTests
 
         /// <summary>Always return a fresh response from this factory, for testing retry exhaustion.</summary>
         public Func<HttpResponseMessage>? AlwaysRespondFactory { get; init; }
+        public Action<HttpRequestMessage>? OnRequest { get; set; }
 
         public void EnqueueJson(string json)
         {
@@ -1270,6 +1288,7 @@ public class YahooQuoteServiceTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            OnRequest?.Invoke(request);
             if (ExceptionFactory is not null)
             {
                 throw ExceptionFactory(request);

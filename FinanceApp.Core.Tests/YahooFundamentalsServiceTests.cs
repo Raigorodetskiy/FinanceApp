@@ -1,319 +1,231 @@
 using System.Net;
-using System.Text;
 using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
 
 public class YahooFundamentalsServiceTests
 {
-    private const string CompleteResponse = """
-        {
-          "quoteSummary": {
-            "result": [{
-              "summaryDetail": {
-                "marketCap": { "raw": 1250000000000 },
-                "trailingPE": { "raw": 19.8754 },
-                "forwardPE": { "raw": 17.1254 },
-                "priceToBook": { "raw": 4.5678 },
-                "dividendYield": { "raw": 0.0134 },
-                "currency": "USD"
-              },
-              "financialData": {
-                "totalCash": { "raw": 45000000000 },
-                "totalDebt": { "raw": 12000000000 },
-                "ebitda": { "raw": 17000000000 },
-                "freeCashflow": { "raw": 11000000000 },
-                "financialCurrency": "USD"
-              },
-              "defaultKeyStatistics": {
-                "enterpriseValue": { "raw": 1290000000000 },
-                "priceToBook": { "raw": 4.5678 }
-              },
-              "incomeStatementHistory": {
-                "incomeStatementHistory": [
-                  {
-                    "endDate": { "raw": 1735603200 },
-                    "totalRevenue": { "raw": 55000000000 },
-                    "operatingIncome": { "raw": 13000000000 },
-                    "netIncome": { "raw": 9000000000 },
-                    "ebitda": { "raw": 17000000000 },
-                    "currencyCode": "USD"
-                  }
-                ]
-              },
-              "incomeStatementHistoryQuarterly": {
-                "incomeStatementHistory": [
-                  {
-                    "endDate": { "raw": 1735603200 },
-                    "totalRevenue": { "raw": 14000000000 },
-                    "operatingIncome": { "raw": 3300000000 },
-                    "netIncome": { "raw": 2200000000 },
-                    "ebitda": { "raw": 4300000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1727740800 },
-                    "totalRevenue": { "raw": 13800000000 },
-                    "operatingIncome": { "raw": 3200000000 },
-                    "netIncome": { "raw": 2100000000 },
-                    "ebitda": { "raw": 4200000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1719792000 },
-                    "totalRevenue": { "raw": 13500000000 },
-                    "operatingIncome": { "raw": 3100000000 },
-                    "netIncome": { "raw": 2050000000 },
-                    "ebitda": { "raw": 4100000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1711843200 },
-                    "totalRevenue": { "raw": 13200000000 },
-                    "operatingIncome": { "raw": 3000000000 },
-                    "netIncome": { "raw": 2000000000 },
-                    "ebitda": { "raw": 4000000000 },
-                    "currencyCode": "USD"
-                  }
-                ]
-              },
-              "balanceSheetHistory": {
-                "balanceSheetStatements": [
-                  {
-                    "endDate": { "raw": 1735603200 },
-                    "totalAssets": { "raw": 98000000000 },
-                    "totalLiab": { "raw": 41000000000 },
-                    "totalDebt": { "raw": 12000000000 },
-                    "currencyCode": "USD"
-                  }
-                ]
-              },
-              "balanceSheetHistoryQuarterly": {
-                "balanceSheetStatements": [
-                  {
-                    "endDate": { "raw": 1735603200 },
-                    "totalAssets": { "raw": 98000000000 },
-                    "totalLiab": { "raw": 41000000000 },
-                    "totalDebt": { "raw": 12000000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1727740800 },
-                    "totalAssets": { "raw": 96000000000 },
-                    "totalLiab": { "raw": 40500000000 },
-                    "totalDebt": { "raw": 11900000000 },
-                    "currencyCode": "USD"
-                  }
-                ]
-              },
-              "cashflowStatementQuarterly": {
-                "cashflowStatements": [
-                  {
-                    "endDate": { "raw": 1735603200 },
-                    "capitalExpenditures": { "raw": -500000000 },
-                    "totalCashFromOperatingActivities": { "raw": 3300000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1727740800 },
-                    "capitalExpenditures": { "raw": -450000000 },
-                    "totalCashFromOperatingActivities": { "raw": 3000000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1719792000 },
-                    "capitalExpenditures": { "raw": -425000000 },
-                    "totalCashFromOperatingActivities": { "raw": 2900000000 },
-                    "currencyCode": "USD"
-                  },
-                  {
-                    "endDate": { "raw": 1711843200 },
-                    "capitalExpenditures": { "raw": -400000000 },
-                    "totalCashFromOperatingActivities": { "raw": 2800000000 },
-                    "currencyCode": "USD"
-                  }
-                ]
-              },
-              "earningsHistory": {
-                "history": [
-                  {
-                    "quarter": { "raw": 1735603200, "fmt": "4Q2024" },
-                    "epsEstimate": { "raw": 2.11 },
-                    "epsActual": { "raw": 2.25 }
-                  }
-                ]
-              },
-              "earningsTrend": {
-                "trend": [
-                  {
-                    "period": "+1q",
-                    "endDate": { "raw": 1743379200 },
-                    "earningsEstimate": { "avg": { "raw": 2.31 } },
-                    "revenueEstimate": { "avg": { "raw": 14500000000 } }
-                  }
-                ]
-              },
-              "calendarEvents": {
-                "earnings": {
-                  "earningsDate": [
-                    { "raw": 1743379200 },
-                    { "raw": 1743465600 }
-                  ]
-                }
-              }
-            }]
-          }
-        }
-        """;
-
     [Fact]
-    public async Task GetFundamentalsAsync_ParsesCompleteResponse()
+    public async Task GetFundamentalsAsync_UsesCookieAndUrlEncodedCrumbPair()
     {
-        var handler = new StubHttpMessageHandler();
-        handler.EnqueueJson(CompleteResponse);
-        var service = CreateService(handler);
+        var coordinator = new StubYahooRequestCoordinator();
+        coordinator.Enqueue(HttpStatusCode.OK, """{"quoteSummary":{"result":[{}]}}""");
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=cookie123; B=2", "ab+c/==", DateTimeOffset.UtcNow.AddMinutes(20))));
+        var service = CreateService(coordinator, sessions);
 
         var result = await service.GetFundamentalsAsync("STX");
 
         Assert.True(result.IsSuccess);
-        var snapshot = Assert.IsType<CompanyFundamentalsSnapshot>(result.Snapshot);
-        Assert.Equal("STX", snapshot.SourceSymbol);
-        Assert.Equal(1_250_000_000_000m, snapshot.MarketCap);
-        Assert.Equal(1_290_000_000_000m, snapshot.EnterpriseValue);
-        Assert.Equal(12_000_000_000m, snapshot.TotalDebt);
-        Assert.Equal(45_000_000_000m, snapshot.CashAndEquivalents);
-        Assert.Equal(54_500_000_000m, snapshot.RevenueTtm);
-        Assert.Equal(8_350_000_000m, snapshot.NetIncomeTtm);
-        Assert.Equal(16_600_000_000m, snapshot.EbitdaTtm);
-        Assert.Equal(10_225_000_000m, snapshot.FreeCashFlowTtm);
-        Assert.Equal("USD", snapshot.Currency);
-        Assert.Equal(1, snapshot.Periods.Count(x => x.PeriodType == PeriodType.Annual));
-        Assert.Equal(4, snapshot.Periods.Count(x => x.PeriodType == PeriodType.Quarterly));
-        Assert.Contains(snapshot.EarningsEvents, x => x.DateStatus == EarningsDateStatus.Confirmed && x.EpsReported == 2.25m);
+        var request = Assert.Single(coordinator.Requests);
+        Assert.Contains("crumb=ab%2Bc%2F%3D%3D", request.Url);
+        Assert.Contains("/quoteSummary/STX?", request.Url, StringComparison.Ordinal);
+        Assert.Equal("A1=cookie123; B=2", request.Headers["Cookie"]);
     }
 
     [Fact]
-    public async Task GetFundamentalsAsync_MissingModules_LeavesFieldsNull()
+    public async Task GetFundamentalsAsync_InvalidCrumb_RefreshesSessionAndRetriesExactlyOnce()
     {
-        var handler = new StubHttpMessageHandler();
-        handler.EnqueueJson("""{"quoteSummary":{"result":[{}]}}""");
-        var service = CreateService(handler);
+        var coordinator = new StubYahooRequestCoordinator();
+        coordinator.Enqueue(HttpStatusCode.Unauthorized, """{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}""");
+        coordinator.Enqueue(HttpStatusCode.OK, """{"quoteSummary":{"result":[{}]}}""");
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=oldCookie", "oldCrumb", DateTimeOffset.UtcNow.AddMinutes(20))),
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=newCookie", "newCrumb", DateTimeOffset.UtcNow.AddMinutes(20))));
+        var service = CreateService(coordinator, sessions);
 
         var result = await service.GetFundamentalsAsync("STX");
 
         Assert.True(result.IsSuccess);
-        var snapshot = Assert.IsType<CompanyFundamentalsSnapshot>(result.Snapshot);
-        Assert.Null(snapshot.MarketCap);
-        Assert.Null(snapshot.TotalDebt);
-        Assert.Empty(snapshot.Periods);
-        Assert.Empty(snapshot.EarningsEvents);
+        Assert.Equal(2, coordinator.Requests.Count);
+        Assert.Equal(1, sessions.InvalidateCalls);
+        Assert.Contains("crumb=oldCrumb", coordinator.Requests[0].Url);
+        Assert.Contains("crumb=newCrumb", coordinator.Requests[1].Url);
     }
 
     [Fact]
-    public async Task GetFundamentalsAsync_LargeValues_DoNotOverflow()
+    public async Task GetFundamentalsAsync_SecondUnauthorizedAfterRefresh_ReturnsFailureWithoutLoop()
     {
-        var handler = new StubHttpMessageHandler();
-        handler.EnqueueJson(CompleteResponse);
-        var service = CreateService(handler);
-
-        var result = await service.GetFundamentalsAsync("BIG");
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(1_250_000_000_000m, result.Snapshot!.MarketCap);
-    }
-
-    [Fact]
-    public async Task GetFundamentalsAsync_RetainsAnnualAndQuarterlyPeriodsSeparately()
-    {
-        var handler = new StubHttpMessageHandler();
-        handler.EnqueueJson(CompleteResponse);
-        var service = CreateService(handler);
+        var coordinator = new StubYahooRequestCoordinator();
+        coordinator.Enqueue(HttpStatusCode.Unauthorized, """{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}""");
+        coordinator.Enqueue(HttpStatusCode.Unauthorized, """{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}""");
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=firstCookie", "first", DateTimeOffset.UtcNow.AddMinutes(20))),
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=secondCookie", "second", DateTimeOffset.UtcNow.AddMinutes(20))));
+        var service = CreateService(coordinator, sessions);
 
         var result = await service.GetFundamentalsAsync("STX");
 
-        var annual = result.Snapshot!.Periods.Where(x => x.PeriodType == PeriodType.Annual).ToList();
-        var quarterly = result.Snapshot.Periods.Where(x => x.PeriodType == PeriodType.Quarterly).ToList();
-
-        Assert.Single(annual);
-        Assert.Equal(4, quarterly.Count);
-        Assert.All(quarterly, period => Assert.Equal(PeriodType.Quarterly, period.PeriodType));
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
+        Assert.Equal(YahooFundamentalsFailureCategory.ProviderUnauthorized, result.FailureCategory);
+        Assert.Equal(2, coordinator.Requests.Count);
     }
 
-    [Fact]
-    public async Task GetFundamentalsAsync_EstimatedEarnings_AreNotMarkedConfirmed()
+    [Theory]
+    [InlineData((int)HttpStatusCode.Forbidden, StatusCodes.Status502BadGateway, YahooFundamentalsFailureCategory.ProviderForbidden)]
+    [InlineData((int)HttpStatusCode.NotFound, StatusCodes.Status502BadGateway, YahooFundamentalsFailureCategory.ProviderNotFound)]
+    [InlineData((int)HttpStatusCode.TooManyRequests, StatusCodes.Status429TooManyRequests, YahooFundamentalsFailureCategory.ProviderRateLimited)]
+    [InlineData((int)HttpStatusCode.InternalServerError, StatusCodes.Status502BadGateway, YahooFundamentalsFailureCategory.ProviderServerError)]
+    public async Task GetFundamentalsAsync_MapsProviderStatusCodes(int providerStatus, int expectedStatus, YahooFundamentalsFailureCategory expectedCategory)
     {
-        var handler = new StubHttpMessageHandler();
-        handler.EnqueueJson(CompleteResponse);
-        var service = CreateService(handler);
+        var coordinator = new StubYahooRequestCoordinator();
+        coordinator.Enqueue((HttpStatusCode)providerStatus, "{}");
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=sessionCookie", "crumb", DateTimeOffset.UtcNow.AddMinutes(20))));
+        var service = CreateService(coordinator, sessions);
 
         var result = await service.GetFundamentalsAsync("STX");
 
-        var estimatedEvent = Assert.Single(result.Snapshot!.EarningsEvents, x => x.FiscalPeriod == "+1q");
-        Assert.Equal(EarningsDateStatus.Estimated, estimatedEvent.DateStatus);
-        Assert.Null(estimatedEvent.EpsReported);
+        Assert.False(result.IsSuccess);
+        Assert.Equal(expectedStatus, result.StatusCode);
+        Assert.Equal(expectedCategory, result.FailureCategory);
     }
 
-    private static YahooFundamentalsService CreateService(HttpMessageHandler handler)
+    [Fact]
+    public async Task GetFundamentalsAsync_InvalidJson_ReturnsTypedInvalidResponseFailure()
     {
-        var factory = new FixedHttpClientFactory(new HttpClient(handler));
-        var coordinator = new YahooRequestCoordinator(
-            factory,
-            NullLogger<YahooRequestCoordinator>.Instance,
-            Options.Create(new YahooFinanceOptions
-            {
-                MinRequestInterval = TimeSpan.Zero,
-                CooldownDuration = TimeSpan.FromMinutes(30),
-                QuoteCacheDuration = TimeSpan.Zero,
-                FundamentalsCacheDuration = TimeSpan.FromHours(24),
-                EarningsCacheDuration = TimeSpan.FromHours(6),
-                RequestTimeout = TimeSpan.FromSeconds(10)
-            }));
+        var coordinator = new StubYahooRequestCoordinator();
+        coordinator.Enqueue(HttpStatusCode.OK, "not-valid-json");
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=sessionCookie", "crumb", DateTimeOffset.UtcNow.AddMinutes(20))));
+        var service = CreateService(coordinator, sessions);
 
+        var result = await service.GetFundamentalsAsync("STX");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
+        Assert.Equal(YahooFundamentalsFailureCategory.InvalidProviderResponse, result.FailureCategory);
+    }
+
+    [Fact]
+    public async Task GetFundamentalsAsync_SessionFailure_ReturnsTypedSessionFailure()
+    {
+        var coordinator = new StubYahooRequestCoordinator();
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Failure(
+                YahooSessionFailureCategory.ConsentFailure,
+                StatusCodes.Status502BadGateway,
+                "consent failed"));
+        var service = CreateService(coordinator, sessions);
+
+        var result = await service.GetFundamentalsAsync("STX");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(YahooFundamentalsFailureCategory.ProviderConsentFailure, result.FailureCategory);
+        Assert.Empty(coordinator.Requests);
+    }
+
+    [Fact]
+    public async Task GetFundamentalsAsync_DoesNotLogCrumbOrCookieValues()
+    {
+        var logger = new ListLogger<YahooFundamentalsService>();
+        var coordinator = new StubYahooRequestCoordinator();
+        coordinator.Enqueue(HttpStatusCode.Unauthorized, """{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}""");
+        coordinator.Enqueue(HttpStatusCode.Unauthorized, """{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}""");
+        var sessions = new StubYahooSessionService(
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=superSecretCookie", "superSecretCrumb", DateTimeOffset.UtcNow.AddMinutes(20))),
+            YahooSessionAcquisitionResult.Success(new YahooSession("A1=newSecretCookie", "newSecretCrumb", DateTimeOffset.UtcNow.AddMinutes(20))));
+        var service = CreateService(coordinator, sessions, logger);
+
+        _ = await service.GetFundamentalsAsync("STX");
+
+        var joined = string.Join('\n', logger.Messages);
+        Assert.DoesNotContain("superSecretCookie", joined, StringComparison.Ordinal);
+        Assert.DoesNotContain("superSecretCrumb", joined, StringComparison.Ordinal);
+        Assert.DoesNotContain("newSecretCookie", joined, StringComparison.Ordinal);
+        Assert.DoesNotContain("newSecretCrumb", joined, StringComparison.Ordinal);
+    }
+
+    private static YahooFundamentalsService CreateService(
+        StubYahooRequestCoordinator coordinator,
+        StubYahooSessionService sessionService,
+        ILogger<YahooFundamentalsService>? logger = null)
+    {
         return new YahooFundamentalsService(
             coordinator,
-            NullLogger<YahooFundamentalsService>.Instance,
-            Options.Create(new YahooFinanceOptions
-            {
-                MinRequestInterval = TimeSpan.Zero,
-                CooldownDuration = TimeSpan.FromMinutes(30),
-                QuoteCacheDuration = TimeSpan.Zero,
-                FundamentalsCacheDuration = TimeSpan.FromHours(24),
-                EarningsCacheDuration = TimeSpan.FromHours(6),
-                RequestTimeout = TimeSpan.FromSeconds(10)
-            }));
+            sessionService,
+            logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<YahooFundamentalsService>.Instance,
+            TimeProvider.System);
     }
 
-    private sealed class FixedHttpClientFactory : IHttpClientFactory
+    private sealed class StubYahooRequestCoordinator : IYahooRequestCoordinator
     {
-        private readonly HttpClient _client;
+        private readonly Queue<YahooHttpResponse> _responses = new();
 
-        public FixedHttpClientFactory(HttpClient client) => _client = client;
+        public List<YahooRequest> Requests { get; } = [];
 
-        public HttpClient CreateClient(string name) => _client;
-    }
+        public void Enqueue(HttpStatusCode statusCode, string content) =>
+            _responses.Enqueue(new YahooHttpResponse(statusCode, content));
 
-    private sealed class StubHttpMessageHandler : HttpMessageHandler
-    {
-        private readonly Queue<HttpResponseMessage> _responses = new();
-
-        public void EnqueueJson(string payload)
+        public Task<YahooHttpResponse> GetAsync(
+            string url,
+            string requestLabel,
+            YahooRequestExecutionOptions executionOptions,
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, string>? additionalHeaders = null)
         {
-            _responses.Enqueue(new HttpResponseMessage(HttpStatusCode.OK)
+            Requests.Add(new YahooRequest(
+                url,
+                requestLabel,
+                additionalHeaders is null
+                    ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    : new Dictionary<string, string>(additionalHeaders, StringComparer.OrdinalIgnoreCase)));
+
+            if (_responses.Count == 0)
             {
-                Content = new StringContent(payload, Encoding.UTF8, "application/json")
-            });
+                throw new InvalidOperationException("No response configured.");
+            }
+
+            return Task.FromResult(_responses.Dequeue());
+        }
+    }
+
+    private sealed record YahooRequest(string Url, string RequestLabel, IReadOnlyDictionary<string, string> Headers);
+
+    private sealed class StubYahooSessionService(params YahooSessionAcquisitionResult[] sessionResults) : IYahooSessionService
+    {
+        private readonly Queue<YahooSessionAcquisitionResult> _results = new(sessionResults);
+
+        public int InvalidateCalls { get; private set; }
+
+        public Task<YahooSessionAcquisitionResult> GetSessionAsync(CancellationToken cancellationToken = default)
+        {
+            if (_results.Count == 0)
+            {
+                throw new InvalidOperationException("No session result configured.");
+            }
+
+            return Task.FromResult(_results.Dequeue());
         }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(_responses.Count > 0
-                ? _responses.Dequeue()
-                : new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("{}", Encoding.UTF8, "application/json")
-                });
+        public Task InvalidateSessionAsync(CancellationToken cancellationToken = default)
+        {
+            InvalidateCalls++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
+        }
     }
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Drawer, Empty, Row, Col, Space, Spin, Table, Tabs, Tag, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -71,6 +71,29 @@ export const getFundamentalsErrorMessage = (error: unknown): string => {
     ? serverMessage
     : 'Не удалось загрузить фундаментальные данные';
 };
+
+export const shouldShowFundamentalsRefreshSuccess = (response: FundamentalsResponse): boolean =>
+  response.state === 'Fresh' && response.snapshot !== null;
+
+export const getFundamentalsRefreshWarningMessage = (response: FundamentalsResponse): string => {
+  if (response.state === 'Stale') {
+    return response.warningMessage?.trim().length
+      ? response.warningMessage
+      : 'Не удалось обновить фундаментальные данные. Показан сохранённый снимок.';
+  }
+
+  return response.warningMessage?.trim().length
+    ? response.warningMessage
+    : 'Не удалось загрузить фундаментальные данные.';
+};
+
+export const shouldDiscardFundamentalsResponse = (requestVersion: number, currentVersion: number): boolean =>
+  requestVersion !== currentVersion;
+
+export const shouldDiscardFundamentalsResponseForStock = (
+  requestStockId: number,
+  currentStockId: number | null | undefined,
+): boolean => requestStockId !== currentStockId;
 
 type StockSummary = Pick<Stock, 'id' | 'ticker' | 'name'>;
 
@@ -187,12 +210,16 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const requestVersionRef = useRef(0);
+  const activeStockIdRef = useRef<number | null>(stock?.id ?? null);
 
   const loadFundamentals = useCallback(async (forceRefresh = false) => {
     if (!stock?.id) {
       return;
     }
 
+    const requestStockId = stock.id;
+    const requestVersion = ++requestVersionRef.current;
     if (forceRefresh) {
       setRefreshing(true);
     } else {
@@ -204,20 +231,50 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
       const response = forceRefresh
         ? await refreshStockFundamentals(stock.id)
         : await getStockFundamentals(stock.id);
+      if (
+        shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current) ||
+        shouldDiscardFundamentalsResponseForStock(requestStockId, activeStockIdRef.current)
+      ) {
+        return;
+      }
+
       setData(response.data);
       if (forceRefresh) {
-        message.success('Фундаментальные данные обновлены');
+        if (shouldShowFundamentalsRefreshSuccess(response.data)) {
+          message.success('Фундаментальные данные обновлены');
+        } else {
+          message.warning(getFundamentalsRefreshWarningMessage(response.data));
+        }
       }
     } catch (error) {
+      if (
+        shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current) ||
+        shouldDiscardFundamentalsResponseForStock(requestStockId, activeStockIdRef.current)
+      ) {
+        return;
+      }
+
       const nextMessage = getFundamentalsErrorMessage(error);
       setErrorMessage(nextMessage);
       if (forceRefresh) {
         message.error(nextMessage);
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (
+        !shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current) &&
+        !shouldDiscardFundamentalsResponseForStock(requestStockId, activeStockIdRef.current)
+      ) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
+  }, [stock?.id]);
+
+  useEffect(() => {
+    activeStockIdRef.current = stock?.id ?? null;
+    requestVersionRef.current += 1;
+    setData(null);
+    setErrorMessage(null);
   }, [stock?.id]);
 
   useEffect(() => {
