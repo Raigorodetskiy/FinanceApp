@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using FinanceApp.Core.Models;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
 
 namespace FinanceApp.API.Services;
 
@@ -64,13 +63,11 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
         IYahooRequestCoordinator yahooRequestCoordinator,
         IYahooSessionService yahooSessionService,
         ILogger<YahooFundamentalsService> logger,
-        IOptions<YahooFinanceOptions> options,
         TimeProvider? timeProvider = null)
     {
         _yahooRequestCoordinator = yahooRequestCoordinator;
         _yahooSessionService = yahooSessionService;
         _logger = logger;
-        _ = options.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -96,7 +93,7 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
             var response = await SendQuoteSummaryAsync(symbol, requestLabel, initialSession.Session, cancellationToken);
             if (response.StatusCode == HttpStatusCode.Unauthorized && IsUnauthorizedOrInvalidCrumb(response.Content))
             {
-                _yahooSessionService.InvalidateSession();
+                await _yahooSessionService.InvalidateSessionAsync(cancellationToken);
                 var refreshedSession = await _yahooSessionService.GetSessionAsync(cancellationToken);
                 if (!refreshedSession.IsSuccess || refreshedSession.Session is null)
                 {
@@ -120,7 +117,10 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
             var parsedError = TryParseYahooErrorEnvelope(response.Content);
             if (response.IsRateLimited)
             {
-                _logger.LogWarning("Yahoo fundamentals returned empty response for {Symbol}.", safeSymbol);
+                _logger.LogWarning(
+                    "Yahoo fundamentals request rate limit exceeded for {Symbol}; cooldownUntilUtc={CooldownUntilUtc}.",
+                    safeSymbol,
+                    response.CooldownUntilUtc);
                 return YahooFundamentalsResult.Failure(
                     StatusCodes.Status429TooManyRequests,
                     "Fundamentals provider rate limit exceeded.",
@@ -148,17 +148,23 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
 
             return ParseFundamentals(symbol, response.Content, _timeProvider);
         }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Yahoo fundamentals request timed out for {Symbol}.", safeSymbol);
+            _logger.LogWarning(
+                "Yahoo fundamentals request timed out for {Symbol}; exceptionType={ExceptionType}.",
+                safeSymbol,
+                ex.GetType().Name);
             return YahooFundamentalsResult.Failure(
                 StatusCodes.Status504GatewayTimeout,
                 "Fundamentals provider request timed out.",
                 YahooFundamentalsFailureCategory.ProviderTimeout);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
-            _logger.LogWarning("Yahoo fundamentals request failed for {Symbol}.", safeSymbol);
+            _logger.LogWarning(
+                "Yahoo fundamentals request failed for {Symbol}; httpRequestError={RequestError}.",
+                safeSymbol,
+                ex.HttpRequestError);
             return YahooFundamentalsResult.Failure(
                 StatusCodes.Status502BadGateway,
                 "Fundamentals provider request failed.",

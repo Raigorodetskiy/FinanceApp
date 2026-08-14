@@ -41,7 +41,7 @@ public sealed record YahooSessionAcquisitionResult(
 public interface IYahooSessionService
 {
     Task<YahooSessionAcquisitionResult> GetSessionAsync(CancellationToken cancellationToken = default);
-    void InvalidateSession();
+    Task InvalidateSessionAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class YahooSessionService : IYahooSessionService
@@ -102,9 +102,18 @@ public sealed class YahooSessionService : IYahooSessionService
         }
     }
 
-    public void InvalidateSession()
+    public async Task InvalidateSessionAsync(CancellationToken cancellationToken = default)
     {
-        _cachedSession = null;
+        await _sessionLock.WaitAsync(cancellationToken);
+        try
+        {
+            _cachedSession = null;
+        }
+        finally
+        {
+            _sessionLock.Release();
+        }
+
         _logger.LogInformation("Yahoo session invalidated.");
     }
 
@@ -246,14 +255,24 @@ public sealed class YahooSessionService : IYahooSessionService
     }
 
     private static bool IsConsentFailure(SessionHttpResponse response) =>
-        (response.FinalUri.Host.Contains("consent", StringComparison.OrdinalIgnoreCase) ||
-         response.FinalUri.Host.Contains("guce", StringComparison.OrdinalIgnoreCase) ||
-         (response.Content?.IndexOf("consent", StringComparison.OrdinalIgnoreCase) >= 0 &&
-          response.Content.IndexOf("<html", StringComparison.OrdinalIgnoreCase) >= 0));
+        (IsConsentHost(response.FinalUri.Host) && (!response.IsSuccessStatusCode || ContainsConsentHtml(response.Content))) ||
+        (ContainsConsentHtml(response.Content) && ContainsConsentProviderMarker(response.Content));
+
+    private static bool IsConsentHost(string host) =>
+        host.Contains("consent", StringComparison.OrdinalIgnoreCase) ||
+        host.Contains("guce", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsConsentHtml(string? content) =>
+        content?.IndexOf("consent", StringComparison.OrdinalIgnoreCase) >= 0 &&
+        content.IndexOf("<html", StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private static bool ContainsConsentProviderMarker(string? content) =>
+        content?.IndexOf("guce.yahoo.com", StringComparison.OrdinalIgnoreCase) >= 0;
 
     private static bool IsValidCrumb(string crumb) =>
         !string.IsNullOrWhiteSpace(crumb) &&
         crumb.Length <= 256 &&
+        !crumb.Any(char.IsWhiteSpace) &&
         crumb.IndexOf('<') < 0 &&
         crumb.IndexOf('>') < 0 &&
         crumb.IndexOf('{') < 0 &&

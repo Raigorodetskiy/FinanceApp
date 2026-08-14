@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Net;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Options;
@@ -462,7 +464,13 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
                 '&',
                 additionalHeaders
                     .OrderBy(x => x.Key, StringComparer.Ordinal)
-                    .Select(x => $"{x.Key}={x.Value}")));
+                    .Select(x => $"{x.Key}={HashHeaderValue(x.Value)}")));
+    }
+
+    private static string HashHeaderValue(string value)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes);
     }
 
     private static TimeSpan NormalizePositive(TimeSpan value, TimeSpan? fallback = null) =>

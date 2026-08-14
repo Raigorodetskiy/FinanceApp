@@ -90,6 +90,11 @@ export const getFundamentalsRefreshWarningMessage = (response: FundamentalsRespo
 export const shouldDiscardFundamentalsResponse = (requestVersion: number, currentVersion: number): boolean =>
   requestVersion !== currentVersion;
 
+export const shouldDiscardFundamentalsResponseForStock = (
+  requestStockId: number,
+  currentStockId: number | null | undefined,
+): boolean => requestStockId !== currentStockId;
+
 type StockSummary = Pick<Stock, 'id' | 'ticker' | 'name'>;
 
 interface StockFundamentalsDrawerProps {
@@ -206,12 +211,14 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const requestVersionRef = useRef(0);
+  const activeStockIdRef = useRef<number | null>(stock?.id ?? null);
 
   const loadFundamentals = useCallback(async (forceRefresh = false) => {
     if (!stock?.id) {
       return;
     }
 
+    const requestStockId = stock.id;
     const requestVersion = ++requestVersionRef.current;
     if (forceRefresh) {
       setRefreshing(true);
@@ -224,7 +231,10 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
       const response = forceRefresh
         ? await refreshStockFundamentals(stock.id)
         : await getStockFundamentals(stock.id);
-      if (shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current)) {
+      if (
+        shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current) ||
+        shouldDiscardFundamentalsResponseForStock(requestStockId, activeStockIdRef.current)
+      ) {
         return;
       }
 
@@ -237,7 +247,10 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
         }
       }
     } catch (error) {
-      if (shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current)) {
+      if (
+        shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current) ||
+        shouldDiscardFundamentalsResponseForStock(requestStockId, activeStockIdRef.current)
+      ) {
         return;
       }
 
@@ -247,7 +260,10 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
         message.error(nextMessage);
       }
     } finally {
-      if (!shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current)) {
+      if (
+        !shouldDiscardFundamentalsResponse(requestVersion, requestVersionRef.current) &&
+        !shouldDiscardFundamentalsResponseForStock(requestStockId, activeStockIdRef.current)
+      ) {
         setLoading(false);
         setRefreshing(false);
       }
@@ -255,11 +271,10 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
   }, [stock?.id]);
 
   useEffect(() => {
+    activeStockIdRef.current = stock?.id ?? null;
     requestVersionRef.current += 1;
     setData(null);
     setErrorMessage(null);
-    setLoading(false);
-    setRefreshing(false);
   }, [stock?.id]);
 
   useEffect(() => {

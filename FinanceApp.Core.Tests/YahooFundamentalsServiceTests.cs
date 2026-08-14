@@ -3,7 +3,6 @@ using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -151,15 +150,6 @@ public class YahooFundamentalsServiceTests
             coordinator,
             sessionService,
             logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<YahooFundamentalsService>.Instance,
-            Options.Create(new YahooFinanceOptions
-            {
-                MinRequestInterval = TimeSpan.Zero,
-                CooldownDuration = TimeSpan.FromMinutes(30),
-                QuoteCacheDuration = TimeSpan.Zero,
-                FundamentalsCacheDuration = TimeSpan.FromHours(24),
-                EarningsCacheDuration = TimeSpan.FromHours(6),
-                RequestTimeout = TimeSpan.FromSeconds(10)
-            }),
             TimeProvider.System);
     }
 
@@ -213,7 +203,11 @@ public class YahooFundamentalsServiceTests
             return Task.FromResult(_results.Dequeue());
         }
 
-        public void InvalidateSession() => InvalidateCalls++;
+        public Task InvalidateSessionAsync(CancellationToken cancellationToken = default)
+        {
+            InvalidateCalls++;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class ListLogger<T> : ILogger<T>

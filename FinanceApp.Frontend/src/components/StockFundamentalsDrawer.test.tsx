@@ -6,6 +6,7 @@ import {
   getEarningsStatusBadgeProps,
   getFundamentalsNumberDisplay,
   getFundamentalsRefreshWarningMessage,
+  shouldDiscardFundamentalsResponseForStock,
   shouldDiscardFundamentalsResponse,
   shouldShowFundamentalsRefreshSuccess,
 } from './StockFundamentalsDrawer';
@@ -77,5 +78,7 @@ describe('StockFundamentalsDrawer helpers', () => {
   it('discards outdated request results when stock changes', () => {
     expect(shouldDiscardFundamentalsResponse(3, 4)).toBe(true);
     expect(shouldDiscardFundamentalsResponse(7, 7)).toBe(false);
+    expect(shouldDiscardFundamentalsResponseForStock(8, 9)).toBe(true);
+    expect(shouldDiscardFundamentalsResponseForStock(8, 8)).toBe(false);
   });
 });
