@@ -41,6 +41,20 @@ cd FinanceApp.API
 dotnet run
 ```
 
+### Account login and migration notes
+
+- Login now accepts one identifier field: **username or email** (case-insensitive, with trim).
+- Legacy mobile payload `{ email, password }` is still accepted by `/api/Auth/login`.
+- Password hashes are stored with ASP.NET Core `PasswordHasher` (PBKDF2). Existing legacy SHA-256 hashes are upgraded automatically on successful login.
+- Username rules (validated on backend): 3-32 chars, only letters/digits/`. _ -`, no `@`, case-insensitive unique.
+
+Before applying migration `AddNormalizedUserAuth` to existing production data, run a preflight check for:
+- duplicate usernames ignoring case/whitespace;
+- usernames conflicting with any user email ignoring case/whitespace;
+- usernames/emails exceeding the new lengths.
+
+If conflicts exist, migration should be stopped and data corrected manually before retry.
+
 ### Yahoo Finance throttling and cooldown
 
 FinanceApp routes all Yahoo Finance quote and chart requests through one shared, process-wide coordinator.

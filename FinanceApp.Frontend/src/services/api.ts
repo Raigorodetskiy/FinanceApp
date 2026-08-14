@@ -26,6 +26,8 @@ import type {
   UpdateTransactionRequest,
   UpdatePortfolioBalanceRequest,
   FundamentalsResponse,
+  UpdateProfileRequest,
+  ChangePasswordRequest,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -63,6 +65,8 @@ export const register = (data: RegisterRequest) =>
 // Users
 export const getMe = () => api.get<User>('/Users/me');
 export const deleteMe = () => api.delete('/Users/me');
+export const updateMyProfile = (data: UpdateProfileRequest) => api.patch<User>('/Users/me/profile', data);
+export const changeMyPassword = (data: ChangePasswordRequest) => api.post('/Users/me/change-password', data);
 
 // Portfolios
 export const getPortfolios = () => api.get<Portfolio[]>('/Portfolios');

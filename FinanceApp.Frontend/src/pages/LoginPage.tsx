@@ -5,6 +5,11 @@ import { login as loginApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Title } = Typography;
+export const LOGIN_IDENTIFIER_LABEL = 'Логин или email';
+export const toLoginPayload = (values: { identifier: string; password: string }) => ({
+  identifier: values.identifier,
+  password: values.password,
+});
 
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -12,11 +17,11 @@ const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const onFinish = async (values: { email: string; password: string }) => {
+  const onFinish = async (values: { identifier: string; password: string }) => {
     setLoading(true);
     setError(false);
     try {
-      const res = await loginApi(values);
+      const res = await loginApi(toLoginPayload(values));
       login(res.data.token);
       navigate('/');
     } catch {
@@ -42,7 +47,7 @@ const LoginPage: React.FC = () => {
         </Title>
         {error && (
           <Alert
-            message="Неверный email или пароль"
+            message="Неверный логин/email или пароль"
             type="error"
             showIcon
             style={{ marginBottom: 16 }}
@@ -50,11 +55,11 @@ const LoginPage: React.FC = () => {
         )}
         <Form layout="vertical" onFinish={onFinish}>
           <Form.Item
-            label="Email"
-            name="email"
-            rules={[{ required: true, message: 'Введите email' }, { type: 'email', message: 'Некорректный email' }]}
+            label={LOGIN_IDENTIFIER_LABEL}
+            name="identifier"
+            rules={[{ required: true, message: 'Введите логин или email' }]}
           >
-            <Input placeholder="Email" />
+            <Input placeholder="Логин или email" />
           </Form.Item>
           <Form.Item
             label="Пароль"
