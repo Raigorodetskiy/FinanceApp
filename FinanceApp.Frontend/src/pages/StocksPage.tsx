@@ -183,6 +183,59 @@ export const getMarketStatus = (live: LivePriceEntry | null | undefined): 'open'
   return live.quote.marketState === 'REGULAR' ? 'open' : 'closed';
 };
 
+type StockRowActionsProps = {
+  stock: Stock;
+  live: LivePriceEntry | undefined;
+  isProtectedStock: boolean;
+  onRefresh: (stock: Stock) => void;
+  onOpenFundamentals: (stock: Stock) => void;
+  onOpenEdit: (stock: Stock) => void;
+  onDelete: (stockId: number) => void;
+};
+
+export const renderStockRowActions = ({
+  stock,
+  live,
+  isProtectedStock,
+  onRefresh,
+  onOpenFundamentals,
+  onOpenEdit,
+  onDelete,
+}: StockRowActionsProps): React.ReactElement => {
+  const quote = live?.quote ?? null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {quote?.conversionWarning && !live?.loading && (
+        <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
+      )}
+      <Button
+        icon={<ReloadOutlined />}
+        size="small"
+        loading={live?.loading}
+        disabled={!stock.ticker?.trim()}
+        onClick={() => onRefresh(stock)}
+      />
+      <Tooltip title="Фундаментальные данные">
+        <Button
+          icon={<FundOutlined />}
+          size="small"
+          aria-label="Фундаментальные данные"
+          onClick={() => onOpenFundamentals(stock)}
+        />
+      </Tooltip>
+      <Tooltip title="Изменить">
+        <Button
+          icon={<EditOutlined />}
+          size="small"
+          aria-label="Изменить"
+          onClick={() => onOpenEdit(stock)}
+        />
+      </Tooltip>
+      <StockDeleteAction isProtected={isProtectedStock} onDelete={() => onDelete(stock.id)} />
+    </div>
+  );
+};
+
 
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
@@ -724,38 +777,15 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const live = livePrices[stock.id];
         const isProtectedStock = portfolioStockIds.has(stock.id);
-        const quote = live?.quote ?? null;
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {quote?.conversionWarning && !live?.loading && (
-              <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
-            )}
-            <Button
-              icon={<ReloadOutlined />}
-              size="small"
-              loading={live?.loading}
-              disabled={!stock.ticker?.trim()}
-              onClick={() => handleFetchLivePrice(stock)}
-            />
-            <Tooltip title="Изменить">
-              <Button
-                icon={<EditOutlined />}
-                size="small"
-                aria-label="Изменить"
-                onClick={() => openEditModal(stock)}
-              />
-            </Tooltip>
-            <Tooltip title="Фундаментальные данные">
-              <Button
-                icon={<FundOutlined />}
-                size="small"
-                aria-label="Фундаментальные данные"
-                onClick={() => setFundamentalsStock(stock)}
-              />
-            </Tooltip>
-            <StockDeleteAction isProtected={isProtectedStock} onDelete={() => handleDelete(stock.id)} />
-          </div>
-        );
+        return renderStockRowActions({
+          stock,
+          live,
+          isProtectedStock,
+          onRefresh: handleFetchLivePrice,
+          onOpenFundamentals: (selectedStock) => setFundamentalsStock(selectedStock),
+          onOpenEdit: openEditModal,
+          onDelete: handleDelete,
+        });
       },
     },
   ];

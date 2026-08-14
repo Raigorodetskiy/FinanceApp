@@ -1,4 +1,6 @@
+import React from 'react';
 import { describe, expect, it } from 'vitest';
+import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { readFileSync } from 'fs';
@@ -16,11 +18,13 @@ import {
   STOCKS_RIGHT_ALIGNED_MONEY_KEYS,
   STOCKS_RIGHT_COMPACT_COLUMN_TITLES,
   STOCKS_TABLE_TOTAL_COLS,
+  StockDeleteAction,
   getApiPriceText,
   getApiPriceTooltip,
   getMarketStatus,
+  renderStockRowActions,
 } from './StocksPage';
-import type { StockQuoteResponse } from '../types';
+import type { Stock, StockQuoteResponse } from '../types';
 
 dayjs.extend(utc);
 
@@ -219,5 +223,46 @@ describe('Stocks table – right-aligned monetary columns', () => {
     expect(STOCKS_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('changePct');
     expect(STOCKS_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('priceTime');
     expect(STOCKS_RIGHT_ALIGNED_MONEY_KEYS).not.toContain('ticker');
+  });
+});
+
+describe('Stocks table – row action order', () => {
+  it('keeps row actions in order: refresh, fundamentals, edit, delete', () => {
+    const stock: Stock = {
+      id: 1,
+      ticker: 'AAPL',
+      name: 'Apple Inc.',
+      commonName: 'Apple',
+      exchange: 'NYSE',
+      currentPrice: 0,
+      updatedAt: '2026-08-01T00:00:00Z',
+    };
+
+    const actions = renderStockRowActions({
+      stock,
+      live: { loading: false, quote: null },
+      isProtectedStock: false,
+      onRefresh: () => {},
+      onOpenFundamentals: () => {},
+      onOpenEdit: () => {},
+      onDelete: () => {},
+    });
+
+    const children = React.Children.toArray(actions.props.children) as React.ReactElement[];
+    const refreshButtonIndex = children.findIndex(
+      (child) => child.props?.icon?.type === ReloadOutlined,
+    );
+    const fundamentalsButtonIndex = children.findIndex(
+      (child) => child.props?.children?.props?.['aria-label'] === 'Фундаментальные данные',
+    );
+    const editButtonIndex = children.findIndex(
+      (child) => child.props?.children?.props?.['aria-label'] === 'Изменить',
+    );
+    const deleteButtonIndex = children.findIndex((child) => child.type === StockDeleteAction);
+
+    expect(refreshButtonIndex).toBeGreaterThan(-1);
+    expect(fundamentalsButtonIndex).toBeGreaterThan(refreshButtonIndex);
+    expect(editButtonIndex).toBeGreaterThan(fundamentalsButtonIndex);
+    expect(deleteButtonIndex).toBeGreaterThan(editButtonIndex);
   });
 });
