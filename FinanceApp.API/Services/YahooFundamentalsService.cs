@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Net;
+using System.Diagnostics;
 using System.Text.Json;
 using FinanceApp.Core.Models;
 using Microsoft.AspNetCore.Http;
@@ -14,15 +16,34 @@ public interface IYahooFundamentalsService
 public sealed record YahooFundamentalsResult(
     CompanyFundamentalsSnapshot? Snapshot,
     int StatusCode,
-    string? ErrorMessage)
+    string? ErrorMessage,
+    YahooFundamentalsFailureCategory FailureCategory = YahooFundamentalsFailureCategory.None)
 {
     public bool IsSuccess => Snapshot is not null;
 
     public static YahooFundamentalsResult Success(CompanyFundamentalsSnapshot snapshot) =>
-        new(snapshot, StatusCodes.Status200OK, null);
+        new(snapshot, StatusCodes.Status200OK, null, YahooFundamentalsFailureCategory.None);
 
-    public static YahooFundamentalsResult Failure(int statusCode, string errorMessage) =>
-        new(null, statusCode, errorMessage);
+    public static YahooFundamentalsResult Failure(
+        int statusCode,
+        string errorMessage,
+        YahooFundamentalsFailureCategory failureCategory = YahooFundamentalsFailureCategory.ProviderRequestFailed) =>
+        new(null, statusCode, errorMessage, failureCategory);
+}
+
+public enum YahooFundamentalsFailureCategory
+{
+    None = 0,
+    ProviderUnauthorized,
+    ProviderForbidden,
+    ProviderNotFound,
+    ProviderRateLimited,
+    ProviderServerError,
+    ProviderRequestFailed,
+    ProviderTimeout,
+    InvalidProviderResponse,
+    ProviderConsentFailure,
+    SessionInitializationFailed
 }
 
 public sealed class YahooFundamentalsService : IYahooFundamentalsService
@@ -35,76 +56,250 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
         "summaryDetail,financialData,defaultKeyStatistics,incomeStatementHistory,incomeStatementHistoryQuarterly,earningsHistory,earningsTrend,cashflowStatement,cashflowStatementQuarterly,cashflowStatementHistory,cashflowStatementHistoryQuarterly,balanceSheetHistory,balanceSheetHistoryQuarterly,calendarEvents";
 
     private readonly IYahooRequestCoordinator _yahooRequestCoordinator;
+    private readonly IYahooSessionService _yahooSessionService;
     private readonly ILogger<YahooFundamentalsService> _logger;
-    private readonly YahooFinanceOptions _options;
     private readonly TimeProvider _timeProvider;
 
     public YahooFundamentalsService(
         IYahooRequestCoordinator yahooRequestCoordinator,
+        IYahooSessionService yahooSessionService,
         ILogger<YahooFundamentalsService> logger,
         IOptions<YahooFinanceOptions> options,
         TimeProvider? timeProvider = null)
     {
         _yahooRequestCoordinator = yahooRequestCoordinator;
+        _yahooSessionService = yahooSessionService;
         _logger = logger;
-        _options = options.Value;
+        _ = options.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<YahooFundamentalsResult> GetFundamentalsAsync(string symbol, CancellationToken cancellationToken = default)
     {
         var safeSymbol = SanitizeForLog(symbol);
-        var url =
-            $"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{Uri.EscapeDataString(symbol)}?modules={Uri.EscapeDataString(Modules)}";
+        var requestLabel = $"fundamentals:{safeSymbol}";
+        var startedAt = _timeProvider.GetTimestamp();
 
         try
         {
-            var response = await _yahooRequestCoordinator.GetAsync(
-                url,
-                $"fundamentals:{safeSymbol}",
-                new YahooRequestExecutionOptions(
-                    MaxAttempts,
-                    RetryBaseDelay,
-                    RetryMaxDelay,
-                    null),
-                cancellationToken);
-
-            if (response.IsRateLimited)
+            var initialSession = await _yahooSessionService.GetSessionAsync(cancellationToken);
+            if (!initialSession.IsSuccess || initialSession.Session is null)
             {
                 _logger.LogWarning(
-                    "Yahoo fundamentals request rate limit exceeded for {Symbol}; cooldownUntilUtc={CooldownUntilUtc}.",
+                    "Yahoo fundamentals session initialization failed for {Symbol}; category={Category} status={StatusCode}.",
                     safeSymbol,
-                    response.CooldownUntilUtc);
+                    initialSession.FailureCategory,
+                    initialSession.StatusCode);
+                return MapSessionFailure(initialSession);
+            }
+
+            var response = await SendQuoteSummaryAsync(symbol, requestLabel, initialSession.Session, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Unauthorized && IsUnauthorizedOrInvalidCrumb(response.Content))
+            {
+                _yahooSessionService.InvalidateSession();
+                var refreshedSession = await _yahooSessionService.GetSessionAsync(cancellationToken);
+                if (!refreshedSession.IsSuccess || refreshedSession.Session is null)
+                {
+                    return MapSessionFailure(refreshedSession);
+                }
+
+                response = await SendQuoteSummaryAsync(symbol, requestLabel, refreshedSession.Session, cancellationToken);
+                if (response.StatusCode == HttpStatusCode.Unauthorized && IsUnauthorizedOrInvalidCrumb(response.Content))
+                {
+                    _logger.LogWarning(
+                        "Yahoo fundamentals request failed for {Symbol}; status={StatusCode}; sessionRefresh=failed-second-401.",
+                        safeSymbol,
+                        (int)response.StatusCode);
+                    return YahooFundamentalsResult.Failure(
+                        StatusCodes.Status502BadGateway,
+                        "Fundamentals provider authorization failed.",
+                        YahooFundamentalsFailureCategory.ProviderUnauthorized);
+                }
+            }
+
+            var parsedError = TryParseYahooErrorEnvelope(response.Content);
+            if (response.IsRateLimited)
+            {
+                _logger.LogWarning("Yahoo fundamentals returned empty response for {Symbol}.", safeSymbol);
                 return YahooFundamentalsResult.Failure(
                     StatusCodes.Status429TooManyRequests,
-                    "Fundamentals provider rate limit exceeded.");
+                    "Fundamentals provider rate limit exceeded.",
+                    YahooFundamentalsFailureCategory.ProviderRateLimited);
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Yahoo fundamentals request failed for {Symbol}: {StatusCode}", safeSymbol, (int)response.StatusCode);
-                return YahooFundamentalsResult.Failure(StatusCodes.Status502BadGateway, "Fundamentals provider request failed.");
+                _logger.LogWarning(
+                    "Yahoo fundamentals request failed for {Symbol}: status={StatusCode} providerCode={ProviderCode}.",
+                    safeSymbol,
+                    (int)response.StatusCode,
+                    parsedError?.Code);
+                return MapFailureResponse(response.StatusCode);
             }
 
             if (string.IsNullOrWhiteSpace(response.Content))
             {
                 _logger.LogWarning("Yahoo fundamentals returned empty response for {Symbol}.", safeSymbol);
-                return YahooFundamentalsResult.Failure(StatusCodes.Status502BadGateway, "Fundamentals provider returned an empty response.");
+                return YahooFundamentalsResult.Failure(
+                    StatusCodes.Status502BadGateway,
+                    "Fundamentals provider returned an invalid response.",
+                    YahooFundamentalsFailureCategory.InvalidProviderResponse);
             }
 
             return ParseFundamentals(symbol, response.Content, _timeProvider);
         }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Yahoo fundamentals request timed out for {Symbol}.", safeSymbol);
-            return YahooFundamentalsResult.Failure(StatusCodes.Status504GatewayTimeout, "Fundamentals provider request timed out.");
+            _logger.LogWarning("Yahoo fundamentals request timed out for {Symbol}.", safeSymbol);
+            return YahooFundamentalsResult.Failure(
+                StatusCodes.Status504GatewayTimeout,
+                "Fundamentals provider request timed out.",
+                YahooFundamentalsFailureCategory.ProviderTimeout);
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
-            _logger.LogWarning(ex, "Yahoo fundamentals request failed for {Symbol}.", safeSymbol);
-            return YahooFundamentalsResult.Failure(StatusCodes.Status502BadGateway, "Fundamentals provider request failed.");
+            _logger.LogWarning("Yahoo fundamentals request failed for {Symbol}.", safeSymbol);
+            return YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider request failed.",
+                YahooFundamentalsFailureCategory.ProviderRequestFailed);
+        }
+        finally
+        {
+            var elapsedMs = _timeProvider.GetElapsedTime(startedAt).TotalMilliseconds;
+            _logger.LogInformation("Yahoo fundamentals finished for {Symbol}; durationMs={DurationMs}.", safeSymbol, (int)elapsedMs);
         }
     }
+
+    private async Task<YahooHttpResponse> SendQuoteSummaryAsync(
+        string symbol,
+        string requestLabel,
+        YahooSession session,
+        CancellationToken cancellationToken)
+    {
+        var url = BuildQuoteSummaryUrl(symbol, session.Crumb);
+        return await _yahooRequestCoordinator.GetAsync(
+            url,
+            requestLabel,
+            new YahooRequestExecutionOptions(
+                MaxAttempts,
+                RetryBaseDelay,
+                RetryMaxDelay,
+                null,
+                ContainsSensitiveQueryParameters: true),
+            cancellationToken,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Cookie"] = session.CookieHeader
+            });
+    }
+
+    private static string BuildQuoteSummaryUrl(string symbol, string crumb) =>
+        $"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{Uri.EscapeDataString(symbol)}?modules={Uri.EscapeDataString(Modules)}&crumb={Uri.EscapeDataString(crumb)}";
+
+    private static bool IsUnauthorizedOrInvalidCrumb(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return false;
+        }
+
+        var parsed = TryParseYahooErrorEnvelope(payload);
+        if (parsed?.Code?.Equals("Unauthorized", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        return payload.IndexOf("Invalid Crumb", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static YahooProviderError? TryParseYahooErrorEnvelope(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            if (document.RootElement.TryGetProperty("finance", out var finance) &&
+                finance.TryGetProperty("error", out var error))
+            {
+                return new YahooProviderError(
+                    error.TryGetProperty("code", out var code) ? code.GetString() : null,
+                    error.TryGetProperty("description", out var description) ? description.GetString() : null);
+            }
+        }
+        catch (JsonException)
+        {
+            // ignored
+        }
+
+        return null;
+    }
+
+    private static YahooFundamentalsResult MapSessionFailure(YahooSessionAcquisitionResult sessionResult) =>
+        sessionResult.FailureCategory switch
+        {
+            YahooSessionFailureCategory.Timeout => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.ProviderTimeout),
+            YahooSessionFailureCategory.RateLimited => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.ProviderRateLimited),
+            YahooSessionFailureCategory.Unauthorized => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.ProviderUnauthorized),
+            YahooSessionFailureCategory.Forbidden => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.ProviderForbidden),
+            YahooSessionFailureCategory.NotFound => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.ProviderNotFound),
+            YahooSessionFailureCategory.ConsentFailure => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.ProviderConsentFailure),
+            _ => YahooFundamentalsResult.Failure(
+                sessionResult.StatusCode,
+                sessionResult.ErrorMessage,
+                YahooFundamentalsFailureCategory.SessionInitializationFailed)
+        };
+
+    private static YahooFundamentalsResult MapFailureResponse(HttpStatusCode statusCode) =>
+        statusCode switch
+        {
+            HttpStatusCode.Unauthorized => YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider authorization failed.",
+                YahooFundamentalsFailureCategory.ProviderUnauthorized),
+            HttpStatusCode.Forbidden => YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider access is forbidden.",
+                YahooFundamentalsFailureCategory.ProviderForbidden),
+            HttpStatusCode.NotFound => YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider endpoint not found.",
+                YahooFundamentalsFailureCategory.ProviderNotFound),
+            HttpStatusCode.TooManyRequests => YahooFundamentalsResult.Failure(
+                StatusCodes.Status429TooManyRequests,
+                "Fundamentals provider rate limit exceeded.",
+                YahooFundamentalsFailureCategory.ProviderRateLimited),
+            var status when (int)status >= 500 => YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider request failed.",
+                YahooFundamentalsFailureCategory.ProviderServerError),
+            _ => YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider request failed.",
+                YahooFundamentalsFailureCategory.ProviderRequestFailed)
+        };
 
     private static YahooFundamentalsResult ParseFundamentals(string symbol, string payload, TimeProvider timeProvider)
     {
@@ -113,7 +308,10 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
             using var document = JsonDocument.Parse(payload);
             if (!TryGetQuoteSummaryResult(document.RootElement, out var result))
             {
-                return YahooFundamentalsResult.Failure(StatusCodes.Status502BadGateway, "Fundamentals provider returned an invalid response.");
+                return YahooFundamentalsResult.Failure(
+                    StatusCodes.Status502BadGateway,
+                    "Fundamentals provider returned an invalid response.",
+                    YahooFundamentalsFailureCategory.InvalidProviderResponse);
             }
 
             var fetchedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
@@ -168,7 +366,10 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
         }
         catch (JsonException)
         {
-            return YahooFundamentalsResult.Failure(StatusCodes.Status502BadGateway, "Fundamentals provider returned an invalid response.");
+            return YahooFundamentalsResult.Failure(
+                StatusCodes.Status502BadGateway,
+                "Fundamentals provider returned an invalid response.",
+                YahooFundamentalsFailureCategory.InvalidProviderResponse);
         }
     }
 
@@ -609,4 +810,6 @@ public sealed class YahooFundamentalsService : IYahooFundamentalsService
 
     private static string SanitizeForLog(string value) =>
         value.Replace('\r', '_').Replace('\n', '_');
+
+    private sealed record YahooProviderError(string? Code, string? Description);
 }

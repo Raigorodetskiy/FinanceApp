@@ -22,13 +22,16 @@ public sealed class YahooFinanceOptions
     /// Default: 30 minutes.
     /// </summary>
     public TimeSpan IntradayStaleThreshold { get; init; } = TimeSpan.FromMinutes(30);
+    public TimeSpan SessionTtl { get; init; } = TimeSpan.FromMinutes(20);
+    public TimeSpan SessionInitializationTimeout { get; init; } = TimeSpan.FromSeconds(15);
 }
 
 public sealed record YahooRequestExecutionOptions(
     int MaxAttempts,
     TimeSpan RetryBaseDelay,
     TimeSpan RetryMaxDelay,
-    TimeSpan? CacheDuration = null);
+    TimeSpan? CacheDuration = null,
+    bool ContainsSensitiveQueryParameters = false);
 
 public sealed record YahooHttpResponse(
     HttpStatusCode StatusCode,
@@ -57,7 +60,8 @@ public interface IYahooRequestCoordinator
         string url,
         string requestLabel,
         YahooRequestExecutionOptions executionOptions,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? additionalHeaders = null);
 }
 
 public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
@@ -93,29 +97,36 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
         string url,
         string requestLabel,
         YahooRequestExecutionOptions executionOptions,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? additionalHeaders = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestLabel);
 
         var normalizedExecutionOptions = Normalize(executionOptions);
+        var requestKey = BuildRequestKey(url, additionalHeaders);
 
         if (TryGetActiveCooldown(requestLabel, out var cooldownResponse))
         {
             return Task.FromResult(cooldownResponse);
         }
 
-        if (TryGetCachedResponse(url, requestLabel, normalizedExecutionOptions.CacheDuration, out var cachedResponse))
+        if (TryGetCachedResponse(
+                url,
+                requestLabel,
+                normalizedExecutionOptions.CacheDuration,
+                additionalHeaders is null || additionalHeaders.Count == 0,
+                out var cachedResponse))
         {
             return Task.FromResult(cachedResponse);
         }
 
         var created = false;
         var lazy = new Lazy<Task<YahooHttpResponse>>(
-            () => ExecuteAsync(url, requestLabel, normalizedExecutionOptions),
+            () => ExecuteAsync(url, requestLabel, normalizedExecutionOptions, additionalHeaders),
             LazyThreadSafetyMode.ExecutionAndPublication);
 
-        var inflight = _inflight.GetOrAdd(url, _ =>
+        var inflight = _inflight.GetOrAdd(requestKey, _ =>
         {
             created = true;
             return lazy;
@@ -126,7 +137,7 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
             _logger.LogInformation("Yahoo request coalesced for {RequestLabel}.", requestLabel);
         }
 
-        return AwaitAndCleanupAsync(url, inflight, cancellationToken);
+        return AwaitAndCleanupAsync(requestKey, inflight, cancellationToken);
     }
 
     private async Task<YahooHttpResponse> AwaitAndCleanupAsync(
@@ -150,13 +161,14 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
     private async Task<YahooHttpResponse> ExecuteAsync(
         string url,
         string requestLabel,
-        YahooRequestExecutionOptions executionOptions)
+        YahooRequestExecutionOptions executionOptions,
+        IReadOnlyDictionary<string, string>? additionalHeaders)
     {
         for (var attempt = 1; attempt <= executionOptions.MaxAttempts; attempt++)
         {
             try
             {
-                var response = await SendOnceAsync(url, requestLabel);
+                var response = await SendOnceAsync(url, requestLabel, additionalHeaders);
                 if (response.IsRateLimited)
                 {
                     return response;
@@ -186,25 +198,49 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
             catch (TaskCanceledException ex) when (attempt < executionOptions.MaxAttempts)
             {
                 var delay = GetRetryDelay(attempt, executionOptions);
-                _logger.LogWarning(
-                    ex,
-                    "Yahoo request timed out for {RequestLabel}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                    requestLabel,
-                    attempt,
-                    executionOptions.MaxAttempts,
-                    (int)delay.TotalMilliseconds);
+                if (executionOptions.ContainsSensitiveQueryParameters)
+                {
+                    _logger.LogWarning(
+                        "Yahoo request timed out for {RequestLabel}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                        requestLabel,
+                        attempt,
+                        executionOptions.MaxAttempts,
+                        (int)delay.TotalMilliseconds);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Yahoo request timed out for {RequestLabel}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                        requestLabel,
+                        attempt,
+                        executionOptions.MaxAttempts,
+                        (int)delay.TotalMilliseconds);
+                }
                 await _delayAsync(delay, CancellationToken.None);
             }
             catch (HttpRequestException ex) when (attempt < executionOptions.MaxAttempts)
             {
                 var delay = GetRetryDelay(attempt, executionOptions);
-                _logger.LogWarning(
-                    ex,
-                    "Yahoo request network error for {RequestLabel}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
-                    requestLabel,
-                    attempt,
-                    executionOptions.MaxAttempts,
-                    (int)delay.TotalMilliseconds);
+                if (executionOptions.ContainsSensitiveQueryParameters)
+                {
+                    _logger.LogWarning(
+                        "Yahoo request network error for {RequestLabel}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                        requestLabel,
+                        attempt,
+                        executionOptions.MaxAttempts,
+                        (int)delay.TotalMilliseconds);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Yahoo request network error for {RequestLabel}; retry {Attempt}/{MaxAttempts} in {DelayMs}ms",
+                        requestLabel,
+                        attempt,
+                        executionOptions.MaxAttempts,
+                        (int)delay.TotalMilliseconds);
+                }
                 await _delayAsync(delay, CancellationToken.None);
             }
         }
@@ -212,7 +248,10 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
         throw new InvalidOperationException("Yahoo request coordinator exhausted retries unexpectedly.");
     }
 
-    private async Task<YahooHttpResponse> SendOnceAsync(string url, string requestLabel)
+    private async Task<YahooHttpResponse> SendOnceAsync(
+        string url,
+        string requestLabel,
+        IReadOnlyDictionary<string, string>? additionalHeaders)
     {
         await _requestGate.WaitAsync(CancellationToken.None);
         try
@@ -241,6 +280,14 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
             request.Headers.TryAddWithoutValidation("Accept", "application/json");
+            if (additionalHeaders is not null)
+            {
+                foreach (var (header, value) in additionalHeaders)
+                {
+                    request.Headers.Remove(header);
+                    request.Headers.TryAddWithoutValidation(header, value);
+                }
+            }
 
             using var timeoutCancellationTokenSource = new CancellationTokenSource(
                 NormalizePositive(_options.Value.RequestTimeout, TimeSpan.FromSeconds(10)));
@@ -319,9 +366,12 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
         string url,
         string requestLabel,
         TimeSpan? cacheDuration,
+        bool canUseCache,
         out YahooHttpResponse response)
     {
-        if (cacheDuration is not { } configuredCacheDuration || configuredCacheDuration <= TimeSpan.Zero)
+        if (!canUseCache ||
+            cacheDuration is not { } configuredCacheDuration ||
+            configuredCacheDuration <= TimeSpan.Zero)
         {
             response = default!;
             return false;
@@ -397,6 +447,23 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
             RetryBaseDelay = NormalizePositive(options.RetryBaseDelay, TimeSpan.FromMilliseconds(500)),
             RetryMaxDelay = NormalizePositive(options.RetryMaxDelay, TimeSpan.FromSeconds(20))
         };
+
+    private static string BuildRequestKey(string url, IReadOnlyDictionary<string, string>? additionalHeaders)
+    {
+        if (additionalHeaders is null || additionalHeaders.Count == 0)
+        {
+            return url;
+        }
+
+        return string.Join(
+            '\n',
+            url,
+            string.Join(
+                '&',
+                additionalHeaders
+                    .OrderBy(x => x.Key, StringComparer.Ordinal)
+                    .Select(x => $"{x.Key}={x.Value}")));
+    }
 
     private static TimeSpan NormalizePositive(TimeSpan value, TimeSpan? fallback = null) =>
         value > TimeSpan.Zero

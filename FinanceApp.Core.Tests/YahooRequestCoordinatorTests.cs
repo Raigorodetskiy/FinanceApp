@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using FinanceApp.API.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -62,6 +63,40 @@ public class YahooRequestCoordinatorTests
 
         Assert.Equal(2, handler.RequestStarts.Count);
         Assert.Equal(TimeSpan.FromSeconds(2), handler.RequestStarts[1] - handler.RequestStarts[0]);
+    }
+
+    [Fact]
+    public async Task GetAsync_SensitiveQuery_DoesNotLogUrlOrCrumbOnRetries()
+    {
+        const string crumb = "top-secret-crumb";
+        const string url = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/STX?crumb=" + crumb;
+        var handler = new CallbackHandler((request, _, _) =>
+            throw new HttpRequestException("network error for " + request.RequestUri));
+        var logger = new ListLogger<YahooRequestCoordinator>();
+        var coordinator = new YahooRequestCoordinator(
+            new StubHttpClientFactory(new HttpClient(handler)),
+            logger,
+            Options.Create(new YahooFinanceOptions
+            {
+                MinRequestInterval = TimeSpan.Zero,
+                CooldownDuration = TimeSpan.FromMinutes(30),
+                QuoteCacheDuration = TimeSpan.FromSeconds(10),
+                RequestTimeout = TimeSpan.FromSeconds(10)
+            }),
+            delayAsync: (_, _) => Task.CompletedTask);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => coordinator.GetAsync(
+            url,
+            "fundamentals:STX",
+            new YahooRequestExecutionOptions(
+                2,
+                TimeSpan.FromMilliseconds(10),
+                TimeSpan.FromMilliseconds(10),
+                ContainsSensitiveQueryParameters: true)));
+
+        var messages = string.Join('\n', logger.Messages);
+        Assert.DoesNotContain(crumb, messages, StringComparison.Ordinal);
+        Assert.DoesNotContain("quoteSummary/STX?crumb=", messages, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -340,6 +375,25 @@ public class YahooRequestCoordinatorTests
         {
             var callCount = Interlocked.Increment(ref _callCount);
             return callback(request, callCount, cancellationToken);
+        }
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
         }
     }
 }
