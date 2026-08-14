@@ -25,6 +25,7 @@ import type {
   CreateTransactionRequest,
   UpdateTransactionRequest,
   UpdatePortfolioBalanceRequest,
+  FundamentalsResponse,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -97,6 +98,10 @@ export const getStockHistory = (id: number, range: StockHistoryRange) =>
   api.get<StockHistoryResponse>(`/Stocks/${id}/history`, { params: { range } });
 export const refreshStockHistory = (id: number) =>
   api.post<StockHistoryRefreshResponse>(`/Stocks/${id}/history/refresh`);
+export const getStockFundamentals = (id: number) =>
+  api.get<FundamentalsResponse>(`/Stocks/${id}/fundamentals`);
+export const refreshStockFundamentals = (id: number) =>
+  api.post<FundamentalsResponse>(`/Stocks/${id}/fundamentals/refresh`);
 
 // Stock prices
 export const getStockPrice = (symbol: string, exchange: StockExchange, finanzenNetSlug?: string | null) =>

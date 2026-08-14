@@ -143,6 +143,79 @@ export interface StockHistoryRefreshResponse {
   importedPoints: number;
 }
 
+export type FundamentalsState = 'Fresh' | 'Stale' | 'Unavailable';
+export type FinancialPeriodType = 'Annual' | 'Quarterly';
+export type EarningsDateStatus = 'Estimated' | 'Confirmed' | 'Unknown';
+
+export interface FundamentalsSnapshot {
+  id: number;
+  sourceSymbol: string;
+  marketCap: number | null;
+  enterpriseValue: number | null;
+  totalDebt: number | null;
+  cashAndEquivalents: number | null;
+  revenueTtm: number | null;
+  netIncomeTtm: number | null;
+  ebitdaTtm: number | null;
+  operatingIncomeTtm: number | null;
+  freeCashFlowTtm: number | null;
+  totalAssets: number | null;
+  totalLiabilities: number | null;
+  peRatio: number | null;
+  forwardPeRatio: number | null;
+  pbRatio: number | null;
+  dividendYield: number | null;
+  currency: string | null;
+  source: string;
+  asOfDate: string | null;
+  fetchedAtUtc: string;
+}
+
+export interface FinancialPeriodDto {
+  id: number;
+  periodType: FinancialPeriodType;
+  fiscalYear: number | null;
+  fiscalQuarter: number | null;
+  periodEndDate: string | null;
+  reportedCurrency: string | null;
+  revenue: number | null;
+  operatingIncome: number | null;
+  netIncome: number | null;
+  epsReported: number | null;
+  epsEstimate: number | null;
+  ebitda: number | null;
+  totalDebt: number | null;
+  totalAssets: number | null;
+  totalLiabilities: number | null;
+  freeCashFlow: number | null;
+  source: string;
+  asOfDate: string | null;
+  fetchedAtUtc: string;
+}
+
+export interface EarningsEventDto {
+  id: number;
+  reportDate: string | null;
+  reportDateEnd: string | null;
+  dateStatus: EarningsDateStatus;
+  epsEstimate: number | null;
+  epsReported: number | null;
+  revenueEstimate: number | null;
+  revenueReported: number | null;
+  fiscalPeriod: string | null;
+  source: string;
+  fetchedAtUtc: string;
+}
+
+export interface FundamentalsResponse {
+  stockId: number;
+  state: FundamentalsState;
+  warningMessage: string | null;
+  snapshot: FundamentalsSnapshot | null;
+  periods: FinancialPeriodDto[];
+  earningsEvents: EarningsEventDto[];
+}
+
 export type OrderType = 'Buy' | 'Sell';
 export type OrderStatus = 'Pending' | 'Executed' | 'Cancelled';
 

@@ -34,6 +34,7 @@ import {
   CaretRightFilled,
   ReloadOutlined,
   SearchOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -59,6 +60,7 @@ import {
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
+import StockFundamentalsDrawer from '../components/StockFundamentalsDrawer';
 import StockExchangeTag, { EXCHANGE_ABBREVIATION } from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import { isQuoteDelayed } from '../utils/quote';
@@ -317,6 +319,7 @@ const PortfolioDetailPage: React.FC = () => {
 
   // Position chart
   const [expandedPositionId, setExpandedPositionId] = useState<number | null>(null);
+  const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
 
   // Order modal
   const [orderModalOpen, setOrderModalOpen] = useState(false);
@@ -898,6 +901,14 @@ const PortfolioDetailPage: React.FC = () => {
         const r = record as PortfolioItem;
         return (
           <div style={{ display: 'flex', gap: 6 }}>
+            <Tooltip title="Фундаментальные данные">
+              <Button
+                icon={<FundOutlined />}
+                size="small"
+                aria-label="Фундаментальные данные"
+                onClick={() => setFundamentalsStock(r.stock)}
+              />
+            </Tooltip>
             <Tooltip title="Изменить">
               <Button icon={<EditOutlined />} size="small" aria-label="Изменить" onClick={() => openEditPosModal(r)} />
             </Tooltip>
@@ -1361,6 +1372,11 @@ const PortfolioDetailPage: React.FC = () => {
             </>
           )}
       </AuthenticatedShell>
+      <StockFundamentalsDrawer
+        stock={fundamentalsStock}
+        open={fundamentalsStock !== null}
+        onClose={() => setFundamentalsStock(null)}
+      />
 
       {/* Position Modal */}
       <Modal

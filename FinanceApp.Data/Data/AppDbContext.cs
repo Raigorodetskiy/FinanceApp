@@ -15,6 +15,9 @@ public class AppDbContext : DbContext
     public DbSet<Transaction> Transactions { get; set; } = null!;
     public DbSet<Dividend> Dividends { get; set; } = null!;
     public DbSet<StockHistoricalPrice> StockHistoricalPrices { get; set; } = null!;
+    public DbSet<CompanyFundamentalsSnapshot> FundamentalsSnapshots { get; set; } = null!;
+    public DbSet<FinancialPeriod> FinancialPeriods { get; set; } = null!;
+    public DbSet<EarningsEvent> EarningsEvents { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +62,87 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");
             entity.HasIndex(x => x.Isin).IsUnique().HasFilter("`Isin` IS NOT NULL");
             entity.Property(x => x.FinanzenNetSlug).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<CompanyFundamentalsSnapshot>(entity =>
+        {
+            entity.HasIndex(x => x.StockId).IsUnique();
+            entity.Property(x => x.SourceSymbol).HasMaxLength(32);
+            entity.Property(x => x.Currency).HasMaxLength(8);
+            entity.Property(x => x.Source).HasMaxLength(64).HasDefaultValue("Yahoo Finance");
+            entity.HasOne(x => x.Stock)
+                .WithMany()
+                .HasForeignKey(x => x.StockId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            foreach (var prop in new[]
+            {
+                nameof(CompanyFundamentalsSnapshot.MarketCap),
+                nameof(CompanyFundamentalsSnapshot.EnterpriseValue),
+                nameof(CompanyFundamentalsSnapshot.TotalDebt),
+                nameof(CompanyFundamentalsSnapshot.CashAndEquivalents),
+                nameof(CompanyFundamentalsSnapshot.RevenueTtm),
+                nameof(CompanyFundamentalsSnapshot.NetIncomeTtm),
+                nameof(CompanyFundamentalsSnapshot.EbitdaTtm),
+                nameof(CompanyFundamentalsSnapshot.OperatingIncomeTtm),
+                nameof(CompanyFundamentalsSnapshot.FreeCashFlowTtm),
+                nameof(CompanyFundamentalsSnapshot.TotalAssets),
+                nameof(CompanyFundamentalsSnapshot.TotalLiabilities),
+            })
+            {
+                entity.Property(prop).HasColumnType("decimal(28,2)");
+            }
+
+            entity.Property(x => x.PeRatio).HasColumnType("decimal(18,4)");
+            entity.Property(x => x.ForwardPeRatio).HasColumnType("decimal(18,4)");
+            entity.Property(x => x.PbRatio).HasColumnType("decimal(18,4)");
+            entity.Property(x => x.DividendYield).HasColumnType("decimal(18,6)");
+        });
+
+        modelBuilder.Entity<FinancialPeriod>(entity =>
+        {
+            entity.HasIndex(x => new { x.SnapshotId, x.PeriodType, x.PeriodEndDate }).IsUnique();
+            entity.Property(x => x.PeriodType).HasConversion<string>().HasMaxLength(16);
+            entity.Property(x => x.ReportedCurrency).HasMaxLength(8);
+            entity.Property(x => x.Source).HasMaxLength(64).HasDefaultValue("Yahoo Finance");
+            entity.HasOne(x => x.Snapshot)
+                .WithMany(x => x.Periods)
+                .HasForeignKey(x => x.SnapshotId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            foreach (var prop in new[]
+            {
+                nameof(FinancialPeriod.Revenue),
+                nameof(FinancialPeriod.OperatingIncome),
+                nameof(FinancialPeriod.NetIncome),
+                nameof(FinancialPeriod.Ebitda),
+                nameof(FinancialPeriod.TotalDebt),
+                nameof(FinancialPeriod.TotalAssets),
+                nameof(FinancialPeriod.TotalLiabilities),
+                nameof(FinancialPeriod.FreeCashFlow),
+            })
+            {
+                entity.Property(prop).HasColumnType("decimal(28,2)");
+            }
+
+            entity.Property(x => x.EpsReported).HasColumnType("decimal(18,4)");
+            entity.Property(x => x.EpsEstimate).HasColumnType("decimal(18,4)");
+        });
+
+        modelBuilder.Entity<EarningsEvent>(entity =>
+        {
+            entity.HasIndex(x => new { x.SnapshotId, x.ReportDate, x.FiscalPeriod }).IsUnique();
+            entity.Property(x => x.DateStatus).HasConversion<string>().HasMaxLength(16).HasDefaultValue(EarningsDateStatus.Unknown);
+            entity.Property(x => x.FiscalPeriod).HasMaxLength(32);
+            entity.Property(x => x.Source).HasMaxLength(64).HasDefaultValue("Yahoo Finance");
+            entity.HasOne(x => x.Snapshot)
+                .WithMany(x => x.EarningsEvents)
+                .HasForeignKey(x => x.SnapshotId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(x => x.EpsEstimate).HasColumnType("decimal(18,4)");
+            entity.Property(x => x.EpsReported).HasColumnType("decimal(18,4)");
+            entity.Property(x => x.RevenueEstimate).HasColumnType("decimal(28,2)");
+            entity.Property(x => x.RevenueReported).HasColumnType("decimal(28,2)");
         });
     }
 }

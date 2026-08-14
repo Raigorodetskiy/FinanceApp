@@ -21,6 +21,7 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   CaretRightFilled,
+  FundOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -36,6 +37,7 @@ import {
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
+import StockFundamentalsDrawer from '../components/StockFundamentalsDrawer';
 import StockExchangeTag from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockMetadataRequest, UpdateStockQuoteRequest } from '../types';
@@ -192,6 +194,7 @@ const StocksPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
+  const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
@@ -742,6 +745,14 @@ const StocksPage: React.FC = () => {
                 onClick={() => openEditModal(stock)}
               />
             </Tooltip>
+            <Tooltip title="Фундаментальные данные">
+              <Button
+                icon={<FundOutlined />}
+                size="small"
+                aria-label="Фундаментальные данные"
+                onClick={() => setFundamentalsStock(stock)}
+              />
+            </Tooltip>
             <StockDeleteAction isProtected={isProtectedStock} onDelete={() => handleDelete(stock.id)} />
           </div>
         );
@@ -844,6 +855,11 @@ const StocksPage: React.FC = () => {
           </>
         )}
       </AuthenticatedShell>
+      <StockFundamentalsDrawer
+        stock={fundamentalsStock}
+        open={fundamentalsStock !== null}
+        onClose={() => setFundamentalsStock(null)}
+      />
       <Modal
         title={editingStock ? 'Редактировать акцию' : 'Добавить акцию'}
         open={modalOpen}
