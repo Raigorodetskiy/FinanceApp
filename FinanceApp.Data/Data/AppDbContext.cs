@@ -144,5 +144,16 @@ public class AppDbContext : DbContext
             entity.Property(x => x.RevenueEstimate).HasColumnType("decimal(28,2)");
             entity.Property(x => x.RevenueReported).HasColumnType("decimal(28,2)");
         });
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.Property(x => x.Username).HasMaxLength(32);
+            entity.Property(x => x.NormalizedUsername).HasMaxLength(32);
+            entity.Property(x => x.Email).HasMaxLength(256);
+            entity.Property(x => x.NormalizedEmail).HasMaxLength(256);
+            entity.Property(x => x.PasswordHash).HasMaxLength(512);
+            entity.HasIndex(x => x.NormalizedUsername).IsUnique();
+            entity.HasIndex(x => x.NormalizedEmail).IsUnique();
+        });
     }
 }

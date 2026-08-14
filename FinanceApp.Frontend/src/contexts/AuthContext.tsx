@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   login: (token: string) => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
   loading: boolean;
 }
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   login: () => {},
   logout: () => {},
+  refreshUser: async () => {},
   isAuthenticated: false,
   loading: true,
 });
@@ -49,6 +51,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setToken(newToken);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const res = await getMe();
+    setUser(res.data);
+  }, []);
+
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
     if (storedToken) {
@@ -71,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user,
         login,
         logout,
+        refreshUser,
         isAuthenticated: !!token,
         loading,
       }}

@@ -303,8 +303,20 @@ export interface UpdatePortfolioBalanceRequest {
 }
 
 export interface LoginRequest {
-  email: string;
+  identifier?: string;
+  email?: string;
   password: string;
+}
+
+export interface UpdateProfileRequest {
+  username: string;
+  currentPassword: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
 }
 
 export interface RegisterRequest {

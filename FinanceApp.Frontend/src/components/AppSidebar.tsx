@@ -20,6 +20,7 @@ import './AppSidebar.css';
 const { Sider } = Layout;
 const { useBreakpoint } = Grid;
 const PORTFOLIO_KEY_PREFIX = 'portfolio-';
+export const PROFILE_ROUTE = '/profile';
 const SIDEBAR_EXPANDED_WIDTH = 270;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'financeapp.sidebar.collapsed';
@@ -212,6 +213,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
           <span className="sidebar-node-label">{userName ?? 'Профиль'}</span>
         </Tooltip>
       ),
+      onClick: () => { navigate(PROFILE_ROUTE); setMobileOpen(false); },
     },
     {
       key: 'logout',

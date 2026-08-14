@@ -5,9 +5,12 @@ using Microsoft.OpenApi.Models;
 using MySqlConnector;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using FinanceApp.API.Infrastructure;
 using FinanceApp.API.Services;
 using FinanceApp.Data.Data;
+using FinanceApp.Core.Models;
+using Microsoft.AspNetCore.Identity;
 
 const string DefaultConnectionName = "DefaultConnection";
 var defaultMariaDbVersion = new Version(10, 5, 23);
@@ -115,6 +118,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("AuthLogin", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient();
@@ -136,6 +153,8 @@ builder.Services.Configure<FinanzenNetOptions>(builder.Configuration.GetSection(
 builder.Services.AddSingleton<IFinanzenNetQuoteService, FinanzenNetQuoteService>();
 builder.Services.AddSingleton<IYahooRequestCoordinator, YahooRequestCoordinator>();
 builder.Services.AddSingleton<IYahooSessionService, YahooSessionService>();
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddScoped<IUserSecurityService, UserSecurityService>();
 builder.Services.AddScoped<IExchangeRateService, FrankfurterExchangeRateService>();
 builder.Services.AddScoped<IYahooQuoteService, YahooQuoteService>();
 builder.Services.AddScoped<IYahooFundamentalsService, YahooFundamentalsService>();
@@ -190,6 +209,7 @@ app.Use(async (context, next) =>
 });
 
 app.UseRouting();
+app.UseRateLimiter();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();

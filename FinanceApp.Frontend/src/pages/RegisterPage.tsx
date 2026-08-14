@@ -53,7 +53,12 @@ const RegisterPage: React.FC = () => {
           <Form.Item
             label="Имя пользователя"
             name="username"
-            rules={[{ required: true, message: 'Введите имя пользователя' }]}
+            rules={[
+              { required: true, message: 'Введите имя пользователя' },
+              { min: 3, max: 32, message: 'Логин должен содержать от 3 до 32 символов' },
+              { pattern: /^[A-Za-z0-9._-]+$/, message: 'Допустимы буквы, цифры и символы . _ -' },
+              { pattern: /^[^@]+$/, message: 'Символ @ не допускается' },
+            ]}
           >
             <Input placeholder="Username" />
           </Form.Item>
@@ -67,7 +72,7 @@ const RegisterPage: React.FC = () => {
           <Form.Item
             label="Пароль"
             name="password"
-            rules={[{ required: true, message: 'Введите пароль' }, { min: 6, message: 'Минимум 6 символов' }]}
+            rules={[{ required: true, message: 'Введите пароль' }, { min: 8, message: 'Минимум 8 символов' }]}
           >
             <Input.Password placeholder="Пароль" />
           </Form.Item>
