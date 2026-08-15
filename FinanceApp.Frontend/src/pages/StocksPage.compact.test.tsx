@@ -82,8 +82,8 @@ describe('Stocks table – compact API area widths and invariants', () => {
     expect(ACTIONS_COL_WIDTH).toBe(180);
   });
 
-  it('keeps total leaf column count at 8', () => {
-    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
+  it('keeps total leaf column count at 10', () => {
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(10);
   });
 });
 
@@ -102,7 +102,7 @@ describe('Stocks table – compact API area metadata', () => {
   });
 
   it('keeps expanded chart row spanning the full table width via the shared total-column constant', () => {
-    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(10);
   });
 });
 

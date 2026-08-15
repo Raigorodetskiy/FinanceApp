@@ -18,6 +18,8 @@ public class AppDbContext : DbContext
     public DbSet<CompanyFundamentalsSnapshot> FundamentalsSnapshots { get; set; } = null!;
     public DbSet<FinancialPeriod> FinancialPeriods { get; set; } = null!;
     public DbSet<EarningsEvent> EarningsEvents { get; set; } = null!;
+    public DbSet<Sector> Sectors { get; set; } = null!;
+    public DbSet<Industry> Industries { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +64,30 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");
             entity.HasIndex(x => x.Isin).IsUnique().HasFilter("`Isin` IS NOT NULL");
             entity.Property(x => x.FinanzenNetSlug).HasMaxLength(120);
+            entity.HasOne(x => x.Industry)
+                .WithMany(x => x.Stocks)
+                .HasForeignKey(x => x.IndustryId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+            entity.HasIndex(x => x.IndustryId);
+        });
+
+        modelBuilder.Entity<Sector>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(200);
+            entity.Property(x => x.NormalizedName).HasMaxLength(200);
+            entity.HasIndex(x => x.NormalizedName).IsUnique();
+        });
+
+        modelBuilder.Entity<Industry>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(200);
+            entity.Property(x => x.NormalizedName).HasMaxLength(200);
+            entity.HasIndex(x => new { x.SectorId, x.NormalizedName }).IsUnique();
+            entity.HasOne(x => x.Sector)
+                .WithMany(x => x.Industries)
+                .HasForeignKey(x => x.SectorId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<CompanyFundamentalsSnapshot>(entity =>

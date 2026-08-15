@@ -260,8 +260,8 @@ describe('selected-period summary layout contract', () => {
 });
 
 describe('table structures remain unchanged', () => {
-  it('stocks table still has 8 columns', () => {
-    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
+  it('stocks table still has 10 columns', () => {
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(10);
   });
 
   it('portfolio table alignment keys still do not include range min/max fields', () => {

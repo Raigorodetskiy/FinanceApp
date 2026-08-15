@@ -28,6 +28,43 @@ export interface PortfolioItem {
   boughtAt: string;
 }
 
+export interface IndustryRef {
+  id: number;
+  name: string;
+  isArchived: boolean;
+}
+
+export interface SectorRef {
+  id: number;
+  name: string;
+  isArchived: boolean;
+}
+
+export interface IndustryDto {
+  id: number;
+  sectorId: number;
+  name: string;
+  normalizedName: string;
+  isArchived: boolean;
+  sortOrder: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  stockCount: number;
+}
+
+export interface SectorDto {
+  id: number;
+  name: string;
+  normalizedName: string;
+  isArchived: boolean;
+  sortOrder: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  industryCount: number;
+  stockCount: number;
+  industries: IndustryDto[];
+}
+
 export interface Stock {
   id: number;
   ticker: string;
@@ -46,6 +83,9 @@ export interface Stock {
   currentPriceChangePercent?: number | null;
   /** UTC timestamp of the price as reported by the quote provider. Null when unavailable. */
   currentPriceAt?: string | null;
+  industryId?: number | null;
+  industry?: IndustryRef | null;
+  sector?: SectorRef | null;
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
@@ -344,6 +384,7 @@ export interface CreateStockRequest {
   wkn?: string | null;
   isin?: string | null;
   finanzenNetSlug?: string | null;
+  industryId?: number | null;
 }
 
 export interface UpdateStockRequest {
@@ -372,6 +413,32 @@ export interface UpdateStockMetadataRequest {
   isin?: string | null;
   finanzenNetSlug?: string | null;
   currentPrice: number;
+  industryId?: number | null;
+}
+
+export interface CreateSectorRequest {
+  name: string;
+  sortOrder?: number;
+}
+
+export interface UpdateSectorRequest {
+  name: string;
+  sortOrder: number;
+}
+
+export interface CreateIndustryRequest {
+  name: string;
+  sortOrder?: number;
+}
+
+export interface UpdateIndustryRequest {
+  name: string;
+  sortOrder: number;
+  sectorId?: number;
+}
+
+export interface MoveIndustryRequest {
+  targetSectorId: number;
 }
 
 export interface UpdateStockQuoteRequest {

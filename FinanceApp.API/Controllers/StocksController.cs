@@ -90,12 +90,18 @@ public class StocksController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Stock>>> GetAll()
-        => await _context.Stocks.ToListAsync();
+        => await _context.Stocks
+            .Include(s => s.Industry)
+            .ThenInclude(i => i!.Sector)
+            .ToListAsync();
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Stock>> GetById(int id)
     {
-        var stock = await _context.Stocks.FindAsync(id);
+        var stock = await _context.Stocks
+            .Include(s => s.Industry)
+            .ThenInclude(i => i!.Sector)
+            .FirstOrDefaultAsync(s => s.Id == id);
         if (stock == null) return NotFound();
         return stock;
     }
@@ -156,7 +162,11 @@ public class StocksController : ControllerBase
         var validationError = NormalizeAndValidateStock(stock);
         if (validationError != null) return validationError;
 
+        var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(stock.IndustryId);
+        if (industryValidationError != null) return industryValidationError;
+
         stock.UpdatedAt = DateTime.UtcNow;
+        stock.Industry = null;
         _context.Stocks.Add(stock);
         try
         {
@@ -176,7 +186,8 @@ public class StocksController : ControllerBase
             _logger.LogWarning(ex, "Stock created but history sync failed for stock {StockId}", stock.Id);
         }
 
-        return CreatedAtAction(nameof(GetById), new { id = stock.Id }, stock);
+        var createdStock = await LoadStockWithClassificationAsync(stock.Id);
+        return CreatedAtAction(nameof(GetById), new { id = stock.Id }, createdStock);
     }
 
     /// <summary>
@@ -205,7 +216,10 @@ public class StocksController : ControllerBase
     [HttpPut("{id}/metadata")]
     public async Task<IActionResult> UpdateMetadata(int id, UpdateStockMetadataRequest request)
     {
-        var existing = await _context.Stocks.FindAsync(id);
+        var existing = await _context.Stocks
+            .Include(s => s.Industry)
+            .ThenInclude(i => i!.Sector)
+            .FirstOrDefaultAsync(s => s.Id == id);
         if (existing == null) return NotFound();
 
         // Normalize fields the same way as Create
@@ -223,11 +237,15 @@ public class StocksController : ControllerBase
         var identifierError = ValidateIdentifiers(wkn, isin);
         if (identifierError is not null) return identifierError;
 
+        var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
+        if (industryValidationError != null) return industryValidationError;
+
         existing.Name = name;
         existing.CommonName = commonName;
         existing.Wkn = wkn;
         existing.Isin = isin;
         existing.FinanzenNetSlug = finanzenNetSlug;
+        existing.IndustryId = request.IndustryId;
         existing.UpdatedAt = DateTime.UtcNow;
 
         // Manual price edit: clear stale snapshot fields so the UI never shows outdated
@@ -304,6 +322,47 @@ public class StocksController : ControllerBase
     private static bool IsDuplicateKeyException(DbUpdateException ex)
         => ex.InnerException?.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase) == true
         || ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true;
+
+    private async Task<Stock> LoadStockWithClassificationAsync(int id)
+        => await _context.Stocks
+            .Include(s => s.Industry)
+            .ThenInclude(i => i!.Sector)
+            .FirstAsync(s => s.Id == id);
+
+    private async Task<(ActionResult? Error, Industry? Industry)> ValidateIndustryAssignmentAsync(int? industryId, int? currentIndustryId = null)
+    {
+        if (industryId is null)
+        {
+            return (null, null);
+        }
+
+        var industry = await _context.Industries
+            .Include(i => i.Sector)
+            .FirstOrDefaultAsync(i => i.Id == industryId.Value);
+
+        if (industry is null)
+        {
+            return (BadRequest("Указанная отрасль не найдена."), null);
+        }
+
+        // Allow existing archived bindings to remain unchanged during metadata edits.
+        if (industry.Id == currentIndustryId)
+        {
+            return (null, industry);
+        }
+
+        if (industry.IsArchived)
+        {
+            return (BadRequest("Нельзя привязать акцию к архивной отрасли."), null);
+        }
+
+        if (industry.Sector.IsArchived)
+        {
+            return (BadRequest("Нельзя привязать акцию к отрасли из архивного сектора."), null);
+        }
+
+        return (null, industry);
+    }
 
     private static string BuildDuplicateMessage(string? wkn, string? isin)
     {
