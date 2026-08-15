@@ -25,6 +25,8 @@ const SIDEBAR_EXPANDED_WIDTH = 270;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'financeapp.sidebar.collapsed';
 const PORTFOLIOS_OPEN_STORAGE_KEY = 'financeapp.sidebar.portfolios.open';
+const STOCKS_OPEN_STORAGE_KEY = 'financeapp.sidebar.stocks.open';
+const STOCKS_DIRECTORIES_OPEN_STORAGE_KEY = 'financeapp.sidebar.stocks-directories.open';
 
 export type PortfolioSection = 'positions' | 'transactions';
 
@@ -74,6 +76,28 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     return selectedKeys.some((k) => k.startsWith(PORTFOLIO_KEY_PREFIX));
   });
 
+  const [stocksOpen, setStocksOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k.startsWith('stocks-'));
+    }
+    try {
+      const stored = window.localStorage.getItem(STOCKS_OPEN_STORAGE_KEY);
+      if (stored !== null) return stored === '1';
+    } catch {}
+    return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k.startsWith('stocks-'));
+  });
+
+  const [stocksDirectoriesOpen, setStocksDirectoriesOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return selectedKeys.some((k) => k === 'sectors' || k.startsWith('sectors-'));
+    }
+    try {
+      const stored = window.localStorage.getItem(STOCKS_DIRECTORIES_OPEN_STORAGE_KEY);
+      if (stored !== null) return stored === '1';
+    } catch {}
+    return selectedKeys.some((k) => k === 'sectors' || k.startsWith('sectors-'));
+  });
+
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -88,7 +112,21 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     } catch {}
   }, [portfoliosOpen]);
 
-  // Compute controlled open keys: combine user-controlled portfoliosOpen with
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(STOCKS_OPEN_STORAGE_KEY, stocksOpen ? '1' : '0');
+    } catch {}
+  }, [stocksOpen]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(STOCKS_DIRECTORIES_OPEN_STORAGE_KEY, stocksDirectoriesOpen ? '1' : '0');
+    } catch {}
+  }, [stocksDirectoriesOpen]);
+
+  // Compute controlled open keys: combine user-controlled state with
   // route-required keys (active portfolio hierarchy must always be visible).
   const openKeys = useMemo((): string[] => {
     const keys: string[] = [];
@@ -107,10 +145,12 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     if (portfoliosOpen || activePortfolioId != null) {
       keys.push('portfolios');
     }
-    if (hasStocksSelection) {
+    // Open stocks when route requires it OR user has it open.
+    if (stocksOpen || hasStocksSelection) {
       keys.push('stocks');
     }
-    if (hasStocksDirectoriesSelection) {
+    // Open stocks-directories when route requires it OR user has it open (only when stocks is open).
+    if ((stocksOpen || hasStocksSelection) && (stocksDirectoriesOpen || hasStocksDirectoriesSelection)) {
       keys.push('stocks-directories');
     }
     // Keep the specific active portfolio node open.
@@ -124,25 +164,51 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       }
     }
     return keys;
-  }, [portfoliosOpen, activePortfolioId, defaultOpenKeys, selectedKeys]);
+  }, [portfoliosOpen, stocksOpen, stocksDirectoriesOpen, activePortfolioId, defaultOpenKeys, selectedKeys]);
 
   // Handle submenu open/close changes from Ant Design.
-  // We only care about explicit user toggles of the 'portfolios' key; other
-  // open-key changes (e.g. individual portfolio nodes) are driven by state.
   const handleMenuOpenChange = useCallback((newOpenKeys: string[]) => {
     const prevHasPortfolios = openKeys.includes('portfolios');
     const nextHasPortfolios = newOpenKeys.includes('portfolios');
     if (prevHasPortfolios && !nextHasPortfolios) {
-      // User explicitly closed the portfolios submenu.
-      // Only allow closing when NOT forced open by active route.
       if (activePortfolioId == null) {
         setPortfoliosOpen(false);
       }
     } else if (!prevHasPortfolios && nextHasPortfolios) {
-      // User explicitly opened the portfolios submenu.
       setPortfoliosOpen(true);
     }
-  }, [openKeys, activePortfolioId]);
+
+    const prevHasStocks = openKeys.includes('stocks');
+    const nextHasStocks = newOpenKeys.includes('stocks');
+    const routeRequiresStocks = selectedKeys.some((key) =>
+      key === 'stocks'
+      || key === 'stocks-list'
+      || key === 'sectors'
+      || key.startsWith('stocks-')
+    );
+    if (prevHasStocks && !nextHasStocks) {
+      if (!routeRequiresStocks) {
+        setStocksOpen(false);
+        setStocksDirectoriesOpen(false);
+      }
+    } else if (!prevHasStocks && nextHasStocks) {
+      setStocksOpen(true);
+    }
+
+    const prevHasStocksDirectories = openKeys.includes('stocks-directories');
+    const nextHasStocksDirectories = newOpenKeys.includes('stocks-directories');
+    const routeRequiresDirectories = selectedKeys.some((key) =>
+      key === 'sectors'
+      || key.startsWith('sectors-')
+    );
+    if (prevHasStocksDirectories && !nextHasStocksDirectories) {
+      if (!routeRequiresDirectories) {
+        setStocksDirectoriesOpen(false);
+      }
+    } else if (!prevHasStocksDirectories && nextHasStocksDirectories) {
+      setStocksDirectoriesOpen(true);
+    }
+  }, [openKeys, activePortfolioId, selectedKeys]);
 
   const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
     const pid = portfolio.id;
