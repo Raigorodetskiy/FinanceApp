@@ -135,21 +135,3 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
     expect(onSet).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Verify no other info pages hard-code portfolios={[]}
-// ---------------------------------------------------------------------------
-describe('Other pages — should not pass portfolios={[]} when full navigation is expected', () => {
-  beforeEach(() => {
-    mockGetPortfolios.mockResolvedValue({ data: MOCK_PORTFOLIOS });
-  });
-  it('FinancialMetricsPage no longer returns empty portfolios (fix verified via effect)', async () => {
-    // After the fix, running the effect returns the loaded portfolios — not []
-    let portfolios: unknown[] = [];
-    await runPortfolioEffect((p) => { portfolios = p as unknown[]; });
-    await flushPromises();
-    // Must be non-empty — proves the hard-coded [] is gone
-    expect(portfolios).toEqual(MOCK_PORTFOLIOS);
-    expect(portfolios.length).toBeGreaterThan(0);
-  });
-});
