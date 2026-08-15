@@ -82,8 +82,8 @@ describe('Stocks table – compact API area widths and invariants', () => {
     expect(ACTIONS_COL_WIDTH).toBe(180);
   });
 
-  it('keeps total leaf column count at 10', () => {
-    expect(STOCKS_TABLE_TOTAL_COLS).toBe(10);
+  it('keeps total leaf column count at 8', () => {
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
   });
 });
 
@@ -102,7 +102,7 @@ describe('Stocks table – compact API area metadata', () => {
   });
 
   it('keeps expanded chart row spanning the full table width via the shared total-column constant', () => {
-    expect(STOCKS_TABLE_TOTAL_COLS).toBe(10);
+    expect(STOCKS_TABLE_TOTAL_COLS).toBe(8);
   });
 });
 
@@ -264,5 +264,17 @@ describe('Stocks table – row action order', () => {
     expect(fundamentalsButtonIndex).toBeGreaterThan(refreshButtonIndex);
     expect(editButtonIndex).toBeGreaterThan(fundamentalsButtonIndex);
     expect(deleteButtonIndex).toBeGreaterThan(editButtonIndex);
+  });
+});
+
+describe('Stocks table – classification columns removed (regression)', () => {
+  it('SECTOR_COL_WIDTH is no longer exported', async () => {
+    const mod = await import('./StocksPage');
+    expect((mod as Record<string, unknown>)['SECTOR_COL_WIDTH']).toBeUndefined();
+  });
+
+  it('INDUSTRY_COL_WIDTH is no longer exported', async () => {
+    const mod = await import('./StocksPage');
+    expect((mod as Record<string, unknown>)['INDUSTRY_COL_WIDTH']).toBeUndefined();
   });
 });
