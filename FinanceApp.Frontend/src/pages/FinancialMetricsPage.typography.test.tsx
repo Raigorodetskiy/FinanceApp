@@ -1,4 +1,3 @@
-import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { FinancialMetric } from '../data/financialMetrics';
@@ -12,6 +11,7 @@ import {
   FINANCIAL_METRICS_META_FONT_SIZE,
   FINANCIAL_METRICS_META_LINE_HEIGHT,
   FINANCIAL_METRICS_NAME_FONT_SIZE,
+  FINANCIAL_METRICS_NAME_LINE_HEIGHT,
   FINANCIAL_METRICS_TABLE_SCROLL_X,
   financialMetricsColumns,
   formatAliasesLine,
@@ -37,6 +37,7 @@ describe('FinancialMetricsPage typography and layout regressions', () => {
 
   it('renders Russian name at 16px and aliases at same size, red color, line-height 1.5', () => {
     expect(FINANCIAL_METRICS_NAME_FONT_SIZE).toBe(16);
+    expect(FINANCIAL_METRICS_NAME_LINE_HEIGHT).toBe(1.5);
     expect(FINANCIAL_METRICS_ALIASES_FONT_SIZE).toBe(16);
     expect(FINANCIAL_METRICS_ALIASES_COLOR).toBe('#cf1322');
     expect(FINANCIAL_METRICS_ALIASES_LINE_HEIGHT).toBe(1.5);
@@ -64,8 +65,11 @@ describe('FinancialMetricsPage typography and layout regressions', () => {
 
     const metricWithoutAliases: FinancialMetric = { ...baseMetric, aliases: [] };
     const nameCell = financialMetricsColumns[0].render?.(metricWithoutAliases.name, metricWithoutAliases, 0);
-    const cellChildren = React.Children.toArray((nameCell as React.ReactElement).props.children);
-    expect(cellChildren).toHaveLength(1);
+    const html = renderToStaticMarkup(<>{nameCell}</>);
+    expect(html).toContain('Долг');
+    expect(html).not.toContain('Total Debt');
+    expect(html).not.toContain('Total Debt, Debt, Financial Debt');
+    expect(html).not.toContain('Financial Debt');
   });
 
   it('keeps description text at 15px with readable line-height', () => {

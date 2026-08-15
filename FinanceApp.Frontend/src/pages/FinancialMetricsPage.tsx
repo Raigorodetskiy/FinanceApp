@@ -9,6 +9,7 @@ import type { FinancialMetric } from '../data/financialMetrics';
 const { Title, Text, Paragraph } = Typography;
 
 export const FINANCIAL_METRICS_NAME_FONT_SIZE = 16;
+export const FINANCIAL_METRICS_NAME_LINE_HEIGHT = 1.5;
 export const FINANCIAL_METRICS_ALIASES_FONT_SIZE = 16;
 export const FINANCIAL_METRICS_ALIASES_COLOR = '#cf1322';
 export const FINANCIAL_METRICS_ALIASES_LINE_HEIGHT = 1.5;
@@ -104,7 +105,10 @@ export const DescriptionCell: React.FC<{ metric: FinancialMetric }> = ({ metric 
     )}
 
     {metric.interpretation && (
-      <Text style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}>
+      <Text
+        type="warning"
+        style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+      >
         ⚠ {metric.interpretation}
       </Text>
     )}
@@ -123,7 +127,7 @@ export const financialMetricsColumns: ColumnsType<FinancialMetric> = [
         <Space direction="vertical" size={2} style={{ width: '100%' }}>
           <Text
             strong
-            style={{ fontSize: FINANCIAL_METRICS_NAME_FONT_SIZE, lineHeight: FINANCIAL_METRICS_ALIASES_LINE_HEIGHT }}
+            style={{ fontSize: FINANCIAL_METRICS_NAME_FONT_SIZE, lineHeight: FINANCIAL_METRICS_NAME_LINE_HEIGHT }}
           >
             {name}
           </Text>
