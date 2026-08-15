@@ -1,9 +1,38 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import type { ReactNode } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { FinancialMetric } from '../data/financialMetrics';
+
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    token: 'test-token',
+    user: {
+      id: 1,
+      username: 'tester',
+      email: 'tester@example.com',
+      createdAt: '2026-08-15T00:00:00Z',
+      portfolios: [],
+    },
+    login: () => {},
+    logout: () => {},
+    refreshUser: async () => {},
+    isAuthenticated: true,
+    loading: false,
+  }),
+}));
+
+vi.mock('../components/AuthenticatedShell', () => ({
+  default: ({ children, headerLeft }: { children: ReactNode; headerLeft: ReactNode }) => (
+    <div>
+      <div>{headerLeft}</div>
+      {children}
+    </div>
+  ),
+}));
+
 import {
   DescriptionCell,
+  default as FinancialMetricsPage,
   FINANCIAL_METRICS_ALIASES_COLOR,
   FINANCIAL_METRICS_ALIASES_FONT_SIZE,
   FINANCIAL_METRICS_ALIASES_LINE_HEIGHT,
@@ -17,11 +46,6 @@ import {
   financialMetricsColumns,
   formatAliasesLine,
 } from './FinancialMetricsPage';
-
-const financialMetricsPageSource = readFileSync(
-  new URL('./FinancialMetricsPage.tsx', import.meta.url),
-  'utf8',
-);
 
 const baseMetric: FinancialMetric = {
   id: 'debt',
@@ -102,9 +126,10 @@ describe('FinancialMetricsPage typography and layout regressions', () => {
     expect(html).not.toContain('font-size:12px');
   });
 
-  it('does not import or render Alert and removes disclaimer text from the page source', () => {
-    expect(financialMetricsPageSource).not.toContain('Alert');
-    expect(financialMetricsPageSource).not.toContain('DISCLAIMER');
-    expect(financialMetricsPageSource).not.toContain('Определения, нормализация и методология расчёта показателей');
+  it('does not render the removed disclaimer alert or its text on the page', () => {
+    const html = renderToStaticMarkup(<FinancialMetricsPage />);
+
+    expect(html).not.toContain('ant-alert');
+    expect(html).not.toContain('Определения, нормализация и методология расчёта показателей');
   });
 });
