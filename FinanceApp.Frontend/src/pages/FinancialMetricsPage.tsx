@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Input, Space, Table, Typography, Alert } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../contexts/AuthContext';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import { financialMetrics, FINANCIAL_METRICS_COUNT } from '../data/financialMetrics';
 import type { FinancialMetric } from '../data/financialMetrics';
+import { getPortfolios } from '../services/api';
+import type { Portfolio } from '../types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -158,6 +160,21 @@ export const financialMetricsColumns: ColumnsType<FinancialMetric> = [
 const FinancialMetricsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const [search, setSearch] = useState('');
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPortfolios()
+      .then((res) => {
+        if (!cancelled) setPortfolios(res.data);
+      })
+      .catch(() => {
+        // Portfolio load errors must not block the metrics page
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     return SORTED_METRICS.filter((m) => matchesQuery(m, search));
@@ -165,7 +182,7 @@ const FinancialMetricsPage: React.FC = () => {
 
   return (
     <AuthenticatedShell
-      portfolios={[]}
+      portfolios={portfolios}
       selectedKeys={['financial-metrics']}
       onLogout={logout}
       userName={user?.username}
