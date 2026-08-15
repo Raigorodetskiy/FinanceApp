@@ -8,6 +8,17 @@ import type { FinancialMetric } from '../data/financialMetrics';
 
 const { Title, Text, Paragraph } = Typography;
 
+export const FINANCIAL_METRICS_NAME_FONT_SIZE = 16;
+export const FINANCIAL_METRICS_NAME_LINE_HEIGHT = 1.5;
+export const FINANCIAL_METRICS_ALIASES_FONT_SIZE = 16;
+export const FINANCIAL_METRICS_ALIASES_COLOR = '#cf1322';
+export const FINANCIAL_METRICS_ALIASES_LINE_HEIGHT = 1.5;
+export const FINANCIAL_METRICS_DESCRIPTION_FONT_SIZE = 15;
+export const FINANCIAL_METRICS_DESCRIPTION_LINE_HEIGHT = 1.6;
+export const FINANCIAL_METRICS_META_FONT_SIZE = 14;
+export const FINANCIAL_METRICS_META_LINE_HEIGHT = 1.5;
+export const FINANCIAL_METRICS_TABLE_SCROLL_X = 600;
+
 const DISCLAIMER =
   'Определения, нормализация и методология расчёта показателей могут различаться у эмитентов и поставщиков данных. ' +
   'Сравнивать компании по мультипликаторам рекомендуется в рамках одной отрасли и на единой методологии. ' +
@@ -28,60 +39,114 @@ function matchesQuery(metric: FinancialMetric, query: string): boolean {
   return false;
 }
 
-const DescriptionCell: React.FC<{ metric: FinancialMetric }> = ({ metric }) => (
+export function formatAliasesLine(aliases?: string[]): string | null {
+  if (!aliases || aliases.length === 0) return null;
+  return aliases.join(', ');
+}
+
+export const DescriptionCell: React.FC<{ metric: FinancialMetric }> = ({ metric }) => (
   <Space direction="vertical" size={4} style={{ width: '100%' }}>
-    <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{metric.description}</Paragraph>
+    <Paragraph
+      style={{
+        margin: 0,
+        whiteSpace: 'pre-wrap',
+        fontSize: FINANCIAL_METRICS_DESCRIPTION_FONT_SIZE,
+        lineHeight: FINANCIAL_METRICS_DESCRIPTION_LINE_HEIGHT,
+      }}
+    >
+      {metric.description}
+    </Paragraph>
 
     {metric.unit && (
-      <Text type="secondary" style={{ fontSize: 12 }}>
+      <Text
+        type="secondary"
+        style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+      >
         Единица: {metric.unit}
       </Text>
     )}
 
     {metric.formula && (
       <div>
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <Text
+          type="secondary"
+          style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+        >
           Формула:
-        </Text>{' '}
-        <Text code style={{ fontSize: 12 }}>
-          {metric.formula}
         </Text>
+        <div>
+          <Text
+            code
+            style={{
+              fontSize: FINANCIAL_METRICS_META_FONT_SIZE,
+              lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT,
+              whiteSpace: 'pre-wrap',
+              display: 'inline-block',
+            }}
+          >
+            {metric.formula}
+          </Text>
+        </div>
       </div>
     )}
 
     {metric.example && (
       <div>
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <Text
+          type="secondary"
+          style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+        >
           Пример:
         </Text>{' '}
-        <Text style={{ fontSize: 12 }}>{metric.example}</Text>
+        <Text style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}>
+          {metric.example}
+        </Text>
       </div>
     )}
 
     {metric.interpretation && (
-      <Text type="warning" style={{ fontSize: 12 }}>
+      <Text
+        type="warning"
+        style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+      >
         ⚠ {metric.interpretation}
       </Text>
     )}
   </Space>
 );
 
-const columns: ColumnsType<FinancialMetric> = [
+export const financialMetricsColumns: ColumnsType<FinancialMetric> = [
   {
     title: 'Название',
     dataIndex: 'name',
     key: 'name',
     width: 220,
-    render: (name: string, metric) => (
-      <Space direction="vertical" size={2}>
-        <Text strong>{name}</Text>
-        {metric.aliases && metric.aliases.length > 0 && (
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {metric.aliases.slice(0, 3).join(', ')}
+    render: (name: string, metric) => {
+      const aliasesLine = formatAliasesLine(metric.aliases);
+      return (
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          <Text
+            strong
+            style={{ fontSize: FINANCIAL_METRICS_NAME_FONT_SIZE, lineHeight: FINANCIAL_METRICS_NAME_LINE_HEIGHT }}
+          >
+            {name}
           </Text>
-        )}
-      </Space>
-    ),
+          {aliasesLine && (
+            <Text
+              style={{
+                fontSize: FINANCIAL_METRICS_ALIASES_FONT_SIZE,
+                color: FINANCIAL_METRICS_ALIASES_COLOR,
+                lineHeight: FINANCIAL_METRICS_ALIASES_LINE_HEIGHT,
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {aliasesLine}
+            </Text>
+          )}
+        </Space>
+      );
+    },
   },
   {
     title: 'Описание',
@@ -108,7 +173,15 @@ const FinancialMetricsPage: React.FC = () => {
       headerLeft={<Title level={4} style={{ margin: 0 }}>Финансовые показатели</Title>}
     >
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Alert message={DISCLAIMER} type="info" showIcon />
+        <Alert
+          message={
+            <span style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}>
+              {DISCLAIMER}
+            </span>
+          }
+          type="info"
+          showIcon
+        />
 
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input.Search
@@ -116,9 +189,12 @@ const FinancialMetricsPage: React.FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear
-            style={{ maxWidth: 480 }}
+            style={{ maxWidth: 480, fontSize: FINANCIAL_METRICS_META_FONT_SIZE }}
           />
-          <Text type="secondary">
+          <Text
+            type="secondary"
+            style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+          >
             {filtered.length === FINANCIAL_METRICS_COUNT
               ? `${FINANCIAL_METRICS_COUNT} показателей`
               : `${filtered.length} из ${FINANCIAL_METRICS_COUNT}`}
@@ -127,16 +203,24 @@ const FinancialMetricsPage: React.FC = () => {
 
         <Table<FinancialMetric>
           rowKey="id"
-          columns={columns}
+          columns={financialMetricsColumns}
           dataSource={filtered}
           pagination={false}
           size="small"
-          scroll={{ x: 600 }}
+          scroll={{ x: FINANCIAL_METRICS_TABLE_SCROLL_X }}
           locale={{
             emptyText: (
               <Space direction="vertical" style={{ padding: 32 }}>
-                <Text type="secondary">Показатели не найдены</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text
+                  type="secondary"
+                  style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+                >
+                  Показатели не найдены
+                </Text>
+                <Text
+                  type="secondary"
+                  style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}
+                >
                   Попробуйте изменить поисковый запрос
                 </Text>
               </Space>
