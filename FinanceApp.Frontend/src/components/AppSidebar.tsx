@@ -78,24 +78,24 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const [stocksOpen, setStocksOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k.startsWith('stocks-'));
+      return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k === 'financial-metrics' || k.startsWith('stocks-'));
     }
     try {
       const stored = window.localStorage.getItem(STOCKS_OPEN_STORAGE_KEY);
       if (stored !== null) return stored === '1';
     } catch {}
-    return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k.startsWith('stocks-'));
+    return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k === 'financial-metrics' || k.startsWith('stocks-'));
   });
 
   const [stocksDirectoriesOpen, setStocksDirectoriesOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return selectedKeys.some((k) => k === 'sectors' || k.startsWith('sectors-'));
+      return selectedKeys.some((k) => k === 'sectors' || k === 'financial-metrics' || k.startsWith('sectors-'));
     }
     try {
       const stored = window.localStorage.getItem(STOCKS_DIRECTORIES_OPEN_STORAGE_KEY);
       if (stored !== null) return stored === '1';
     } catch {}
-    return selectedKeys.some((k) => k === 'sectors' || k.startsWith('sectors-'));
+    return selectedKeys.some((k) => k === 'sectors' || k === 'financial-metrics' || k.startsWith('sectors-'));
   });
 
   React.useEffect(() => {
@@ -134,11 +134,13 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       key === 'stocks'
       || key === 'stocks-list'
       || key === 'sectors'
+      || key === 'financial-metrics'
       || key.startsWith('stocks-')
     );
     const hasStocksDirectoriesSelection = selectedKeys.some((key) =>
       key === 'stocks-directories'
       || key === 'sectors'
+      || key === 'financial-metrics'
       || key.startsWith('sectors-')
     );
     // Always open portfolios when on a portfolio route, or when user has it open.
@@ -184,6 +186,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       key === 'stocks'
       || key === 'stocks-list'
       || key === 'sectors'
+      || key === 'financial-metrics'
       || key.startsWith('stocks-')
     );
     if (prevHasStocks && !nextHasStocks) {
@@ -199,6 +202,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     const nextHasStocksDirectories = newOpenKeys.includes('stocks-directories');
     const routeRequiresDirectories = selectedKeys.some((key) =>
       key === 'sectors'
+      || key === 'financial-metrics'
       || key.startsWith('sectors-')
     );
     if (prevHasStocksDirectories && !nextHasStocksDirectories) {
@@ -296,6 +300,11 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
                 key: 'sectors',
                 label: 'Секторы и отрасли',
                 onClick: () => { navigate('/sectors'); setMobileOpen(false); },
+              },
+              {
+                key: 'financial-metrics',
+                label: 'Финансовые показатели',
+                onClick: () => { navigate('/financial-metrics'); setMobileOpen(false); },
               },
             ],
           },
