@@ -119,8 +119,6 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
 
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
-export const SECTOR_COL_WIDTH = 150;
-export const INDUSTRY_COL_WIDTH = 200;
 const SAVED_PRICE_COL_WIDTH = 130;
 export const CHANGE_EUR_COL_WIDTH = 108;
 export const CHANGE_PCT_COL_WIDTH = 75;
@@ -132,8 +130,6 @@ const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
   TICKER_COL_WIDTH
   + NAME_COL_WIDTH
-  + SECTOR_COL_WIDTH
-  + INDUSTRY_COL_WIDTH
   + SAVED_PRICE_COL_WIDTH
   + CHANGE_EUR_COL_WIDTH
   + CHANGE_PCT_COL_WIDTH
@@ -165,7 +161,7 @@ const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): L
   loading,
 });
 
-export const STOCKS_TABLE_TOTAL_COLS = 10;
+export const STOCKS_TABLE_TOTAL_COLS = 8;
 
 /** Label shown on the delayed-quote badge. */
 export const STALE_DELAY_LABEL = 'Задержано';
@@ -264,8 +260,6 @@ const StocksPage: React.FC = () => {
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
-  const [sectorFilter, setSectorFilter] = useState<number | undefined>(undefined);
-  const [industryFilter, setIndustryFilter] = useState<number | undefined>(undefined);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
@@ -281,22 +275,9 @@ const StocksPage: React.FC = () => {
     });
     return ids;
   }, [portfolios]);
-  const filteredStocks = useMemo(
-    () =>
-      stocks.filter((stock) => {
-        if (sectorFilter != null && stock.sector?.id !== sectorFilter) {
-          return false;
-        }
-        if (industryFilter != null && stock.industry?.id !== industryFilter) {
-          return false;
-        }
-        return true;
-      }),
-    [industryFilter, sectorFilter, stocks],
-  );
   const { portfolioGroup, fraGroup, nyseGroup } = useMemo(
-    () => groupStocks(filteredStocks, portfolioStockIds),
-    [filteredStocks, portfolioStockIds],
+    () => groupStocks(stocks, portfolioStockIds),
+    [stocks, portfolioStockIds],
   );
 
   const fetchData = async () => {
@@ -611,24 +592,6 @@ const StocksPage: React.FC = () => {
       )}
     </Space>
   );
-  const sectorFilterOptions = useMemo(
-    () =>
-      sectors.map((sector) => ({
-        value: sector.id,
-        label: sector.isArchived ? `${sector.name} (Архив)` : sector.name,
-      })),
-    [sectors],
-  );
-  const industryFilterOptions = useMemo(() => {
-    const sourceIndustries = sectorFilter != null
-      ? (sectors.find((sector) => sector.id === sectorFilter)?.industries ?? [])
-      : sectors.flatMap((sector) => sector.industries);
-
-    return sourceIndustries.map((industry) => ({
-      value: industry.id,
-      label: industry.isArchived ? `${industry.name} (Архив)` : industry.name,
-    }));
-  }, [sectorFilter, sectors]);
   const sectorOptions = useMemo(() => {
     const options = sectors
       .filter((sector) => !sector.isArchived)
@@ -677,24 +640,6 @@ const StocksPage: React.FC = () => {
 
     return options;
   }, [editingStock, sectors, selectedFormSectorId]);
-  const renderClassificationCell = (name?: string | null, isArchived?: boolean) => {
-    if (!name) {
-      return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
-    }
-
-    return renderClassificationName(name, Boolean(isArchived));
-  };
-
-  useEffect(() => {
-    if (industryFilter == null) {
-      return;
-    }
-
-    if (!industryFilterOptions.some((option) => option.value === industryFilter)) {
-      setIndustryFilter(undefined);
-    }
-  }, [industryFilter, industryFilterOptions]);
-
   const columns = [
     {
       title: 'Тикер',
@@ -787,101 +732,6 @@ const StocksPage: React.FC = () => {
             )}
           </div>
         );
-      },
-    },
-    {
-      title: 'Сектор',
-      key: 'sector',
-      width: SECTOR_COL_WIDTH,
-      filteredValue: sectorFilter != null ? [String(sectorFilter)] : null,
-      filterDropdown: ({ confirm, clearFilters }: any) => (
-        <div style={{ padding: 8, width: 220 }} onKeyDown={(event) => event.stopPropagation()}>
-          <Select
-            allowClear
-            placeholder="Все секторы"
-            style={{ width: '100%', marginBottom: 8 }}
-            options={sectorFilterOptions}
-            value={sectorFilter}
-            onChange={(value) => {
-              setSectorFilter(value);
-              setIndustryFilter(undefined);
-            }}
-            onClear={() => {
-              setSectorFilter(undefined);
-              setIndustryFilter(undefined);
-            }}
-          />
-          <Space>
-            <Button size="small" type="primary" onClick={() => confirm()}>
-              Применить
-            </Button>
-            <Button
-              size="small"
-              onClick={() => {
-                setSectorFilter(undefined);
-                setIndustryFilter(undefined);
-                clearFilters?.();
-                confirm();
-              }}
-            >
-              Сбросить
-            </Button>
-          </Space>
-        </div>
-      ),
-      render: (_: unknown, record: TableRow) => {
-        if (isChartRow(record)) {
-          return { children: null, props: { colSpan: 0 } };
-        }
-
-        const stock = record as Stock;
-        return renderClassificationCell(stock.sector?.name, stock.sector?.isArchived);
-      },
-    },
-    {
-      title: 'Отрасль',
-      key: 'industry',
-      width: INDUSTRY_COL_WIDTH,
-      filteredValue: industryFilter != null ? [String(industryFilter)] : null,
-      filterDropdown: ({ confirm, clearFilters }: any) => (
-        <div style={{ padding: 8, width: 240 }} onKeyDown={(event) => event.stopPropagation()}>
-          <Select
-            allowClear
-            placeholder={sectorFilter != null ? 'Все отрасли сектора' : 'Все отрасли'}
-            style={{ width: '100%', marginBottom: 8 }}
-            options={industryFilterOptions}
-            value={industryFilter}
-            onChange={(value) => {
-              setIndustryFilter(value);
-            }}
-            onClear={() => {
-              setIndustryFilter(undefined);
-            }}
-          />
-          <Space>
-            <Button size="small" type="primary" onClick={() => confirm()}>
-              Применить
-            </Button>
-            <Button
-              size="small"
-              onClick={() => {
-                setIndustryFilter(undefined);
-                clearFilters?.();
-                confirm();
-              }}
-            >
-              Сбросить
-            </Button>
-          </Space>
-        </div>
-      ),
-      render: (_: unknown, record: TableRow) => {
-        if (isChartRow(record)) {
-          return { children: null, props: { colSpan: 0 } };
-        }
-
-        const stock = record as Stock;
-        return renderClassificationCell(stock.industry?.name, stock.industry?.isArchived);
       },
     },
     {
