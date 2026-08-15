@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Input, Space, Table, Typography, Alert } from 'antd';
+import { Input, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../contexts/AuthContext';
 import AuthenticatedShell from '../components/AuthenticatedShell';
@@ -8,21 +8,16 @@ import type { FinancialMetric } from '../data/financialMetrics';
 
 const { Title, Text, Paragraph } = Typography;
 
-export const FINANCIAL_METRICS_NAME_FONT_SIZE = 16;
+export const FINANCIAL_METRICS_NAME_FONT_SIZE = 17;
 export const FINANCIAL_METRICS_NAME_LINE_HEIGHT = 1.5;
-export const FINANCIAL_METRICS_ALIASES_FONT_SIZE = 16;
+export const FINANCIAL_METRICS_ALIASES_FONT_SIZE = 17;
 export const FINANCIAL_METRICS_ALIASES_COLOR = '#cf1322';
 export const FINANCIAL_METRICS_ALIASES_LINE_HEIGHT = 1.5;
-export const FINANCIAL_METRICS_DESCRIPTION_FONT_SIZE = 15;
+export const FINANCIAL_METRICS_DESCRIPTION_FONT_SIZE = 16;
 export const FINANCIAL_METRICS_DESCRIPTION_LINE_HEIGHT = 1.6;
-export const FINANCIAL_METRICS_META_FONT_SIZE = 14;
+export const FINANCIAL_METRICS_META_FONT_SIZE = 15;
 export const FINANCIAL_METRICS_META_LINE_HEIGHT = 1.5;
 export const FINANCIAL_METRICS_TABLE_SCROLL_X = 600;
-
-const DISCLAIMER =
-  'Определения, нормализация и методология расчёта показателей могут различаться у эмитентов и поставщиков данных. ' +
-  'Сравнивать компании по мультипликаторам рекомендуется в рамках одной отрасли и на единой методологии. ' +
-  'Данный справочник носит исключительно информационный характер и не является инвестиционной рекомендацией.';
 
 /** Sorted baseline — alphabetically by name (Russian locale) */
 const SORTED_METRICS: FinancialMetric[] = [...financialMetrics].sort((a, b) =>
@@ -173,16 +168,6 @@ const FinancialMetricsPage: React.FC = () => {
       headerLeft={<Title level={4} style={{ margin: 0 }}>Финансовые показатели</Title>}
     >
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Alert
-          message={
-            <span style={{ fontSize: FINANCIAL_METRICS_META_FONT_SIZE, lineHeight: FINANCIAL_METRICS_META_LINE_HEIGHT }}>
-              {DISCLAIMER}
-            </span>
-          }
-          type="info"
-          showIcon
-        />
-
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input.Search
             placeholder="Поиск по названию, описанию, формуле, alias..."
