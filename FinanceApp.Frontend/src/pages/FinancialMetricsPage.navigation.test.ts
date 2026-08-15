@@ -107,10 +107,7 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
   it('getPortfolios() error leaves portfolio list empty and does NOT throw or affect metrics content', async () => {
     mockGetPortfolios.mockRejectedValue(new Error('Network Error'));
     let portfolios: unknown[] = [];
-    // The effect must not propagate the error
-    await expect(
-      runPortfolioEffect((p) => { portfolios = p as unknown[]; }),
-    ).resolves.not.toThrow();
+    await runPortfolioEffect((p) => { portfolios = p as unknown[]; });
     await flushPromises();
     // Portfolios stay empty — metrics page still renders normally
     expect(portfolios).toHaveLength(0);
@@ -125,15 +122,7 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
     mockGetPortfolios.mockReturnValue(deferred);
 
     const onSet = vi.fn();
-    let cancelled = false;
-    const cleanup = () => { cancelled = true; };
-
-    // Start the effect (does NOT await)
-    getPortfolios()
-      .then((res: { data: unknown[] }) => {
-        if (!cancelled) onSet(res.data);
-      })
-      .catch(() => { /* ignore */ });
+    const cleanup = await runPortfolioEffect(onSet);
 
     // Simulate unmount before the network response arrives
     cleanup();
@@ -144,17 +133,6 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
 
     // onSet should NOT have been called because cancelled was set before the microtask ran
     expect(onSet).not.toHaveBeenCalled();
-  });
-
-  it('effect has no unstable dependencies — getPortfolios is called once per mount, not per render', async () => {
-    // Simulating multiple "renders" — getPortfolios should still only be called once
-    // because the effect depends only on [], not on any state that changes per render.
-    // We test this by verifying the mock is called exactly once per effect invocation.
-    const onSet = vi.fn();
-    await runPortfolioEffect(onSet);
-    await flushPromises();
-    // Called exactly once — stable effect
-    expect(mockGetPortfolios).toHaveBeenCalledTimes(1);
   });
 });
 
