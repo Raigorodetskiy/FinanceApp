@@ -236,8 +236,8 @@ describe('AppSidebar open state – stocks submenu', () => {
       selectedKeys: ['stocks-list'],
       newOpenKeys: [], // user tries to close all
     });
-    // stocksOpen should remain true because route requires it
-    // (state.stocksOpen is false but openKeys will still include 'stocks' due to route)
+    // state.stocksOpen becomes false after user closes it, but the route
+    // keeps 'stocks' in openKeys anyway, so the submenu remains visible.
     const keys = computeOpenKeys({
       ...state,
       selectedKeys: ['stocks-list'],
