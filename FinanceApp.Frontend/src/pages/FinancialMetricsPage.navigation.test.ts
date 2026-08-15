@@ -27,6 +27,7 @@ vi.mock('../services/api', () => ({
 import { getPortfolios } from '../services/api';
 
 const mockGetPortfolios = getPortfolios as ReturnType<typeof vi.fn>;
+const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -74,15 +75,14 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
   it('calls getPortfolios() on mount', async () => {
     const onSet = vi.fn();
     await runPortfolioEffect(onSet);
-    // Flush microtasks
-    await Promise.resolve();
+    await flushPromises();
     expect(mockGetPortfolios).toHaveBeenCalledTimes(1);
   });
 
   it('passes loaded portfolios to the shell (non-empty array)', async () => {
     const received: unknown[][] = [];
     await runPortfolioEffect((p) => received.push(p as unknown[]));
-    await Promise.resolve();
+    await flushPromises();
     expect(received).toHaveLength(1);
     expect(received[0]).toEqual(MOCK_PORTFOLIOS);
   });
@@ -90,7 +90,7 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
   it('loaded portfolios contain the expected names for sidebar rendering', async () => {
     let portfolios: unknown[] = [];
     await runPortfolioEffect((p) => { portfolios = p as unknown[]; });
-    await Promise.resolve();
+    await flushPromises();
     const names = (portfolios as Array<{ name: string }>).map((p) => p.name);
     expect(names).toContain('Основной');
     expect(names).toContain('ИИС');
@@ -99,7 +99,7 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
   it('portfolio items from /financial-metrics are navigable (non-empty list)', async () => {
     let portfolios: unknown[] = [];
     await runPortfolioEffect((p) => { portfolios = p as unknown[]; });
-    await Promise.resolve();
+    await flushPromises();
     // If the list is non-empty the sidebar section is unlocked and items are clickable
     expect(portfolios.length).toBeGreaterThan(0);
   });
@@ -107,11 +107,8 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
   it('getPortfolios() error leaves portfolio list empty and does NOT throw or affect metrics content', async () => {
     mockGetPortfolios.mockRejectedValue(new Error('Network Error'));
     let portfolios: unknown[] = [];
-    // The effect must not propagate the error
-    await expect(
-      runPortfolioEffect((p) => { portfolios = p as unknown[]; }),
-    ).resolves.not.toThrow();
-    await Promise.resolve();
+    await runPortfolioEffect((p) => { portfolios = p as unknown[]; });
+    await flushPromises();
     // Portfolios stay empty — metrics page still renders normally
     expect(portfolios).toHaveLength(0);
   });
@@ -125,64 +122,16 @@ describe('FinancialMetricsPage — portfolio navigation regression', () => {
     mockGetPortfolios.mockReturnValue(deferred);
 
     const onSet = vi.fn();
-    let cancelled = false;
-    const cleanup = () => { cancelled = true; };
-
-    // Start the effect (does NOT await)
-    getPortfolios()
-      .then((res: { data: unknown[] }) => {
-        if (!cancelled) onSet(res.data);
-      })
-      .catch(() => { /* ignore */ });
+    const cleanup = await runPortfolioEffect(onSet);
 
     // Simulate unmount before the network response arrives
     cleanup();
 
     // Now resolve the deferred promise
     resolveFn({ data: MOCK_PORTFOLIOS });
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
 
     // onSet should NOT have been called because cancelled was set before the microtask ran
     expect(onSet).not.toHaveBeenCalled();
-  });
-
-  it('effect has no unstable dependencies — getPortfolios is called once per mount, not per render', async () => {
-    // Simulating multiple "renders" — getPortfolios should still only be called once
-    // because the effect depends only on [], not on any state that changes per render.
-    // We test this by verifying the mock is called exactly once per effect invocation.
-    const onSet = vi.fn();
-    await runPortfolioEffect(onSet);
-    await Promise.resolve();
-    // Called exactly once — stable effect
-    expect(mockGetPortfolios).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Verify no other info pages hard-code portfolios={[]}
-// ---------------------------------------------------------------------------
-describe('Other pages — should not pass portfolios={[]} when full navigation is expected', () => {
-  beforeEach(() => {
-    mockGetPortfolios.mockResolvedValue({ data: MOCK_PORTFOLIOS });
-  });
-  it('SectorsPage loads portfolios from API and passes them to AuthenticatedShell', async () => {
-    // SectorsPage: Promise.all([getSectors(), getPortfolios()]) sets portfolios state,
-    // then passes portfolios={portfolios} — same pattern required for FinancialMetricsPage.
-    // We verify SectorsPage does call getPortfolios in its data loading:
-    mockGetPortfolios.mockResolvedValue({ data: [makePortfolio(3, 'Test')] });
-    // Calling getPortfolios as SectorsPage's loadData does
-    const result = await getPortfolios();
-    expect(result.data).toEqual([makePortfolio(3, 'Test')]);
-  });
-
-  it('FinancialMetricsPage no longer returns empty portfolios (fix verified via effect)', async () => {
-    // After the fix, running the effect returns the loaded portfolios — not []
-    let portfolios: unknown[] = [];
-    await runPortfolioEffect((p) => { portfolios = p as unknown[]; });
-    await Promise.resolve();
-    // Must be non-empty — proves the hard-coded [] is gone
-    expect(portfolios).toEqual(MOCK_PORTFOLIOS);
-    expect(portfolios.length).toBeGreaterThan(0);
   });
 });
