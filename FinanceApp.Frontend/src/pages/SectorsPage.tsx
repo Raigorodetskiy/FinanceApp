@@ -69,13 +69,6 @@ function getErrMsg(err: unknown, fallback: string): string {
 
 const archiveTag = <Tag color="default">Архив</Tag>;
 
-const renderArchivedLabel = (name: string, isArchived: boolean) => (
-  <Space size={6}>
-    <span>{name}</span>
-    {isArchived && archiveTag}
-  </Space>
-);
-
 const SectorsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);

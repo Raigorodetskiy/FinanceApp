@@ -369,16 +369,6 @@ namespace FinanceApp.Data.Migrations
                     b.ToTable("Orders");
                 });
 
-            modelBuilder.Entity("FinanceApp.Core.Models.Industry", b =>
-                {
-                    b.Navigation("Stocks");
-                });
-
-            modelBuilder.Entity("FinanceApp.Core.Models.Sector", b =>
-                {
-                    b.Navigation("Industries");
-                });
-
             modelBuilder.Entity("FinanceApp.Core.Models.Portfolio", b =>
                 {
                     b.Property<int>("Id")
@@ -897,6 +887,16 @@ namespace FinanceApp.Data.Migrations
             modelBuilder.Entity("FinanceApp.Core.Models.User", b =>
                 {
                     b.Navigation("Portfolios");
+                });
+
+            modelBuilder.Entity("FinanceApp.Core.Models.Industry", b =>
+                {
+                    b.Navigation("Stocks");
+                });
+
+            modelBuilder.Entity("FinanceApp.Core.Models.Sector", b =>
+                {
+                    b.Navigation("Industries");
                 });
 #pragma warning restore 612, 618
         }
