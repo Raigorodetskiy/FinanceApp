@@ -151,4 +151,5 @@ public sealed class UpdateStockMetadataRequest
     public string? Isin { get; init; }
     public string? FinanzenNetSlug { get; init; }
     public decimal CurrentPrice { get; init; }
+    public int? IndustryId { get; init; }
 }

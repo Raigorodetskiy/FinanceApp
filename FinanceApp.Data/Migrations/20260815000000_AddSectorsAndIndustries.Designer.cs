@@ -4,6 +4,7 @@ using FinanceApp.Data.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FinanceApp.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260815000000_AddSectorsAndIndustries")]
+    partial class AddSectorsAndIndustries
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -364,6 +367,16 @@ namespace FinanceApp.Data.Migrations
                     b.HasIndex("StockId");
 
                     b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("FinanceApp.Core.Models.Industry", b =>
+                {
+                    b.Navigation("Stocks");
+                });
+
+            modelBuilder.Entity("FinanceApp.Core.Models.Sector", b =>
+                {
+                    b.Navigation("Industries");
                 });
 
             modelBuilder.Entity("FinanceApp.Core.Models.Portfolio", b =>
@@ -884,16 +897,6 @@ namespace FinanceApp.Data.Migrations
             modelBuilder.Entity("FinanceApp.Core.Models.User", b =>
                 {
                     b.Navigation("Portfolios");
-                });
-
-            modelBuilder.Entity("FinanceApp.Core.Models.Industry", b =>
-                {
-                    b.Navigation("Stocks");
-                });
-
-            modelBuilder.Entity("FinanceApp.Core.Models.Sector", b =>
-                {
-                    b.Navigation("Industries");
                 });
 #pragma warning restore 612, 618
         }

@@ -9,6 +9,7 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import PortfolioDetailPage from './pages/PortfolioDetailPage';
 import StocksPage from './pages/StocksPage';
+import SectorsPage from './pages/SectorsPage';
 import ProfilePage from './pages/ProfilePage';
 
 const App: React.FC = () => {
@@ -40,6 +41,14 @@ const App: React.FC = () => {
               element={
                 <PrivateRoute>
                   <StocksPage />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/sectors"
+              element={
+                <PrivateRoute>
+                  <SectorsPage />
                 </PrivateRoute>
               }
             />

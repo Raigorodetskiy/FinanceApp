@@ -92,9 +92,26 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
   // route-required keys (active portfolio hierarchy must always be visible).
   const openKeys = useMemo((): string[] => {
     const keys: string[] = [];
+    const hasStocksSelection = selectedKeys.some((key) =>
+      key === 'stocks'
+      || key === 'stocks-list'
+      || key === 'sectors'
+      || key.startsWith('stocks-')
+    );
+    const hasStocksDirectoriesSelection = selectedKeys.some((key) =>
+      key === 'stocks-directories'
+      || key === 'sectors'
+      || key.startsWith('sectors-')
+    );
     // Always open portfolios when on a portfolio route, or when user has it open.
     if (portfoliosOpen || activePortfolioId != null) {
       keys.push('portfolios');
+    }
+    if (hasStocksSelection) {
+      keys.push('stocks');
+    }
+    if (hasStocksDirectoriesSelection) {
+      keys.push('stocks-directories');
     }
     // Keep the specific active portfolio node open.
     if (activePortfolioId != null) {
@@ -107,7 +124,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       }
     }
     return keys;
-  }, [portfoliosOpen, activePortfolioId, defaultOpenKeys]);
+  }, [portfoliosOpen, activePortfolioId, defaultOpenKeys, selectedKeys]);
 
   // Handle submenu open/close changes from Ant Design.
   // We only care about explicit user toggles of the 'portfolios' key; other
@@ -198,7 +215,25 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
         key: 'stocks',
         icon: <StockOutlined />,
         label: 'Акции',
-        onClick: () => { navigate('/stocks'); setMobileOpen(false); },
+        children: [
+          {
+            key: 'stocks-list',
+            icon: <UnorderedListOutlined />,
+            label: 'Список акций',
+            onClick: () => { navigate('/stocks'); setMobileOpen(false); },
+          },
+          {
+            key: 'stocks-directories',
+            label: 'Справочники',
+            children: [
+              {
+                key: 'sectors',
+                label: 'Секторы и отрасли',
+                onClick: () => { navigate('/sectors'); setMobileOpen(false); },
+              },
+            ],
+          },
+        ],
       },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps

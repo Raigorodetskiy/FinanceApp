@@ -28,6 +28,13 @@ import type {
   FundamentalsResponse,
   UpdateProfileRequest,
   ChangePasswordRequest,
+  SectorDto,
+  IndustryDto,
+  CreateSectorRequest,
+  UpdateSectorRequest,
+  CreateIndustryRequest,
+  UpdateIndustryRequest,
+  MoveIndustryRequest,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -134,5 +141,42 @@ export const createDividend = (portfolioId: number, data: { stockId: number; amo
   api.post<Dividend>(`/Portfolios/${portfolioId}/finance/dividends`, data);
 export const deleteDividend = (portfolioId: number, id: number) =>
   api.delete(`/Portfolios/${portfolioId}/finance/dividends/${id}`);
+
+// Sectors API
+export const getSectors = (includeArchived = false) =>
+  api.get<SectorDto[]>('/sectors', { params: { includeArchived } }).then((r) => r.data);
+
+export const createSector = (req: CreateSectorRequest) =>
+  api.post<SectorDto>('/sectors', req).then((r) => r.data);
+
+export const updateSector = (id: number, req: UpdateSectorRequest) =>
+  api.put<SectorDto>(`/sectors/${id}`, req).then((r) => r.data);
+
+export const archiveSector = (id: number) =>
+  api.post<void>(`/sectors/${id}/archive`).then((r) => r.data);
+
+export const restoreSector = (id: number) =>
+  api.post<void>(`/sectors/${id}/restore`).then((r) => r.data);
+
+export const deleteSector = (id: number) =>
+  api.delete<void>(`/sectors/${id}`).then((r) => r.data);
+
+export const createIndustry = (sectorId: number, req: CreateIndustryRequest) =>
+  api.post<IndustryDto>(`/sectors/${sectorId}/industries`, req).then((r) => r.data);
+
+export const updateIndustry = (sectorId: number, industryId: number, req: UpdateIndustryRequest) =>
+  api.put<IndustryDto>(`/sectors/${sectorId}/industries/${industryId}`, req).then((r) => r.data);
+
+export const archiveIndustry = (sectorId: number, industryId: number) =>
+  api.post<void>(`/sectors/${sectorId}/industries/${industryId}/archive`).then((r) => r.data);
+
+export const restoreIndustry = (sectorId: number, industryId: number) =>
+  api.post<void>(`/sectors/${sectorId}/industries/${industryId}/restore`).then((r) => r.data);
+
+export const deleteIndustry = (sectorId: number, industryId: number) =>
+  api.delete<void>(`/sectors/${sectorId}/industries/${industryId}`).then((r) => r.data);
+
+export const moveIndustry = (sectorId: number, industryId: number, req: MoveIndustryRequest) =>
+  api.patch<IndustryDto>(`/sectors/${sectorId}/industries/${industryId}/move`, req).then((r) => r.data);
 
 export default api;

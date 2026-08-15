@@ -7,6 +7,7 @@ import {
   Input,
   InputNumber,
   Select,
+  Space,
   Spin,
   Typography,
   Popconfirm,
@@ -34,13 +35,22 @@ import {
   deleteStock,
   getPortfolios,
   getStockPrice,
+  getSectors,
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
 import StockFundamentalsDrawer from '../components/StockFundamentalsDrawer';
 import StockExchangeTag from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
-import type { Stock, Portfolio, StockQuoteResponse, StockExchange, UpdateStockMetadataRequest, UpdateStockQuoteRequest } from '../types';
+import type {
+  Portfolio,
+  SectorDto,
+  Stock,
+  StockExchange,
+  StockQuoteResponse,
+  UpdateStockMetadataRequest,
+  UpdateStockQuoteRequest,
+} from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 import { isQuoteDelayed } from '../utils/quote';
@@ -109,6 +119,8 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
 
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
+export const SECTOR_COL_WIDTH = 150;
+export const INDUSTRY_COL_WIDTH = 200;
 const SAVED_PRICE_COL_WIDTH = 130;
 export const CHANGE_EUR_COL_WIDTH = 108;
 export const CHANGE_PCT_COL_WIDTH = 75;
@@ -120,6 +132,8 @@ const TICKER_TEXT_MAX_WIDTH = TICKER_COL_WIDTH - TICKER_META_SPACE_WIDTH;
 const STOCKS_TABLE_SCROLL_X =
   TICKER_COL_WIDTH
   + NAME_COL_WIDTH
+  + SECTOR_COL_WIDTH
+  + INDUSTRY_COL_WIDTH
   + SAVED_PRICE_COL_WIDTH
   + CHANGE_EUR_COL_WIDTH
   + CHANGE_PCT_COL_WIDTH
@@ -151,7 +165,7 @@ const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): L
   loading,
 });
 
-export const STOCKS_TABLE_TOTAL_COLS = 8;
+export const STOCKS_TABLE_TOTAL_COLS = 10;
 
 /** Label shown on the delayed-quote badge. */
 export const STALE_DELAY_LABEL = 'Задержано';
@@ -239,6 +253,7 @@ export const renderStockRowActions = ({
 
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
+  const [sectors, setSectors] = useState<SectorDto[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -249,9 +264,12 @@ const StocksPage: React.FC = () => {
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
+  const [sectorFilter, setSectorFilter] = useState<number | undefined>(undefined);
+  const [industryFilter, setIndustryFilter] = useState<number | undefined>(undefined);
   const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
+  const selectedFormSectorId = Form.useWatch('sectorId', form) as number | undefined;
   const portfolioStockIds = useMemo(() => {
     const ids = new Set<number>();
     portfolios.forEach((portfolio) => {
@@ -263,21 +281,36 @@ const StocksPage: React.FC = () => {
     });
     return ids;
   }, [portfolios]);
+  const filteredStocks = useMemo(
+    () =>
+      stocks.filter((stock) => {
+        if (sectorFilter != null && stock.sector?.id !== sectorFilter) {
+          return false;
+        }
+        if (industryFilter != null && stock.industry?.id !== industryFilter) {
+          return false;
+        }
+        return true;
+      }),
+    [industryFilter, sectorFilter, stocks],
+  );
   const { portfolioGroup, fraGroup, nyseGroup } = useMemo(
-    () => groupStocks(stocks, portfolioStockIds),
-    [stocks, portfolioStockIds],
+    () => groupStocks(filteredStocks, portfolioStockIds),
+    [filteredStocks, portfolioStockIds],
   );
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [stocksRes, portfoliosRes] = await Promise.all([
+      const [stocksRes, portfoliosRes, sectorsRes] = await Promise.all([
         getStocks(),
         getPortfolios(),
+        getSectors(true),
       ]);
       setStocks(stocksRes.data);
       stocksRef.current = stocksRes.data;
       setPortfolios(portfoliosRes.data);
+      setSectors(sectorsRes);
     } catch {
       message.error('Ошибка загрузки данных');
     } finally {
@@ -415,13 +448,17 @@ const StocksPage: React.FC = () => {
   const openCreateModal = () => {
     setEditingStock(null);
     form.resetFields();
-    form.setFieldsValue({ exchange: DEFAULT_STOCK_EXCHANGE });
+    form.setFieldsValue({ exchange: DEFAULT_STOCK_EXCHANGE, sectorId: undefined, industryId: undefined });
     setModalOpen(true);
   };
 
   const openEditModal = (stock: Stock) => {
     setEditingStock(stock);
-    form.setFieldsValue(stock);
+    form.setFieldsValue({
+      ...stock,
+      sectorId: stock.sector?.id,
+      industryId: stock.industryId ?? undefined,
+    });
     setModalOpen(true);
   };
 
@@ -434,6 +471,8 @@ const StocksPage: React.FC = () => {
     wkn?: string;
     isin?: string;
     finanzenNetSlug?: string;
+    sectorId?: number;
+    industryId?: number | null;
   }) => {
     // Normalize: blank → null, trim + uppercase
     const normalizeId = (v?: string): string | null => {
@@ -458,6 +497,7 @@ const StocksPage: React.FC = () => {
           isin,
           finanzenNetSlug,
           currentPrice: values.currentPrice,
+          industryId: values.industryId ?? null,
         };
         await updateStockMetadata(editingStock.id, metadataPayload);
         message.success('Акция обновлена');
@@ -470,6 +510,7 @@ const StocksPage: React.FC = () => {
           isin,
           finanzenNetSlug,
           exchange: values.exchange,
+          industryId: values.industryId ?? null,
         });
         message.success('Акция добавлена');
       }
@@ -560,6 +601,99 @@ const StocksPage: React.FC = () => {
 
   const formatEur = (v: number) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
+  const renderClassificationName = (name: string, isArchived: boolean) => (
+    <Space size={6}>
+      <span>{name}</span>
+      {isArchived && (
+        <Tag color="default" style={{ marginInlineEnd: 0 }}>
+          Архив
+        </Tag>
+      )}
+    </Space>
+  );
+  const sectorFilterOptions = useMemo(
+    () =>
+      sectors.map((sector) => ({
+        value: sector.id,
+        label: sector.isArchived ? `${sector.name} (Архив)` : sector.name,
+      })),
+    [sectors],
+  );
+  const industryFilterOptions = useMemo(() => {
+    const sourceIndustries = sectorFilter != null
+      ? (sectors.find((sector) => sector.id === sectorFilter)?.industries ?? [])
+      : sectors.flatMap((sector) => sector.industries);
+
+    return sourceIndustries.map((industry) => ({
+      value: industry.id,
+      label: industry.isArchived ? `${industry.name} (Архив)` : industry.name,
+    }));
+  }, [sectorFilter, sectors]);
+  const sectorOptions = useMemo(() => {
+    const options = sectors
+      .filter((sector) => !sector.isArchived)
+      .map((sector) => ({
+        value: sector.id,
+        label: renderClassificationName(sector.name, sector.isArchived),
+      }));
+
+    if (
+      editingStock?.sector
+      && editingStock.sector.isArchived
+      && !options.some((option) => option.value === editingStock.sector?.id)
+    ) {
+      options.push({
+        value: editingStock.sector.id,
+        label: renderClassificationName(editingStock.sector.name, true),
+      });
+    }
+
+    return options;
+  }, [editingStock, sectors]);
+  const industryOptions = useMemo(() => {
+    if (selectedFormSectorId == null) {
+      return [];
+    }
+
+    const selectedSector = sectors.find((sector) => sector.id === selectedFormSectorId);
+    const options = (selectedSector?.industries ?? [])
+      .filter((industry) => !industry.isArchived)
+      .map((industry) => ({
+        value: industry.id,
+        label: renderClassificationName(industry.name, industry.isArchived),
+      }));
+
+    if (
+      editingStock?.industry
+      && editingStock.industry.isArchived
+      && editingStock.sector?.id === selectedFormSectorId
+      && !options.some((option) => option.value === editingStock.industry?.id)
+    ) {
+      options.push({
+        value: editingStock.industry.id,
+        label: renderClassificationName(editingStock.industry.name, true),
+      });
+    }
+
+    return options;
+  }, [editingStock, sectors, selectedFormSectorId]);
+  const renderClassificationCell = (name?: string | null, isArchived?: boolean) => {
+    if (!name) {
+      return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
+    }
+
+    return renderClassificationName(name, Boolean(isArchived));
+  };
+
+  useEffect(() => {
+    if (industryFilter == null) {
+      return;
+    }
+
+    if (!industryFilterOptions.some((option) => option.value === industryFilter)) {
+      setIndustryFilter(undefined);
+    }
+  }, [industryFilter, industryFilterOptions]);
 
   const columns = [
     {
@@ -653,6 +787,101 @@ const StocksPage: React.FC = () => {
             )}
           </div>
         );
+      },
+    },
+    {
+      title: 'Сектор',
+      key: 'sector',
+      width: SECTOR_COL_WIDTH,
+      filteredValue: sectorFilter != null ? [String(sectorFilter)] : null,
+      filterDropdown: ({ confirm, clearFilters }: any) => (
+        <div style={{ padding: 8, width: 220 }} onKeyDown={(event) => event.stopPropagation()}>
+          <Select
+            allowClear
+            placeholder="Все секторы"
+            style={{ width: '100%', marginBottom: 8 }}
+            options={sectorFilterOptions}
+            value={sectorFilter}
+            onChange={(value) => {
+              setSectorFilter(value);
+              setIndustryFilter(undefined);
+            }}
+            onClear={() => {
+              setSectorFilter(undefined);
+              setIndustryFilter(undefined);
+            }}
+          />
+          <Space>
+            <Button size="small" type="primary" onClick={() => confirm()}>
+              Применить
+            </Button>
+            <Button
+              size="small"
+              onClick={() => {
+                setSectorFilter(undefined);
+                setIndustryFilter(undefined);
+                clearFilters?.();
+                confirm();
+              }}
+            >
+              Сбросить
+            </Button>
+          </Space>
+        </div>
+      ),
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) {
+          return { children: null, props: { colSpan: 0 } };
+        }
+
+        const stock = record as Stock;
+        return renderClassificationCell(stock.sector?.name, stock.sector?.isArchived);
+      },
+    },
+    {
+      title: 'Отрасль',
+      key: 'industry',
+      width: INDUSTRY_COL_WIDTH,
+      filteredValue: industryFilter != null ? [String(industryFilter)] : null,
+      filterDropdown: ({ confirm, clearFilters }: any) => (
+        <div style={{ padding: 8, width: 240 }} onKeyDown={(event) => event.stopPropagation()}>
+          <Select
+            allowClear
+            placeholder={sectorFilter != null ? 'Все отрасли сектора' : 'Все отрасли'}
+            style={{ width: '100%', marginBottom: 8 }}
+            options={industryFilterOptions}
+            value={industryFilter}
+            onChange={(value) => {
+              setIndustryFilter(value);
+            }}
+            onClear={() => {
+              setIndustryFilter(undefined);
+            }}
+          />
+          <Space>
+            <Button size="small" type="primary" onClick={() => confirm()}>
+              Применить
+            </Button>
+            <Button
+              size="small"
+              onClick={() => {
+                setIndustryFilter(undefined);
+                clearFilters?.();
+                confirm();
+              }}
+            >
+              Сбросить
+            </Button>
+          </Space>
+        </div>
+      ),
+      render: (_: unknown, record: TableRow) => {
+        if (isChartRow(record)) {
+          return { children: null, props: { colSpan: 0 } };
+        }
+
+        const stock = record as Stock;
+        return renderClassificationCell(stock.industry?.name, stock.industry?.isArchived);
       },
     },
     {
@@ -843,7 +1072,7 @@ const StocksPage: React.FC = () => {
     <>
       <AuthenticatedShell
         portfolios={portfolios}
-        selectedKeys={['stocks']}
+        selectedKeys={['stocks-list']}
         userName={user?.username}
         onLogout={logout}
         headerLeft={(
@@ -879,9 +1108,15 @@ const StocksPage: React.FC = () => {
           </div>
         ) : (
           <>
-            {renderGroup('Портфель', portfolioGroup, portfolioRows)}
-            {renderGroup('FRA', fraGroup, fraRows)}
-            {renderGroup('NYSE', nyseGroup, nyseRows)}
+            {portfolioGroup.length === 0 && fraGroup.length === 0 && nyseGroup.length === 0 ? (
+              <Text type="secondary">Нет акций по выбранным фильтрам</Text>
+            ) : (
+              <>
+                {renderGroup('Портфель', portfolioGroup, portfolioRows)}
+                {renderGroup('FRA', fraGroup, fraRows)}
+                {renderGroup('NYSE', nyseGroup, nyseRows)}
+              </>
+            )}
           </>
         )}
       </AuthenticatedShell>
@@ -930,6 +1165,24 @@ const StocksPage: React.FC = () => {
             rules={[{ required: true, message: 'Выберите биржу' }]}
           >
             <Select options={exchangeOptions} disabled={!!editingStock} />
+          </Form.Item>
+          <Form.Item label="Сектор" name="sectorId">
+            <Select
+              allowClear
+              placeholder="Не выбран"
+              options={sectorOptions}
+              onChange={(value) => {
+                form.setFieldsValue({ sectorId: value, industryId: undefined });
+              }}
+            />
+          </Form.Item>
+          <Form.Item label="Отрасль" name="industryId">
+            <Select
+              allowClear
+              placeholder={selectedFormSectorId != null ? 'Не выбрана' : 'Сначала выберите сектор'}
+              options={industryOptions}
+              disabled={selectedFormSectorId == null}
+            />
           </Form.Item>
           <Form.Item
             label="Текущая цена (€)"
