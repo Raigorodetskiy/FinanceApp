@@ -31,7 +31,7 @@ namespace FinanceApp.Data.Migrations
                 .Annotation("MySql:CharSet", "utf8mb4");
 
             // Backfill: all existing stocks are Tracked.
-            migrationBuilder.Sql("UPDATE `Stocks` SET `TrackingStatus` = 1 WHERE `TrackingStatus` != 1;");
+            migrationBuilder.Sql("UPDATE `Stocks` SET `TrackingStatus` = 1 WHERE `TrackingStatus` IS NULL OR `TrackingStatus` != 1;");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Stocks_TrackingStatus",
@@ -45,28 +45,52 @@ namespace FinanceApp.Data.Migrations
                 filter: "`ProviderSymbol` IS NOT NULL");
 
             // ─── StockMarketIndices: surrogate PK + membership history ────────────────
-            // 1. Drop the existing composite PK constraint.
-            migrationBuilder.DropPrimaryKey(
-                name: "PK_StockMarketIndices",
-                table: "StockMarketIndices");
-
-            // 2. Add the surrogate identity column (INT AUTO_INCREMENT).
-            //    In MySQL we add it without PK first, then add PK.
+            // 1. Add the surrogate key column without AUTO_INCREMENT first so MySQL accepts the DDL.
             migrationBuilder.AddColumn<int>(
                 name: "Id",
                 table: "StockMarketIndices",
                 type: "int",
                 nullable: false,
-                defaultValue: 0)
-                .Annotation("MySql:ValueGenerationStrategy", MySqlValueGenerationStrategy.IdentityColumn);
+                defaultValue: 0);
 
-            // 3. Add the new PK on the surrogate Id.
+            // 2. Backfill stable, non-zero surrogate IDs for existing rows before promoting the
+            //    column to the primary key / AUTO_INCREMENT.
+            migrationBuilder.Sql(
+                """
+                SET @financeapp_stock_market_index_id := 0;
+                UPDATE `StockMarketIndices`
+                SET `Id` = (@financeapp_stock_market_index_id := @financeapp_stock_market_index_id + 1)
+                ORDER BY `StockId`, `MarketIndexId`;
+                """);
+
+            // 3. Preserve the FK-supporting index on StockId before dropping the composite PK.
+            migrationBuilder.CreateIndex(
+                name: "IX_StockMarketIndices_StockId",
+                table: "StockMarketIndices",
+                column: "StockId");
+
+            // 4. Drop the existing composite PK constraint.
+            migrationBuilder.DropPrimaryKey(
+                name: "PK_StockMarketIndices",
+                table: "StockMarketIndices");
+
+            // 5. Add the new PK on the surrogate Id.
             migrationBuilder.AddPrimaryKey(
                 name: "PK_StockMarketIndices",
                 table: "StockMarketIndices",
                 column: "Id");
 
-            // 4. Add membership metadata columns.
+            // 6. Promote the surrogate key to AUTO_INCREMENT after it is a key.
+            migrationBuilder.AlterColumn<int>(
+                name: "Id",
+                table: "StockMarketIndices",
+                type: "int",
+                nullable: false,
+                oldClrType: typeof(int),
+                oldType: "int")
+                .Annotation("MySql:ValueGenerationStrategy", MySqlValueGenerationStrategy.IdentityColumn);
+
+            // 7. Add membership metadata columns.
             migrationBuilder.AddColumn<string>(
                 name: "Source",
                 table: "StockMarketIndices",
@@ -108,11 +132,15 @@ namespace FinanceApp.Data.Migrations
                 nullable: false,
                 defaultValueSql: "UTC_TIMESTAMP(6)");
 
-            // 5. Add a non-unique index for fast (StockId, MarketIndexId) lookups.
+            // 8. Add a non-unique index for fast (StockId, MarketIndexId) lookups.
             migrationBuilder.CreateIndex(
                 name: "IX_StockMarketIndices_StockId_MarketIndexId",
                 table: "StockMarketIndices",
                 columns: new[] { "StockId", "MarketIndexId" });
+
+            migrationBuilder.DropIndex(
+                name: "IX_StockMarketIndices_StockId",
+                table: "StockMarketIndices");
         }
 
         /// <inheritdoc />
@@ -127,6 +155,11 @@ namespace FinanceApp.Data.Migrations
             migrationBuilder.DropIndex(name: "IX_Stocks_ProviderSymbol", table: "Stocks");
             migrationBuilder.DropColumn(name: "TrackingStatus", table: "Stocks");
             migrationBuilder.DropColumn(name: "ProviderSymbol", table: "Stocks");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StockMarketIndices_StockId",
+                table: "StockMarketIndices",
+                column: "StockId");
 
             migrationBuilder.DropIndex(name: "IX_StockMarketIndices_StockId_MarketIndexId", table: "StockMarketIndices");
             migrationBuilder.DropColumn(name: "Source", table: "StockMarketIndices");
@@ -149,6 +182,8 @@ namespace FinanceApp.Data.Migrations
                 name: "PK_StockMarketIndices",
                 table: "StockMarketIndices",
                 columns: new[] { "StockId", "MarketIndexId" });
+
+            migrationBuilder.DropIndex(name: "IX_StockMarketIndices_StockId", table: "StockMarketIndices");
         }
     }
 }
