@@ -71,31 +71,42 @@ Notes:
 - Current quotes and historical refreshes share the same throttle, cooldown, and in-flight request coalescing.
 - When Yahoo returns HTTP `429`, FinanceApp stops sending new Yahoo requests until the shared cooldown expires.
 
-### Index constituents import sources (DJIA + NASDAQ-100)
+### Index constituents import sources (DJIA + NASDAQ-100 + S&P 500)
 
 - Supported index-constituent imports:
   - `DJIA` → `FinanceApp.API/Data/index-constituents/djia.curated.snapshot.json`
   - `NDX` → `FinanceApp.API/Data/index-constituents/nasdaq100.curated.snapshot.json`
-- Not supported (still return `422 Unsupported`): `SPX` and other indices.
+  - `SPX` → `FinanceApp.API/Data/index-constituents/sp500.curated.snapshot.json`
+- Not supported (return `422 Unsupported`): all other indices (DAX, EURO STOXX, FTSE, CAC, Nikkei, MSCI, etc.).
 - Source attribution:
   - DJIA: `https://www.spglobal.com/spdji/en/indices/equity/dow-jones-industrial-average/`
   - NASDAQ-100: `https://www.nasdaq.com/market-activity/quotes/ndx-index`
+  - S&P 500: `https://www.spglobal.com/spdji/en/indices/equity/sp-500/`
 - Snapshot metadata includes:
   - `asOfDate` (verified snapshot date),
   - source URL,
   - curated flag (UI shows **"Проверенный снимок"**, not live feed).
-- Current curated snapshot date for both files in this repository: `2026-08-16`.
+- Current curated snapshot date for all three files in this repository: `2026-08-16`.
+- S&P 500 note: the index contains 500 companies but **503 securities** in this snapshot, because
+  Berkshire Hathaway (`BRK.A`/`BRK.B`), Brown-Forman (`BF.A`/`BF.B`), and Alphabet (`GOOGL`/`GOOG`)
+  each have two share classes listed separately (500 companies + 3 extra class lines = 503). Class-share tickers that contain a dot (e.g. `BRK.B`) use the Yahoo Finance
+  provider-symbol convention with a hyphen (`BRK-B`) in the `providerSymbol` field so that quote
+  lookups work correctly; the internal `ticker` field keeps the canonical dot notation.
 - Why curated snapshots:
-  - no free/public stable structured runtime endpoint was available in this environment without keys/secrets and with clear production-safe usage constraints.
+  - No free/public stable structured runtime endpoint was available without keys/secrets and with
+    clear production-safe usage constraints.
+  - S&P 500 official component lists require a commercial data license from S&P Dow Jones Indices;
+    the curated snapshot is used instead.
 - Explicit non-goals:
-  - ETF holdings (`DIA`, `QQQ`) are **not** used as a silent substitute for index constituents.
+  - ETF holdings (`DIA`, `QQQ`, `SPY`) are **not** used as a substitute for official index constituents.
   - `CatalogOnly` imports do **not** auto-enable quote/history/fundamentals tracking.
 - Manual verification/update workflow:
-  1. Verify current constituent lists from authoritative index-owner sources.
-  2. Update the relevant curated snapshot (`djia.curated.snapshot.json` or `nasdaq100.curated.snapshot.json`) with confirmed ticker/name/exchange (and ISIN only when reliably sourced).
+  1. Verify current constituent lists from authoritative index-owner sources (see source URLs above).
+  2. Update the relevant curated snapshot JSON with confirmed ticker/name/exchange (and ISIN only when
+     reliably sourced — set to `null` otherwise).
   3. Update `asOfDate`, keep source URL attribution, and ensure identity uniqueness (`providerSymbol|exchange`).
   4. Run backend/frontend tests and build.
-  5. Open PR describing source, as-of date, and any known caveats.
+  5. Open a PR describing source provenance, as-of date, snapshot entry count, and any known caveats.
 
 ---
 
