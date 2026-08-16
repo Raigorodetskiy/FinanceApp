@@ -19,6 +19,9 @@ public class MarketIndex
     [MaxLength(50)]
     public string NormalizedCode { get; set; } = string.Empty;
 
+    [MaxLength(50)]
+    public string? ProviderSymbol { get; set; }
+
     public string Description { get; set; } = string.Empty;
     public string CountryOrRegion { get; set; } = string.Empty;
     public int SortOrder { get; set; }

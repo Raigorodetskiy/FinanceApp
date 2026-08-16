@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"DOW JONES INDUSTRIAL AVERAGE",
                 Code = @"DJIA",
                 NormalizedCode = @"DJIA",
+                ProviderSymbol = "^DJI",
                 Description = @"Индекс Доу-Джонса для промышленных компаний отражает динамику 30 крупнейших публичных компаний США. Взвешен по цене, а не по рыночной капитализации, что является методологическим ограничением: более дорогие акции оказывают непропорционально большое влияние. Используется как исторический барометр состояния американской экономики, однако из-за малого числа компонентов и ценового взвешивания считается менее репрезентативным, чем S&P 500.",
                 CountryOrRegion = @"USA",
                 SortOrder = 10,
@@ -30,6 +31,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"S&P 500",
                 Code = @"SPX",
                 NormalizedCode = @"SPX",
+                ProviderSymbol = "^GSPC",
                 Description = @"Взвешенный по рыночной капитализации индекс 500 крупнейших публичных компаний США. Широко признан эталоном для американского рынка акций и базой для большинства пассивных инвестиционных стратегий. Охватывает около 80% совокупной капитализации рынка США. Основное ограничение — концентрация в технологическом секторе и крупнейших компаниях. Состав и методологию определяет комитет S&P.",
                 CountryOrRegion = @"USA",
                 SortOrder = 20,
@@ -44,6 +46,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"NASDAQ COMPOSITE",
                 Code = @"COMP",
                 NormalizedCode = @"COMP",
+                ProviderSymbol = "^IXIC",
                 Description = @"Взвешенный по капитализации индекс всех акций, торгующихся на бирже NASDAQ, — преимущественно технологических и растущих компаний. Включает более 3 000 ценных бумаг. Высокая концентрация в IT-секторе делает его чувствительным к изменениям процентных ставок и настроениям в отношении акций роста.",
                 CountryOrRegion = @"USA",
                 SortOrder = 30,
@@ -58,6 +61,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"NASDAQ-100",
                 Code = @"NDX",
                 NormalizedCode = @"NDX",
+                ProviderSymbol = "^NDX",
                 Description = @"Взвешенный по капитализации индекс 100 крупнейших нефинансовых компаний, котирующихся на NASDAQ. Концентрация в технологии, потребительском секторе и здравоохранении делает его популярным инструментом для ставки на инновационные компании. Отсутствие финансового сектора — ключевое отличие от широкого рынка.",
                 CountryOrRegion = @"USA",
                 SortOrder = 40,
@@ -72,6 +76,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"RUSSELL 2000",
                 Code = @"RUT",
                 NormalizedCode = @"RUT",
+                ProviderSymbol = "^RUT",
                 Description = @"Индекс 2 000 компаний малой капитализации из Russell 3000. Традиционно используется как барометр внутреннего экономического здоровья США: малые компании менее зависимы от глобальных цепочек поставок. Отличается более высокой волатильностью и менее ликвидным составом по сравнению с крупнокапитализированными индексами.",
                 CountryOrRegion = @"USA",
                 SortOrder = 50,
@@ -86,6 +91,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"FTSE 100",
                 Code = @"UKX",
                 NormalizedCode = @"UKX",
+                ProviderSymbol = "^FTSE",
                 Description = @"Взвешенный по капитализации индекс 100 крупнейших компаний Лондонской фондовой биржи. Значительную долю занимают горнодобывающие, энергетические и финансовые компании с глобальными операциями. Существенная часть выручки компонентов поступает из-за рубежа, поэтому индекс реагирует на курс фунта стерлингов.",
                 CountryOrRegion = @"UK",
                 SortOrder = 60,
@@ -100,6 +106,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"DAX",
                 Code = @"DAX",
                 NormalizedCode = @"DAX",
+                ProviderSymbol = "^GDAXI",
                 Description = @"Взвешенный по капитализации индекс 40 крупнейших немецких компаний на бирже Xetra. Является главным барометром германского и, косвенно, европейского промышленного сектора. Особенность: DAX — индекс совокупного дохода (total return), включающий реинвестированные дивиденды, что делает его напрямую несопоставимым с price-return индексами.",
                 CountryOrRegion = @"Germany",
                 SortOrder = 70,
@@ -114,6 +121,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"CAC 40",
                 Code = @"PX1",
                 NormalizedCode = @"PX1",
+                ProviderSymbol = "^FCHI",
                 Description = @"Взвешенный по капитализации (free-float) индекс 40 крупнейших компаний Парижской фондовой биржи Euronext. Репрезентирует французский рынок и отражает широкий спектр отраслей: предметы роскоши, энергетика, финансы, промышленность. Многие компоненты являются глобальными корпорациями, поэтому чувствительны к валютным курсам.",
                 CountryOrRegion = @"France",
                 SortOrder = 80,
@@ -128,6 +136,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"EURO STOXX 50",
                 Code = @"SX5E",
                 NormalizedCode = @"SX5E",
+                ProviderSymbol = "^STOXX50E",
                 Description = @"Взвешенный по free-float капитализации индекс 50 крупнейших компаний еврозоны из 8 стран. Широко используется как базовый актив для деривативов и ETF, ориентированных на европейский рынок. Концентрация в нескольких странах (Франция, Германия) и секторах (финансы, промышленность) ограничивает диверсификацию.",
                 CountryOrRegion = @"Eurozone",
                 SortOrder = 90,
@@ -142,6 +151,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"STOXX EUROPE 600",
                 Code = @"SXXP",
                 NormalizedCode = @"SXXP",
+                ProviderSymbol = "^STOXX",
                 Description = @"Взвешенный по free-float капитализации индекс 600 компаний из 17 европейских стран, включая страны вне еврозоны (Великобритания, Швейцария, Скандинавия). Обеспечивает более широкое географическое и секторальное покрытие Европы, чем EURO STOXX 50. Применяется как эталон для паневропейских стратегий.",
                 CountryOrRegion = @"Europe",
                 SortOrder = 100,
@@ -156,6 +166,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"SMI",
                 Code = @"SMI",
                 NormalizedCode = @"SMI",
+                ProviderSymbol = "^SSMI",
                 Description = @"Взвешенный по free-float капитализации индекс 20 крупнейших компаний Швейцарской биржи. Сильно сконцентрирован в фармацевтике, финансах и товарах повседневного спроса. Выражен в швейцарских франках, которые традиционно считаются защитным активом. Высокая отраслевая концентрация является ключевым ограничением индекса.",
                 CountryOrRegion = @"Switzerland",
                 SortOrder = 110,
@@ -170,6 +181,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"IBEX 35",
                 Code = @"IBEX",
                 NormalizedCode = @"IBEX",
+                ProviderSymbol = "^IBEX",
                 Description = @"Взвешенный по free-float капитализации индекс 35 наиболее ликвидных акций Испанской фондовой биржи. Значительную долю занимают банки, телекоммуникационные и энергетические компании. Индекс чувствителен к динамике кредитного рынка еврозоны и политической обстановке.",
                 CountryOrRegion = @"Spain",
                 SortOrder = 120,
@@ -184,6 +196,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"FTSE MIB",
                 Code = @"FTSEMIB",
                 NormalizedCode = @"FTSEMIB",
+                ProviderSymbol = "FTSEMIB.MI",
                 Description = @"Взвешенный по free-float капитализации индекс 40 крупнейших и наиболее ликвидных итальянских компаний. Существенный вес имеют финансовый и коммунальный секторы. Высокая концентрация в банках делает индекс особенно чувствительным к ситуации с государственным долгом Италии.",
                 CountryOrRegion = @"Italy",
                 SortOrder = 130,
@@ -198,6 +211,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"NIKKEI 225",
                 Code = @"NKY",
                 NormalizedCode = @"NKY",
+                ProviderSymbol = "^N225",
                 Description = @"Ценово-взвешенный индекс 225 избранных акций Токийской фондовой биржи — аналог Доу-Джонса для японского рынка. Является наиболее известным барометром японского фондового рынка. Ценовое взвешивание создаёт те же искажения, что и в DJIA: высокостоимостные акции оказывают непропорциональное влияние.",
                 CountryOrRegion = @"Japan",
                 SortOrder = 140,
@@ -212,6 +226,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"TOPIX",
                 Code = @"TPX",
                 NormalizedCode = @"TPX",
+                ProviderSymbol = "^TOPX",
                 Description = @"Взвешенный по free-float капитализации индекс всех акций первой секции Токийской фондовой биржи — более 2 000 компаний. Считается более репрезентативным отражением японского рынка, чем Nikkei 225. Используется японскими институциональными инвесторами как основной эталон.",
                 CountryOrRegion = @"Japan",
                 SortOrder = 150,
@@ -226,6 +241,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"HANG SENG INDEX",
                 Code = @"HSI",
                 NormalizedCode = @"HSI",
+                ProviderSymbol = "^HSI",
                 Description = @"Взвешенный по free-float капитализации индекс крупнейших компаний Гонконгской фондовой биржи. Включает компании из материкового Китая, котирующиеся в Гонконге (акции H). Чувствителен к регуляторной политике материкового Китая и геополитическим рискам. Методология и состав регулярно пересматриваются.",
                 CountryOrRegion = @"Hong Kong",
                 SortOrder = 160,
@@ -240,6 +256,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"CSI 300",
                 Code = @"CSI300",
                 NormalizedCode = @"CSI300",
+                ProviderSymbol = "000300.SS",
                 Description = @"Взвешенный по free-float капитализации индекс 300 крупнейших акций, торгующихся на Шанхайской и Шэньчжэньской биржах (акции А). Отражает динамику китайского внутреннего рынка, доступного через механизмы Stock Connect. Подвержен влиянию регуляторных изменений и ограничений на движение капитала.",
                 CountryOrRegion = @"China",
                 SortOrder = 170,
@@ -254,6 +271,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"SHANGHAI COMPOSITE",
                 Code = @"SHCOMP",
                 NormalizedCode = @"SHCOMP",
+                ProviderSymbol = "000001.SS",
                 Description = @"Взвешенный по капитализации индекс всех акций А и Б, котирующихся на Шанхайской фондовой бирже. Используется как широкий барометр китайского рынка, однако включает большое число малоликвидных компаний. Доступ иностранных инвесторов ограничен квотами и регуляторными требованиями.",
                 CountryOrRegion = @"China",
                 SortOrder = 180,
@@ -268,6 +286,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"S&P/ASX 200",
                 Code = @"AS51",
                 NormalizedCode = @"AS51",
+                ProviderSymbol = "^AXJO",
                 Description = @"Взвешенный по free-float капитализации индекс 200 крупнейших компаний Австралийской фондовой биржи. Сильно сконцентрирован в финансовом и горнодобывающем секторах. Динамика тесно связана с ценами на сырьё и торговыми отношениями с Китаем. Стандартный эталон для австралийских портфельных стратегий.",
                 CountryOrRegion = @"Australia",
                 SortOrder = 190,
@@ -282,6 +301,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"S&P/TSX COMPOSITE",
                 Code = @"SPTSX",
                 NormalizedCode = @"SPTSX",
+                ProviderSymbol = "^GSPTSE",
                 Description = @"Взвешенный по рыночной капитализации индекс всех компаний, удовлетворяющих критериям включения Торонтской фондовой биржи. Существенную долю занимают финансовый сектор, горнодобыча и нефтегазовая промышленность. Динамика коррелирует с ценами на сырьё. Основной эталон канадского рынка акций.",
                 CountryOrRegion = @"Canada",
                 SortOrder = 200,
@@ -296,6 +316,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"BSE SENSEX",
                 Code = @"SENSEX",
                 NormalizedCode = @"SENSEX",
+                ProviderSymbol = "^BSESN",
                 Description = @"Ценово-взвешенный индекс 30 хорошо зарекомендовавших себя компаний Бомбейской фондовой биржи. Один из старейших индикаторов индийского рынка. Малое число компонентов ограничивает репрезентативность. Чувствителен к изменениям в регуляторной среде, процентным ставкам Резервного банка Индии и состоянию банковского сектора.",
                 CountryOrRegion = @"India",
                 SortOrder = 210,
@@ -310,6 +331,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"NIFTY 50",
                 Code = @"NIFTY50",
                 NormalizedCode = @"NIFTY50",
+                ProviderSymbol = "^NSEI",
                 Description = @"Взвешенный по free-float капитализации индекс 50 крупнейших компаний Национальной фондовой биржи Индии. Охватывает 13 секторов и считается более репрезентативным эталоном индийского рынка, чем SENSEX. Широко используется как база для деривативов и пассивных инструментов.",
                 CountryOrRegion = @"India",
                 SortOrder = 220,
@@ -324,6 +346,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"KOSPI",
                 Code = @"KOSPI",
                 NormalizedCode = @"KOSPI",
+                ProviderSymbol = "^KS11",
                 Description = @"Взвешенный по рыночной капитализации индекс всех акций обыкновенных акций Корейской фондовой биржи. Существенную долю занимают технологические и автомобильные конгломераты. Чувствителен к геополитическим рискам на Корейском полуострове и глобальному спросу на полупроводники.",
                 CountryOrRegion = @"South Korea",
                 SortOrder = 230,
@@ -338,6 +361,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"BOVESPA (IBOVESPA)",
                 Code = @"IBOV",
                 NormalizedCode = @"IBOV",
+                ProviderSymbol = "^BVSP",
                 Description = @"Взвешенный по ликвидности торгов индекс наиболее торгуемых акций биржи B3. Высокую долю занимают финансовые, сырьевые и энергетические компании. Подвержен влиянию бразильского реала, политических рисков и мировых цен на commodities. Является основным эталоном бразильского рынка акций.",
                 CountryOrRegion = @"Brazil",
                 SortOrder = 240,
@@ -352,6 +376,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"MSCI WORLD",
                 Code = @"MSCIW",
                 NormalizedCode = @"MSCIW",
+                ProviderSymbol = null,
                 Description = @"Взвешенный по free-float капитализации индекс акций крупной и средней капитализации из более 20 развитых стран. Охватывает около 85% рынка с поправкой на free-float в каждой стране. Широко используется как глобальный эталон для развитых рынков. Высокая доля США (более 60%) является ключевым ограничением географической диверсификации.",
                 CountryOrRegion = @"Developed Markets",
                 SortOrder = 250,
@@ -366,6 +391,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"MSCI EMERGING MARKETS",
                 Code = @"MSCIEM",
                 NormalizedCode = @"MSCIEM",
+                ProviderSymbol = null,
                 Description = @"Взвешенный по free-float капитализации индекс акций крупной и средней капитализации из более 20 развивающихся стран. Охватывает около 85% рынка с поправкой на free-float в каждой стране. Отражает возможности роста развивающихся экономик, но несёт повышенные риски: валютные, политические и ликвидности.",
                 CountryOrRegion = @"Emerging Markets",
                 SortOrder = 260,
@@ -380,6 +406,7 @@ public class AppDbContext : DbContext
                 NormalizedName = @"MSCI ACWI",
                 Code = @"MSCIACWI",
                 NormalizedCode = @"MSCIACWI",
+                ProviderSymbol = null,
                 Description = @"Взвешенный по free-float капитализации индекс акций крупной и средней капитализации из 47 стран — как развитых, так и развивающихся рынков. Объединяет MSCI World и MSCI Emerging Markets. Используется как единый глобальный эталон. Высокая доля США сохраняется и в ACWI.",
                 CountryOrRegion = @"Global",
                 SortOrder = 270,
@@ -406,6 +433,7 @@ public class AppDbContext : DbContext
     public DbSet<Industry> Industries { get; set; } = null!;
     public DbSet<MarketIndex> MarketIndices { get; set; } = null!;
     public DbSet<StockMarketIndex> StockMarketIndices { get; set; } = null!;
+    public DbSet<MarketIndexHistoricalPrice> MarketIndexHistoricalPrices { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -482,8 +510,22 @@ public class AppDbContext : DbContext
             entity.Property(x => x.NormalizedName).HasMaxLength(200);
             entity.Property(x => x.Code).HasMaxLength(50);
             entity.Property(x => x.NormalizedCode).HasMaxLength(50);
+            entity.Property(x => x.ProviderSymbol).HasMaxLength(50);
             entity.HasIndex(x => x.NormalizedCode).IsUnique();
             entity.HasData(MarketIndexSeedData);
+        });
+
+        modelBuilder.Entity<MarketIndexHistoricalPrice>(entity =>
+        {
+            entity.HasIndex(x => new { x.MarketIndexId, x.Timestamp, x.Interval }).IsUnique();
+            entity.HasIndex(x => new { x.MarketIndexId, x.Interval, x.Timestamp });
+            entity.Property(x => x.Interval).HasMaxLength(10);
+            entity.Property(x => x.Provider).HasMaxLength(64);
+            entity.Property(x => x.ProviderSymbol).HasMaxLength(50);
+            entity.HasOne(x => x.MarketIndex)
+                .WithMany()
+                .HasForeignKey(x => x.MarketIndexId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<StockMarketIndex>(entity =>

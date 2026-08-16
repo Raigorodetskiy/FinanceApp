@@ -161,6 +161,7 @@ builder.Services.AddScoped<IYahooFundamentalsService, YahooFundamentalsService>(
 builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionService>();
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddScoped<IFundamentalsService, FundamentalsService>();
+builder.Services.AddScoped<IMarketIndexHistoryService, MarketIndexHistoryService>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();

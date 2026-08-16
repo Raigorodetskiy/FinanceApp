@@ -69,6 +69,7 @@ export interface MarketIndex {
   id: number;
   name: string;
   code: string;
+  providerSymbol?: string | null;
   description: string;
   countryOrRegion: string;
   sortOrder: number;
@@ -100,6 +101,32 @@ export interface Stock {
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
+export type MarketIndexHistoryRange = StockHistoryRange;
+
+export interface MarketIndexHistoryPoint {
+  timestamp: string;
+  interval: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+}
+
+export interface MarketIndexHistoryResponse {
+  marketIndexId: number;
+  range: MarketIndexHistoryRange;
+  interval: string;
+  isStale: boolean;
+  staleReason: string | null;
+  points: MarketIndexHistoryPoint[];
+}
+
+export interface MarketIndexRefreshResponse {
+  marketIndexId: number;
+  deletedPoints: number;
+  importedPoints: number;
+}
 
 export interface StockQuoteResponse {
   symbol: string;
@@ -432,6 +459,7 @@ export interface UpdateStockMetadataRequest {
 export interface CreateMarketIndexRequest {
   name: string;
   code: string;
+  providerSymbol?: string | null;
   description?: string;
   countryOrRegion?: string;
   sortOrder?: number;
@@ -440,6 +468,7 @@ export interface CreateMarketIndexRequest {
 export interface UpdateMarketIndexRequest {
   name: string;
   code: string;
+  providerSymbol?: string | null;
   description?: string;
   countryOrRegion?: string;
   sortOrder?: number;
