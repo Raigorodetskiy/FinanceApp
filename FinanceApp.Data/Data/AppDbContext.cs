@@ -543,6 +543,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<StockMarketIndex>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ImportedAt)
+                .HasDefaultValueSql("UTC_TIMESTAMP(6)");
             entity.HasOne(x => x.Stock)
                 .WithMany(x => x.MarketIndices)
                 .HasForeignKey(x => x.StockId)
