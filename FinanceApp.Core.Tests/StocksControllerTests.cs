@@ -839,6 +839,171 @@ public class StocksControllerTests
         Assert.Contains("/quote", message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Create_WithMarketIndexIds_PersistsJoinRows()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.AddRange(
+            new MarketIndex { Id = 1, Name = "S&P 500", NormalizedName = "S&P 500", Code = "SPX", NormalizedCode = "SPX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new MarketIndex { Id = 2, Name = "NASDAQ-100", NormalizedName = "NASDAQ-100", Code = "NDX", NormalizedCode = "NDX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            MarketIndexIds = new List<int> { 1, 2 }
+        });
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var stock = Assert.IsType<Stock>(created.Value);
+        Assert.Equal(new[] { 1, 2 }, stock.MarketIndexIds);
+        Assert.Equal(2, await context.StockMarketIndices.CountAsync());
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_WithMarketIndexIds_SyncsJoinRows()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.AddRange(
+            new MarketIndex { Id = 1, Name = "S&P 500", NormalizedName = "S&P 500", Code = "SPX", NormalizedCode = "SPX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new MarketIndex { Id = 2, Name = "NASDAQ-100", NormalizedName = "NASDAQ-100", Code = "NDX", NormalizedCode = "NDX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+            new MarketIndex { Id = 3, Name = "MSCI World", NormalizedName = "MSCI WORLD", Code = "MSCIW", NormalizedCode = "MSCIW", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        var stock = new Stock
+        {
+            Id = 300,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { StockId = 300, MarketIndexId = 1 },
+                new() { StockId = 300, MarketIndexId = 2 }
+            }
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(stock.Id, new UpdateStockMetadataRequest
+        {
+            Name = stock.Name,
+            CommonName = stock.CommonName,
+            CurrentPrice = stock.CurrentPrice,
+            MarketIndexIds = new List<int> { 2, 3 }
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        var joins = await context.StockMarketIndices
+            .Where(x => x.StockId == stock.Id)
+            .OrderBy(x => x.MarketIndexId)
+            .Select(x => x.MarketIndexId)
+            .ToListAsync();
+        Assert.Equal(new[] { 2, 3 }, joins);
+    }
+
+    [Fact]
+    public async Task Create_UnknownMarketIndexId_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            MarketIndexIds = new List<int> { 999 }
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("Указан несуществующий мировой индекс.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task Create_ArchivedMarketIndexId_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5,
+            Name = "Archived",
+            NormalizedName = "ARCHIVED",
+            Code = "ARC",
+            NormalizedCode = "ARC",
+            IsArchived = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            MarketIndexIds = new List<int> { 5 }
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("Нельзя привязать акцию к архивному мировому индексу.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_WithoutMarketIndexIds_PreservesExistingBindings()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1,
+            Name = "S&P 500",
+            NormalizedName = "S&P 500",
+            Code = "SPX",
+            NormalizedCode = "SPX",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        var stock = new Stock
+        {
+            Id = 301,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { StockId = 301, MarketIndexId = 1 }
+            }
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(stock.Id, new UpdateStockMetadataRequest
+        {
+            Name = "Apple Inc. Updated",
+            CommonName = "Apple",
+            CurrentPrice = 101m
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == stock.Id));
+    }
+
 
     private static AppDbContext CreateContext()
     {

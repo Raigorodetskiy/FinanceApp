@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace FinanceApp.Core.Models;
 
@@ -44,4 +45,10 @@ public class Stock
     public DateTime? CurrentPriceAt { get; set; }
     public int? IndustryId { get; set; }
     public Industry? Industry { get; set; }
+
+    [JsonIgnore]
+    public ICollection<StockMarketIndex> MarketIndices { get; set; } = new List<StockMarketIndex>();
+
+    [NotMapped]
+    public List<int>? MarketIndexIds { get; set; }
 }

@@ -65,6 +65,16 @@ export interface SectorDto {
   industries: IndustryDto[];
 }
 
+export interface MarketIndex {
+  id: number;
+  name: string;
+  code: string;
+  description: string;
+  countryOrRegion: string;
+  sortOrder: number;
+  isArchived: boolean;
+}
+
 export interface Stock {
   id: number;
   ticker: string;
@@ -86,6 +96,7 @@ export interface Stock {
   industryId?: number | null;
   industry?: IndustryRef | null;
   sector?: SectorRef | null;
+  marketIndexIds?: number[];
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
@@ -385,6 +396,7 @@ export interface CreateStockRequest {
   isin?: string | null;
   finanzenNetSlug?: string | null;
   industryId?: number | null;
+  marketIndexIds?: number[];
 }
 
 export interface UpdateStockRequest {
@@ -414,6 +426,23 @@ export interface UpdateStockMetadataRequest {
   finanzenNetSlug?: string | null;
   currentPrice: number;
   industryId?: number | null;
+  marketIndexIds?: number[];
+}
+
+export interface CreateMarketIndexRequest {
+  name: string;
+  code: string;
+  description?: string;
+  countryOrRegion?: string;
+  sortOrder?: number;
+}
+
+export interface UpdateMarketIndexRequest {
+  name: string;
+  code: string;
+  description?: string;
+  countryOrRegion?: string;
+  sortOrder?: number;
 }
 
 export interface CreateSectorRequest {

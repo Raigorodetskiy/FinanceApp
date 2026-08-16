@@ -152,4 +152,5 @@ public sealed class UpdateStockMetadataRequest
     public string? FinanzenNetSlug { get; init; }
     public decimal CurrentPrice { get; init; }
     public int? IndustryId { get; init; }
+    public List<int>? MarketIndexIds { get; init; }
 }

@@ -90,10 +90,12 @@ public class StocksController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Stock>>> GetAll()
-        => await _context.Stocks
+        => PrepareStocksForResponse(await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
-            .ToListAsync();
+            .Include(s => s.MarketIndices)
+            .ThenInclude(x => x.MarketIndex)
+            .ToListAsync());
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Stock>> GetById(int id)
@@ -101,9 +103,11 @@ public class StocksController : ControllerBase
         var stock = await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
+            .Include(s => s.MarketIndices)
+            .ThenInclude(x => x.MarketIndex)
             .FirstOrDefaultAsync(s => s.Id == id);
         if (stock == null) return NotFound();
-        return stock;
+        return PrepareStockForResponse(stock);
     }
 
     [HttpGet("{id}/history")]
@@ -165,8 +169,19 @@ public class StocksController : ControllerBase
         var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(stock.IndustryId);
         if (industryValidationError != null) return industryValidationError;
 
+        var requestedMarketIndexIds = stock.MarketIndexIds;
+        var (marketIndicesValidationError, marketIndices) = await ValidateMarketIndexAssignmentsAsync(requestedMarketIndexIds);
+        if (marketIndicesValidationError != null) return marketIndicesValidationError;
+
         stock.UpdatedAt = DateTime.UtcNow;
         stock.Industry = null;
+        stock.MarketIndices = marketIndices
+            .Select(marketIndex => new StockMarketIndex
+            {
+                MarketIndexId = marketIndex.Id,
+                Stock = stock
+            })
+            .ToList();
         _context.Stocks.Add(stock);
         try
         {
@@ -219,6 +234,7 @@ public class StocksController : ControllerBase
         var existing = await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
+            .Include(s => s.MarketIndices)
             .FirstOrDefaultAsync(s => s.Id == id);
         if (existing == null) return NotFound();
 
@@ -240,6 +256,10 @@ public class StocksController : ControllerBase
         var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
         if (industryValidationError != null) return industryValidationError;
 
+        var currentMarketIndexIds = existing.MarketIndices.Select(x => x.MarketIndexId).ToHashSet();
+        var (marketIndicesValidationError, marketIndices) = await ValidateMarketIndexAssignmentsAsync(request.MarketIndexIds, currentMarketIndexIds);
+        if (marketIndicesValidationError != null) return marketIndicesValidationError;
+
         existing.Name = name;
         existing.CommonName = commonName;
         existing.Wkn = wkn;
@@ -247,6 +267,7 @@ public class StocksController : ControllerBase
         existing.FinanzenNetSlug = finanzenNetSlug;
         existing.IndustryId = request.IndustryId;
         existing.UpdatedAt = DateTime.UtcNow;
+        SyncMarketIndices(existing, request.MarketIndexIds, marketIndices);
 
         // Manual price edit: clear stale snapshot fields so the UI never shows outdated
         // change/timestamp alongside a manually entered price.
@@ -327,6 +348,8 @@ public class StocksController : ControllerBase
         => await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
+            .Include(s => s.MarketIndices)
+            .ThenInclude(x => x.MarketIndex)
             .FirstAsync(s => s.Id == id);
 
     private async Task<(ActionResult? Error, Industry? Industry)> ValidateIndustryAssignmentAsync(int? industryId, int? currentIndustryId = null)
@@ -362,6 +385,82 @@ public class StocksController : ControllerBase
         }
 
         return (null, industry);
+    }
+
+    private async Task<(ActionResult? Error, List<MarketIndex> MarketIndices)> ValidateMarketIndexAssignmentsAsync(
+        List<int>? marketIndexIds,
+        ISet<int>? currentMarketIndexIds = null)
+    {
+        if (marketIndexIds is null)
+        {
+            return (null, new List<MarketIndex>());
+        }
+
+        var distinctIds = marketIndexIds.Distinct().ToArray();
+        if (distinctIds.Length == 0)
+        {
+            return (null, new List<MarketIndex>());
+        }
+
+        var marketIndices = await _context.MarketIndices
+            .Where(x => distinctIds.Contains(x.Id))
+            .ToListAsync();
+
+        if (marketIndices.Count != distinctIds.Length)
+        {
+            return (BadRequest("Указан несуществующий мировой индекс."), new List<MarketIndex>());
+        }
+
+        currentMarketIndexIds ??= new HashSet<int>();
+
+        if (marketIndices.Any(x => x.IsArchived && !currentMarketIndexIds.Contains(x.Id)))
+        {
+            return (BadRequest("Нельзя привязать акцию к архивному мировому индексу."), new List<MarketIndex>());
+        }
+
+        return (null, marketIndices);
+    }
+
+    private void SyncMarketIndices(Stock stock, List<int>? requestedIds, IReadOnlyCollection<MarketIndex> marketIndices)
+    {
+        if (requestedIds is null)
+        {
+            return;
+        }
+
+        var requestedIdSet = requestedIds.Distinct().ToHashSet();
+        var existingJoins = stock.MarketIndices.ToDictionary(x => x.MarketIndexId);
+
+        foreach (var join in stock.MarketIndices.Where(x => !requestedIdSet.Contains(x.MarketIndexId)).ToList())
+        {
+            stock.MarketIndices.Remove(join);
+            _context.StockMarketIndices.Remove(join);
+        }
+
+        foreach (var marketIndex in marketIndices)
+        {
+            if (!existingJoins.ContainsKey(marketIndex.Id))
+            {
+                stock.MarketIndices.Add(new StockMarketIndex
+                {
+                    StockId = stock.Id,
+                    MarketIndexId = marketIndex.Id
+                });
+            }
+        }
+    }
+
+    private static List<Stock> PrepareStocksForResponse(List<Stock> stocks)
+        => stocks.Select(PrepareStockForResponse).ToList();
+
+    private static Stock PrepareStockForResponse(Stock stock)
+    {
+        stock.MarketIndexIds = stock.MarketIndices
+            .OrderBy(x => x.MarketIndex.SortOrder)
+            .ThenBy(x => x.MarketIndex.Name)
+            .Select(x => x.MarketIndexId)
+            .ToList();
+        return stock;
     }
 
     private static string BuildDuplicateMessage(string? wkn, string? isin)
