@@ -37,6 +37,7 @@ public class StocksControllerTests
 
     [Theory]
     [InlineData("nyse", StockExchanges.Nyse)]
+    [InlineData(" nasdaq ", StockExchanges.Nasdaq)]
     [InlineData(" Frankfurt ", StockExchanges.Frankfurt)]
     public async Task Create_ValidExchangeValues_AreNormalized(string inputExchange, string expectedExchange)
     {
@@ -69,7 +70,7 @@ public class StocksControllerTests
             Ticker = "TEST",
             Name = "Test Corp",
             CommonName = "Test Corp",
-            Exchange = "NASDAQ",
+            Exchange = "LSE",
             CurrentPrice = 1m
         });
 
