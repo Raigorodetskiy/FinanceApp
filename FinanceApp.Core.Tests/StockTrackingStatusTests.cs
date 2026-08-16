@@ -592,6 +592,47 @@ public class StockTrackingStatusTests
         Assert.Null((await context.StockMarketIndices.SingleAsync(x => x.MarketIndexId == 1 && x.StockId == existing.Id)).EffectiveTo);
     }
 
+    [Fact]
+    public async Task RefreshAndGetConstituents_Nasdaq100CuratedSnapshot_ReturnsSourceAsOfAndCuratedMetadata()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 4, Name = "NASDAQ-100", NormalizedName = "NASDAQ-100", Code = "NDX",
+            NormalizedCode = "NDX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var asOfDate = new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc);
+        var provider = new SnapshotProvider(
+            entries:
+            [
+                new IndexConstituentEntry("GOOG", "GOOG", "Alphabet Inc. Class C", StockExchanges.Nasdaq, null),
+                new IndexConstituentEntry("GOOGL", "GOOGL", "Alphabet Inc. Class A", StockExchanges.Nasdaq, null),
+            ],
+            providerName: "Nasdaq Global Indexes (curated snapshot)",
+            sourceUrl: "https://www.nasdaq.com/market-activity/quotes/ndx-index",
+            asOfDate: asOfDate);
+
+        var controller = CreateMarketIndicesController(context, provider);
+        var refreshResult = await controller.RefreshConstituents(4);
+        var refreshOk = Assert.IsType<OkObjectResult>(refreshResult.Result);
+        var refreshBody = Assert.IsType<IndexConstituentsRefreshResponse>(refreshOk.Value);
+
+        Assert.Equal("Success", refreshBody.ProviderStatus);
+        Assert.True(refreshBody.IsCuratedSnapshot);
+        Assert.Equal(asOfDate, refreshBody.AsOfDate);
+        Assert.Equal("https://www.nasdaq.com/market-activity/quotes/ndx-index", refreshBody.SourceUrl);
+
+        var getResult = await controller.GetConstituents(4);
+        var getOk = Assert.IsType<OkObjectResult>(getResult.Result);
+        var getBody = Assert.IsType<IndexConstituentsResponse>(getOk.Value);
+
+        Assert.Equal("Nasdaq Global Indexes (curated snapshot)", getBody.Source);
+        Assert.True(getBody.IsCuratedSnapshot);
+        Assert.Equal(asOfDate, getBody.AsOfDate);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static AppDbContext CreateContext()
@@ -655,13 +696,23 @@ public class StockTrackingStatusTests
     private sealed class SnapshotProvider : IIndexConstituentsProvider
     {
         private readonly IReadOnlyList<IndexConstituentEntry> _entries;
+        private readonly string _providerName;
+        private readonly DateTime _asOfDate;
+        private readonly string? _sourceUrl;
 
-        public SnapshotProvider(IReadOnlyList<IndexConstituentEntry> entries)
+        public SnapshotProvider(
+            IReadOnlyList<IndexConstituentEntry> entries,
+            string providerName = "Test Snapshot",
+            string? sourceUrl = "https://example.test/djia",
+            DateTime? asOfDate = null)
         {
             _entries = entries;
+            _providerName = providerName;
+            _sourceUrl = sourceUrl;
+            _asOfDate = asOfDate ?? new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc);
         }
 
-        public string ProviderName => "Test Snapshot";
+        public string ProviderName => _providerName;
 
         public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
             => Task.FromResult(new IndexConstituentsResult(
@@ -670,8 +721,8 @@ public class StockTrackingStatusTests
                 DateTime.UtcNow,
                 _entries,
                 Message: null,
-                AsOfDate: new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc),
-                SourceUrl: "https://example.test/djia",
+                AsOfDate: _asOfDate,
+                SourceUrl: _sourceUrl,
                 IsCuratedSnapshot: true,
                 IsStale: false));
     }

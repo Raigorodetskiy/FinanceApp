@@ -1,0 +1,714 @@
+{
+  "sourceName": "Nasdaq Global Indexes",
+  "sourceUrl": "https://www.nasdaq.com/market-activity/quotes/ndx-index",
+  "asOfDate": "2026-08-16",
+  "constituents": [
+    {
+      "ticker": "AAPL",
+      "providerSymbol": "AAPL",
+      "companyName": "Apple Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ABNB",
+      "providerSymbol": "ABNB",
+      "companyName": "Airbnb, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ADBE",
+      "providerSymbol": "ADBE",
+      "companyName": "Adobe Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ADI",
+      "providerSymbol": "ADI",
+      "companyName": "Analog Devices, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ADP",
+      "providerSymbol": "ADP",
+      "companyName": "Automatic Data Processing, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ADSK",
+      "providerSymbol": "ADSK",
+      "companyName": "Autodesk, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AEP",
+      "providerSymbol": "AEP",
+      "companyName": "American Electric Power Company, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ALGN",
+      "providerSymbol": "ALGN",
+      "companyName": "Align Technology, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AMAT",
+      "providerSymbol": "AMAT",
+      "companyName": "Applied Materials, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AMD",
+      "providerSymbol": "AMD",
+      "companyName": "Advanced Micro Devices, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AMGN",
+      "providerSymbol": "AMGN",
+      "companyName": "Amgen Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AMZN",
+      "providerSymbol": "AMZN",
+      "companyName": "Amazon.com, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ANSS",
+      "providerSymbol": "ANSS",
+      "companyName": "ANSYS, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "APP",
+      "providerSymbol": "APP",
+      "companyName": "AppLovin Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ARM",
+      "providerSymbol": "ARM",
+      "companyName": "Arm Holdings plc",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ASML",
+      "providerSymbol": "ASML",
+      "companyName": "ASML Holding N.V.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AVGO",
+      "providerSymbol": "AVGO",
+      "companyName": "Broadcom Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AXON",
+      "providerSymbol": "AXON",
+      "companyName": "Axon Enterprise, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "AZN",
+      "providerSymbol": "AZN",
+      "companyName": "AstraZeneca PLC",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "BIIB",
+      "providerSymbol": "BIIB",
+      "companyName": "Biogen Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "BKNG",
+      "providerSymbol": "BKNG",
+      "companyName": "Booking Holdings Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "BKR",
+      "providerSymbol": "BKR",
+      "companyName": "Baker Hughes Company",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CCEP",
+      "providerSymbol": "CCEP",
+      "companyName": "Coca-Cola Europacific Partners plc",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CDNS",
+      "providerSymbol": "CDNS",
+      "companyName": "Cadence Design Systems, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CDW",
+      "providerSymbol": "CDW",
+      "companyName": "CDW Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CEG",
+      "providerSymbol": "CEG",
+      "companyName": "Constellation Energy Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CHTR",
+      "providerSymbol": "CHTR",
+      "companyName": "Charter Communications, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CMCSA",
+      "providerSymbol": "CMCSA",
+      "companyName": "Comcast Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "COST",
+      "providerSymbol": "COST",
+      "companyName": "Costco Wholesale Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CPRT",
+      "providerSymbol": "CPRT",
+      "companyName": "Copart, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CRWD",
+      "providerSymbol": "CRWD",
+      "companyName": "CrowdStrike Holdings, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CSCO",
+      "providerSymbol": "CSCO",
+      "companyName": "Cisco Systems, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CSGP",
+      "providerSymbol": "CSGP",
+      "companyName": "CoStar Group, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CSX",
+      "providerSymbol": "CSX",
+      "companyName": "CSX Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CTAS",
+      "providerSymbol": "CTAS",
+      "companyName": "Cintas Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "CTSH",
+      "providerSymbol": "CTSH",
+      "companyName": "Cognizant Technology Solutions Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "DASH",
+      "providerSymbol": "DASH",
+      "companyName": "DoorDash, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "DDOG",
+      "providerSymbol": "DDOG",
+      "companyName": "Datadog, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "DXCM",
+      "providerSymbol": "DXCM",
+      "companyName": "DexCom, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "EA",
+      "providerSymbol": "EA",
+      "companyName": "Electronic Arts Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "EXC",
+      "providerSymbol": "EXC",
+      "companyName": "Exelon Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "FANG",
+      "providerSymbol": "FANG",
+      "companyName": "Diamondback Energy, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "FAST",
+      "providerSymbol": "FAST",
+      "companyName": "Fastenal Company",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "FTNT",
+      "providerSymbol": "FTNT",
+      "companyName": "Fortinet, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "GEHC",
+      "providerSymbol": "GEHC",
+      "companyName": "GE HealthCare Technologies Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "GFS",
+      "providerSymbol": "GFS",
+      "companyName": "GlobalFoundries Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "GILD",
+      "providerSymbol": "GILD",
+      "companyName": "Gilead Sciences, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "GOOG",
+      "providerSymbol": "GOOG",
+      "companyName": "Alphabet Inc. Class C",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "GOOGL",
+      "providerSymbol": "GOOGL",
+      "companyName": "Alphabet Inc. Class A",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "HON",
+      "providerSymbol": "HON",
+      "companyName": "Honeywell International Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "IDXX",
+      "providerSymbol": "IDXX",
+      "companyName": "IDEXX Laboratories, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ILMN",
+      "providerSymbol": "ILMN",
+      "companyName": "Illumina, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "INTC",
+      "providerSymbol": "INTC",
+      "companyName": "Intel Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "INTU",
+      "providerSymbol": "INTU",
+      "companyName": "Intuit Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ISRG",
+      "providerSymbol": "ISRG",
+      "companyName": "Intuitive Surgical, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "KDP",
+      "providerSymbol": "KDP",
+      "companyName": "Keurig Dr Pepper Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "KHC",
+      "providerSymbol": "KHC",
+      "companyName": "The Kraft Heinz Company",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "KLAC",
+      "providerSymbol": "KLAC",
+      "companyName": "KLA Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "LRCX",
+      "providerSymbol": "LRCX",
+      "companyName": "Lam Research Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "LULU",
+      "providerSymbol": "LULU",
+      "companyName": "lululemon athletica inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MAR",
+      "providerSymbol": "MAR",
+      "companyName": "Marriott International, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MCHP",
+      "providerSymbol": "MCHP",
+      "companyName": "Microchip Technology Incorporated",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MDB",
+      "providerSymbol": "MDB",
+      "companyName": "MongoDB, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MDLZ",
+      "providerSymbol": "MDLZ",
+      "companyName": "Mondelez International, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MELI",
+      "providerSymbol": "MELI",
+      "companyName": "MercadoLibre, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "META",
+      "providerSymbol": "META",
+      "companyName": "Meta Platforms, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MNST",
+      "providerSymbol": "MNST",
+      "companyName": "Monster Beverage Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MRNA",
+      "providerSymbol": "MRNA",
+      "companyName": "Moderna, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MRVL",
+      "providerSymbol": "MRVL",
+      "companyName": "Marvell Technology, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MSFT",
+      "providerSymbol": "MSFT",
+      "companyName": "Microsoft Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "MU",
+      "providerSymbol": "MU",
+      "companyName": "Micron Technology, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "NFLX",
+      "providerSymbol": "NFLX",
+      "companyName": "Netflix, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "NVDA",
+      "providerSymbol": "NVDA",
+      "companyName": "NVIDIA Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "NXPI",
+      "providerSymbol": "NXPI",
+      "companyName": "NXP Semiconductors N.V.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ODFL",
+      "providerSymbol": "ODFL",
+      "companyName": "Old Dominion Freight Line, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ON",
+      "providerSymbol": "ON",
+      "companyName": "ON Semiconductor Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ORLY",
+      "providerSymbol": "ORLY",
+      "companyName": "O'Reilly Automotive, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PANW",
+      "providerSymbol": "PANW",
+      "companyName": "Palo Alto Networks, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PAYX",
+      "providerSymbol": "PAYX",
+      "companyName": "Paychex, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PCAR",
+      "providerSymbol": "PCAR",
+      "companyName": "PACCAR Inc",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PDD",
+      "providerSymbol": "PDD",
+      "companyName": "PDD Holdings Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PEP",
+      "providerSymbol": "PEP",
+      "companyName": "PepsiCo, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PLTR",
+      "providerSymbol": "PLTR",
+      "companyName": "Palantir Technologies Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "PYPL",
+      "providerSymbol": "PYPL",
+      "companyName": "PayPal Holdings, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "QCOM",
+      "providerSymbol": "QCOM",
+      "companyName": "QUALCOMM Incorporated",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "REGN",
+      "providerSymbol": "REGN",
+      "companyName": "Regeneron Pharmaceuticals, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ROST",
+      "providerSymbol": "ROST",
+      "companyName": "Ross Stores, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "SBUX",
+      "providerSymbol": "SBUX",
+      "companyName": "Starbucks Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "SNPS",
+      "providerSymbol": "SNPS",
+      "companyName": "Synopsys, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "TEAM",
+      "providerSymbol": "TEAM",
+      "companyName": "Atlassian Corporation",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "TMUS",
+      "providerSymbol": "TMUS",
+      "companyName": "T-Mobile US, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "TSLA",
+      "providerSymbol": "TSLA",
+      "companyName": "Tesla, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "TTD",
+      "providerSymbol": "TTD",
+      "companyName": "The Trade Desk, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "TTWO",
+      "providerSymbol": "TTWO",
+      "companyName": "Take-Two Interactive Software, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "TXN",
+      "providerSymbol": "TXN",
+      "companyName": "Texas Instruments Incorporated",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "VRSK",
+      "providerSymbol": "VRSK",
+      "companyName": "Verisk Analytics, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "VRTX",
+      "providerSymbol": "VRTX",
+      "companyName": "Vertex Pharmaceuticals Incorporated",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "WBD",
+      "providerSymbol": "WBD",
+      "companyName": "Warner Bros. Discovery, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "WDAY",
+      "providerSymbol": "WDAY",
+      "companyName": "Workday, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "XEL",
+      "providerSymbol": "XEL",
+      "companyName": "Xcel Energy Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    },
+    {
+      "ticker": "ZS",
+      "providerSymbol": "ZS",
+      "companyName": "Zscaler, Inc.",
+      "exchange": "NASDAQ",
+      "isin": null
+    }
+  ]
+}

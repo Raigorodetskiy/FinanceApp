@@ -71,27 +71,31 @@ Notes:
 - Current quotes and historical refreshes share the same throttle, cooldown, and in-flight request coalescing.
 - When Yahoo returns HTTP `429`, FinanceApp stops sending new Yahoo requests until the shared cooldown expires.
 
-### DJIA constituents import source (index constituents)
+### Index constituents import sources (DJIA + NASDAQ-100)
 
-- In this PR, **only DJIA** (`MarketIndex.Code = DJIA`) has real constituent import.
-- Runtime source is a **curated versioned snapshot** stored in:
-  - `FinanceApp.API/Data/index-constituents/djia.curated.snapshot.json`
+- Supported index-constituent imports:
+  - `DJIA` → `FinanceApp.API/Data/index-constituents/djia.curated.snapshot.json`
+  - `NDX` → `FinanceApp.API/Data/index-constituents/nasdaq100.curated.snapshot.json`
+- Not supported (still return `422 Unsupported`): `SPX` and other indices.
 - Source attribution:
-  - `https://www.spglobal.com/spdji/en/indices/equity/dow-jones-industrial-average/`
+  - DJIA: `https://www.spglobal.com/spdji/en/indices/equity/dow-jones-industrial-average/`
+  - NASDAQ-100: `https://www.nasdaq.com/market-activity/quotes/ndx-index`
 - Snapshot metadata includes:
-  - `asOfDate` (date of verified snapshot),
+  - `asOfDate` (verified snapshot date),
   - source URL,
-  - curated flag (UI shows it as **"Проверенный снимок"**, not live feed).
-- Why curated snapshot:
-  - official DJIA owner (S&P Dow Jones Indices) does not provide a free/public stable structured endpoint suitable for production runtime import in this app.
-- Explicit non-goal:
-  - ETF holdings (e.g. DIA) are **not** used as a silent substitute for DJIA constituents.
-- Manual update workflow:
-  1. Verify current DJIA list from authoritative source.
-  2. Update `djia.curated.snapshot.json` (`asOfDate` + constituents only with confirmed ticker/name/exchange).
-  3. Run backend/frontend tests and build.
-  4. Open PR describing source and as-of date.
-- Imported constituent stocks are created as `CatalogOnly` and do **not** trigger automatic price/history/fundamentals tracking.
+  - curated flag (UI shows **"Проверенный снимок"**, not live feed).
+- Current curated snapshot date for both files in this repository: `2026-08-16`.
+- Why curated snapshots:
+  - no free/public stable structured runtime endpoint was available in this environment without keys/secrets and with clear production-safe usage constraints.
+- Explicit non-goals:
+  - ETF holdings (`DIA`, `QQQ`) are **not** used as a silent substitute for index constituents.
+  - `CatalogOnly` imports do **not** auto-enable quote/history/fundamentals tracking.
+- Manual verification/update workflow:
+  1. Verify current constituent lists from authoritative index-owner sources.
+  2. Update the relevant curated snapshot (`djia.curated.snapshot.json` or `nasdaq100.curated.snapshot.json`) with confirmed ticker/name/exchange (and ISIN only when reliably sourced).
+  3. Update `asOfDate`, keep source URL attribution, and ensure identity uniqueness (`providerSymbol|exchange`).
+  4. Run backend/frontend tests and build.
+  5. Open PR describing source, as-of date, and any known caveats.
 
 ---
 
