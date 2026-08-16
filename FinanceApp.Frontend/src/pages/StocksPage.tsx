@@ -36,6 +36,7 @@ import {
   getPortfolios,
   getStockPrice,
   getSectors,
+  getMarketIndices,
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockPriceChart from '../components/StockPriceChart';
@@ -44,6 +45,7 @@ import StockExchangeTag from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import type {
   Portfolio,
+  MarketIndex,
   SectorDto,
   Stock,
   StockExchange,
@@ -78,6 +80,57 @@ export const STOCK_DELETE_TOOLTIP = 'Удалить';
 export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить, пока она находится в портфеле';
 const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления акции';
 export const IDENTITY_IMMUTABLE_HELPER = 'Тикер и биржа определяют инструмент и не могут быть изменены. Для другого тикера или биржи создайте новую акцию.';
+export const STOCK_MARKET_INDEX_SELECT_MODE = 'multiple';
+
+type StockFormValues = {
+  ticker: string;
+  name: string;
+  commonName?: string;
+  exchange: StockExchange;
+  currentPrice: number;
+  wkn?: string;
+  isin?: string;
+  finanzenNetSlug?: string;
+  sectorId?: number;
+  industryId?: number | null;
+  marketIndexIds?: number[];
+};
+
+export const buildCreateStockPayload = (values: StockFormValues) => {
+  const normalizeId = (v?: string): string | null => {
+    const s = (v ?? '').trim().toUpperCase();
+    return s.length > 0 ? s : null;
+  };
+
+  const normalizedName = values.name.trim();
+  const normalizedCommonName = (values.commonName ?? '').trim() || normalizedName;
+
+  return {
+    ...values,
+    name: normalizedName,
+    commonName: normalizedCommonName,
+    wkn: normalizeId(values.wkn),
+    isin: normalizeId(values.isin),
+    finanzenNetSlug: (values.finanzenNetSlug ?? '').trim().toLowerCase() || null,
+    exchange: values.exchange,
+    industryId: values.industryId ?? null,
+    marketIndexIds: values.marketIndexIds ?? [],
+  };
+};
+
+export const buildUpdateStockMetadataPayload = (values: StockFormValues): UpdateStockMetadataRequest => {
+  const payload = buildCreateStockPayload(values);
+  return {
+    name: payload.name,
+    commonName: payload.commonName,
+    wkn: payload.wkn,
+    isin: payload.isin,
+    finanzenNetSlug: payload.finanzenNetSlug,
+    currentPrice: payload.currentPrice,
+    industryId: payload.industryId,
+    marketIndexIds: payload.marketIndexIds,
+  };
+};
 
 export const getStockDeleteErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err) && typeof err.response?.data === 'string' && err.response.data.trim().length > 0) {
@@ -250,6 +303,7 @@ export const renderStockRowActions = ({
 const StocksPage: React.FC = () => {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [sectors, setSectors] = useState<SectorDto[]>([]);
+  const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -288,10 +342,15 @@ const StocksPage: React.FC = () => {
         getPortfolios(),
         getSectors(true),
       ]);
+      const marketIndicesRes = await getMarketIndices(true).catch(() => null);
       setStocks(stocksRes.data);
       stocksRef.current = stocksRes.data;
       setPortfolios(portfoliosRes.data);
       setSectors(sectorsRes);
+      setMarketIndices(marketIndicesRes ?? []);
+      if (marketIndicesRes == null) {
+        message.warning('Не удалось загрузить мировые индексы');
+      }
     } catch {
       message.error('Ошибка загрузки данных');
     } finally {
@@ -429,7 +488,12 @@ const StocksPage: React.FC = () => {
   const openCreateModal = () => {
     setEditingStock(null);
     form.resetFields();
-    form.setFieldsValue({ exchange: DEFAULT_STOCK_EXCHANGE, sectorId: undefined, industryId: undefined });
+    form.setFieldsValue({
+      exchange: DEFAULT_STOCK_EXCHANGE,
+      sectorId: undefined,
+      industryId: undefined,
+      marketIndexIds: [],
+    });
     setModalOpen(true);
   };
 
@@ -439,60 +503,19 @@ const StocksPage: React.FC = () => {
       ...stock,
       sectorId: stock.sector?.id,
       industryId: stock.industryId ?? undefined,
+      marketIndexIds: stock.marketIndexIds ?? [],
     });
     setModalOpen(true);
   };
 
-  const handleSubmit = async (values: {
-    ticker: string;
-    name: string;
-    commonName?: string;
-    exchange: StockExchange;
-    currentPrice: number;
-    wkn?: string;
-    isin?: string;
-    finanzenNetSlug?: string;
-    sectorId?: number;
-    industryId?: number | null;
-  }) => {
-    // Normalize: blank → null, trim + uppercase
-    const normalizeId = (v?: string): string | null => {
-      const s = (v ?? '').trim().toUpperCase();
-      return s.length > 0 ? s : null;
-    };
-    const wkn = normalizeId(values.wkn);
-    const isin = normalizeId(values.isin);
-    const finanzenNetSlug = (values.finanzenNetSlug ?? '').trim().toLowerCase() || null;
-    const normalizedName = values.name.trim();
-    const normalizedCommonName = (values.commonName ?? '').trim() || normalizedName;
-
+  const handleSubmit = async (values: StockFormValues) => {
     setSubmitting(true);
     try {
       if (editingStock) {
-        // Build an explicit metadata payload — never spread editingStock into the request.
-        // Ticker and Exchange are immutable identity fields and must not be sent.
-        const metadataPayload: UpdateStockMetadataRequest = {
-          name: normalizedName,
-          commonName: normalizedCommonName,
-          wkn,
-          isin,
-          finanzenNetSlug,
-          currentPrice: values.currentPrice,
-          industryId: values.industryId ?? null,
-        };
-        await updateStockMetadata(editingStock.id, metadataPayload);
+        await updateStockMetadata(editingStock.id, buildUpdateStockMetadataPayload(values));
         message.success('Акция обновлена');
       } else {
-        await createStock({
-          ...values,
-          name: normalizedName,
-          commonName: normalizedCommonName,
-          wkn,
-          isin,
-          finanzenNetSlug,
-          exchange: values.exchange,
-          industryId: values.industryId ?? null,
-        });
+        await createStock(buildCreateStockPayload(values));
         message.success('Акция добавлена');
       }
       setModalOpen(false);
@@ -640,6 +663,27 @@ const StocksPage: React.FC = () => {
 
     return options;
   }, [editingStock, sectors, selectedFormSectorId]);
+  const marketIndexOptions = useMemo(() => {
+    const options = marketIndices
+      .filter((marketIndex) => !marketIndex.isArchived)
+      .map((marketIndex) => ({
+        value: marketIndex.id,
+        label: renderClassificationName(`${marketIndex.code} — ${marketIndex.name}`, marketIndex.isArchived),
+      }));
+
+    const selectedIds = editingStock?.marketIndexIds ?? [];
+    selectedIds.forEach((marketIndexId) => {
+      const marketIndex = marketIndices.find((item) => item.id === marketIndexId);
+      if (marketIndex && marketIndex.isArchived && !options.some((option) => option.value === marketIndex.id)) {
+        options.push({
+          value: marketIndex.id,
+          label: renderClassificationName(`${marketIndex.code} — ${marketIndex.name}`, true),
+        });
+      }
+    });
+
+    return options;
+  }, [editingStock, marketIndices]);
   const columns = [
     {
       title: 'Тикер',
@@ -1032,6 +1076,14 @@ const StocksPage: React.FC = () => {
               placeholder={selectedFormSectorId != null ? 'Не выбрана' : 'Сначала выберите сектор'}
               options={industryOptions}
               disabled={selectedFormSectorId == null}
+            />
+          </Form.Item>
+          <Form.Item label="Мировые индексы" name="marketIndexIds">
+            <Select
+              mode={STOCK_MARKET_INDEX_SELECT_MODE}
+              allowClear
+              placeholder="Не выбраны"
+              options={marketIndexOptions}
             />
           </Form.Item>
           <Form.Item

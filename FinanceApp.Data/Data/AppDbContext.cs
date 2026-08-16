@@ -5,6 +5,390 @@ namespace FinanceApp.Data.Data;
 
 public class AppDbContext : DbContext
 {
+    private static readonly DateTime MarketIndicesSeedTimestampUtc = new(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc);
+
+    private static readonly MarketIndex[] MarketIndexSeedData =
+    [
+            new MarketIndex
+            {
+                Id = 1,
+                Name = @"Dow Jones Industrial Average",
+                NormalizedName = @"DOW JONES INDUSTRIAL AVERAGE",
+                Code = @"DJIA",
+                NormalizedCode = @"DJIA",
+                Description = @"Индекс Доу-Джонса для промышленных компаний отражает динамику 30 крупнейших публичных компаний США. Взвешен по цене, а не по рыночной капитализации, что является методологическим ограничением: более дорогие акции оказывают непропорционально большое влияние. Используется как исторический барометр состояния американской экономики, однако из-за малого числа компонентов и ценового взвешивания считается менее репрезентативным, чем S&P 500.",
+                CountryOrRegion = @"USA",
+                SortOrder = 10,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 2,
+                Name = @"S&P 500",
+                NormalizedName = @"S&P 500",
+                Code = @"SPX",
+                NormalizedCode = @"SPX",
+                Description = @"Взвешенный по рыночной капитализации индекс 500 крупнейших публичных компаний США. Широко признан эталоном для американского рынка акций и базой для большинства пассивных инвестиционных стратегий. Охватывает около 80% совокупной капитализации рынка США. Основное ограничение — концентрация в технологическом секторе и крупнейших компаниях. Состав и методологию определяет комитет S&P.",
+                CountryOrRegion = @"USA",
+                SortOrder = 20,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 3,
+                Name = @"NASDAQ Composite",
+                NormalizedName = @"NASDAQ COMPOSITE",
+                Code = @"COMP",
+                NormalizedCode = @"COMP",
+                Description = @"Взвешенный по капитализации индекс всех акций, торгующихся на бирже NASDAQ, — преимущественно технологических и растущих компаний. Включает более 3 000 ценных бумаг. Высокая концентрация в IT-секторе делает его чувствительным к изменениям процентных ставок и настроениям в отношении акций роста.",
+                CountryOrRegion = @"USA",
+                SortOrder = 30,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 4,
+                Name = @"NASDAQ-100",
+                NormalizedName = @"NASDAQ-100",
+                Code = @"NDX",
+                NormalizedCode = @"NDX",
+                Description = @"Взвешенный по капитализации индекс 100 крупнейших нефинансовых компаний, котирующихся на NASDAQ. Концентрация в технологии, потребительском секторе и здравоохранении делает его популярным инструментом для ставки на инновационные компании. Отсутствие финансового сектора — ключевое отличие от широкого рынка.",
+                CountryOrRegion = @"USA",
+                SortOrder = 40,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 5,
+                Name = @"Russell 2000",
+                NormalizedName = @"RUSSELL 2000",
+                Code = @"RUT",
+                NormalizedCode = @"RUT",
+                Description = @"Индекс 2 000 компаний малой капитализации из Russell 3000. Традиционно используется как барометр внутреннего экономического здоровья США: малые компании менее зависимы от глобальных цепочек поставок. Отличается более высокой волатильностью и менее ликвидным составом по сравнению с крупнокапитализированными индексами.",
+                CountryOrRegion = @"USA",
+                SortOrder = 50,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 6,
+                Name = @"FTSE 100",
+                NormalizedName = @"FTSE 100",
+                Code = @"UKX",
+                NormalizedCode = @"UKX",
+                Description = @"Взвешенный по капитализации индекс 100 крупнейших компаний Лондонской фондовой биржи. Значительную долю занимают горнодобывающие, энергетические и финансовые компании с глобальными операциями. Существенная часть выручки компонентов поступает из-за рубежа, поэтому индекс реагирует на курс фунта стерлингов.",
+                CountryOrRegion = @"UK",
+                SortOrder = 60,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 7,
+                Name = @"DAX",
+                NormalizedName = @"DAX",
+                Code = @"DAX",
+                NormalizedCode = @"DAX",
+                Description = @"Взвешенный по капитализации индекс 40 крупнейших немецких компаний на бирже Xetra. Является главным барометром германского и, косвенно, европейского промышленного сектора. Особенность: DAX — индекс совокупного дохода (total return), включающий реинвестированные дивиденды, что делает его напрямую несопоставимым с price-return индексами.",
+                CountryOrRegion = @"Germany",
+                SortOrder = 70,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 8,
+                Name = @"CAC 40",
+                NormalizedName = @"CAC 40",
+                Code = @"PX1",
+                NormalizedCode = @"PX1",
+                Description = @"Взвешенный по капитализации (free-float) индекс 40 крупнейших компаний Парижской фондовой биржи Euronext. Репрезентирует французский рынок и отражает широкий спектр отраслей: предметы роскоши, энергетика, финансы, промышленность. Многие компоненты являются глобальными корпорациями, поэтому чувствительны к валютным курсам.",
+                CountryOrRegion = @"France",
+                SortOrder = 80,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 9,
+                Name = @"EURO STOXX 50",
+                NormalizedName = @"EURO STOXX 50",
+                Code = @"SX5E",
+                NormalizedCode = @"SX5E",
+                Description = @"Взвешенный по free-float капитализации индекс 50 крупнейших компаний еврозоны из 8 стран. Широко используется как базовый актив для деривативов и ETF, ориентированных на европейский рынок. Концентрация в нескольких странах (Франция, Германия) и секторах (финансы, промышленность) ограничивает диверсификацию.",
+                CountryOrRegion = @"Eurozone",
+                SortOrder = 90,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 10,
+                Name = @"STOXX Europe 600",
+                NormalizedName = @"STOXX EUROPE 600",
+                Code = @"SXXP",
+                NormalizedCode = @"SXXP",
+                Description = @"Взвешенный по free-float капитализации индекс 600 компаний из 17 европейских стран, включая страны вне еврозоны (Великобритания, Швейцария, Скандинавия). Обеспечивает более широкое географическое и секторальное покрытие Европы, чем EURO STOXX 50. Применяется как эталон для паневропейских стратегий.",
+                CountryOrRegion = @"Europe",
+                SortOrder = 100,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 11,
+                Name = @"SMI",
+                NormalizedName = @"SMI",
+                Code = @"SMI",
+                NormalizedCode = @"SMI",
+                Description = @"Взвешенный по free-float капитализации индекс 20 крупнейших компаний Швейцарской биржи. Сильно сконцентрирован в фармацевтике, финансах и товарах повседневного спроса. Выражен в швейцарских франках, которые традиционно считаются защитным активом. Высокая отраслевая концентрация является ключевым ограничением индекса.",
+                CountryOrRegion = @"Switzerland",
+                SortOrder = 110,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 12,
+                Name = @"IBEX 35",
+                NormalizedName = @"IBEX 35",
+                Code = @"IBEX",
+                NormalizedCode = @"IBEX",
+                Description = @"Взвешенный по free-float капитализации индекс 35 наиболее ликвидных акций Испанской фондовой биржи. Значительную долю занимают банки, телекоммуникационные и энергетические компании. Индекс чувствителен к динамике кредитного рынка еврозоны и политической обстановке.",
+                CountryOrRegion = @"Spain",
+                SortOrder = 120,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 13,
+                Name = @"FTSE MIB",
+                NormalizedName = @"FTSE MIB",
+                Code = @"FTSEMIB",
+                NormalizedCode = @"FTSEMIB",
+                Description = @"Взвешенный по free-float капитализации индекс 40 крупнейших и наиболее ликвидных итальянских компаний. Существенный вес имеют финансовый и коммунальный секторы. Высокая концентрация в банках делает индекс особенно чувствительным к ситуации с государственным долгом Италии.",
+                CountryOrRegion = @"Italy",
+                SortOrder = 130,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 14,
+                Name = @"Nikkei 225",
+                NormalizedName = @"NIKKEI 225",
+                Code = @"NKY",
+                NormalizedCode = @"NKY",
+                Description = @"Ценово-взвешенный индекс 225 избранных акций Токийской фондовой биржи — аналог Доу-Джонса для японского рынка. Является наиболее известным барометром японского фондового рынка. Ценовое взвешивание создаёт те же искажения, что и в DJIA: высокостоимостные акции оказывают непропорциональное влияние.",
+                CountryOrRegion = @"Japan",
+                SortOrder = 140,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 15,
+                Name = @"TOPIX",
+                NormalizedName = @"TOPIX",
+                Code = @"TPX",
+                NormalizedCode = @"TPX",
+                Description = @"Взвешенный по free-float капитализации индекс всех акций первой секции Токийской фондовой биржи — более 2 000 компаний. Считается более репрезентативным отражением японского рынка, чем Nikkei 225. Используется японскими институциональными инвесторами как основной эталон.",
+                CountryOrRegion = @"Japan",
+                SortOrder = 150,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 16,
+                Name = @"Hang Seng Index",
+                NormalizedName = @"HANG SENG INDEX",
+                Code = @"HSI",
+                NormalizedCode = @"HSI",
+                Description = @"Взвешенный по free-float капитализации индекс крупнейших компаний Гонконгской фондовой биржи. Включает компании из материкового Китая, котирующиеся в Гонконге (акции H). Чувствителен к регуляторной политике материкового Китая и геополитическим рискам. Методология и состав регулярно пересматриваются.",
+                CountryOrRegion = @"Hong Kong",
+                SortOrder = 160,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 17,
+                Name = @"CSI 300",
+                NormalizedName = @"CSI 300",
+                Code = @"CSI300",
+                NormalizedCode = @"CSI300",
+                Description = @"Взвешенный по free-float капитализации индекс 300 крупнейших акций, торгующихся на Шанхайской и Шэньчжэньской биржах (акции А). Отражает динамику китайского внутреннего рынка, доступного через механизмы Stock Connect. Подвержен влиянию регуляторных изменений и ограничений на движение капитала.",
+                CountryOrRegion = @"China",
+                SortOrder = 170,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 18,
+                Name = @"Shanghai Composite",
+                NormalizedName = @"SHANGHAI COMPOSITE",
+                Code = @"SHCOMP",
+                NormalizedCode = @"SHCOMP",
+                Description = @"Взвешенный по капитализации индекс всех акций А и Б, котирующихся на Шанхайской фондовой бирже. Используется как широкий барометр китайского рынка, однако включает большое число малоликвидных компаний. Доступ иностранных инвесторов ограничен квотами и регуляторными требованиями.",
+                CountryOrRegion = @"China",
+                SortOrder = 180,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 19,
+                Name = @"S&P/ASX 200",
+                NormalizedName = @"S&P/ASX 200",
+                Code = @"AS51",
+                NormalizedCode = @"AS51",
+                Description = @"Взвешенный по free-float капитализации индекс 200 крупнейших компаний Австралийской фондовой биржи. Сильно сконцентрирован в финансовом и горнодобывающем секторах. Динамика тесно связана с ценами на сырьё и торговыми отношениями с Китаем. Стандартный эталон для австралийских портфельных стратегий.",
+                CountryOrRegion = @"Australia",
+                SortOrder = 190,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 20,
+                Name = @"S&P/TSX Composite",
+                NormalizedName = @"S&P/TSX COMPOSITE",
+                Code = @"SPTSX",
+                NormalizedCode = @"SPTSX",
+                Description = @"Взвешенный по рыночной капитализации индекс всех компаний, удовлетворяющих критериям включения Торонтской фондовой биржи. Существенную долю занимают финансовый сектор, горнодобыча и нефтегазовая промышленность. Динамика коррелирует с ценами на сырьё. Основной эталон канадского рынка акций.",
+                CountryOrRegion = @"Canada",
+                SortOrder = 200,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 21,
+                Name = @"BSE SENSEX",
+                NormalizedName = @"BSE SENSEX",
+                Code = @"SENSEX",
+                NormalizedCode = @"SENSEX",
+                Description = @"Ценово-взвешенный индекс 30 хорошо зарекомендовавших себя компаний Бомбейской фондовой биржи. Один из старейших индикаторов индийского рынка. Малое число компонентов ограничивает репрезентативность. Чувствителен к изменениям в регуляторной среде, процентным ставкам Резервного банка Индии и состоянию банковского сектора.",
+                CountryOrRegion = @"India",
+                SortOrder = 210,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 22,
+                Name = @"NIFTY 50",
+                NormalizedName = @"NIFTY 50",
+                Code = @"NIFTY50",
+                NormalizedCode = @"NIFTY50",
+                Description = @"Взвешенный по free-float капитализации индекс 50 крупнейших компаний Национальной фондовой биржи Индии. Охватывает 13 секторов и считается более репрезентативным эталоном индийского рынка, чем SENSEX. Широко используется как база для деривативов и пассивных инструментов.",
+                CountryOrRegion = @"India",
+                SortOrder = 220,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 23,
+                Name = @"KOSPI",
+                NormalizedName = @"KOSPI",
+                Code = @"KOSPI",
+                NormalizedCode = @"KOSPI",
+                Description = @"Взвешенный по рыночной капитализации индекс всех акций обыкновенных акций Корейской фондовой биржи. Существенную долю занимают технологические и автомобильные конгломераты. Чувствителен к геополитическим рискам на Корейском полуострове и глобальному спросу на полупроводники.",
+                CountryOrRegion = @"South Korea",
+                SortOrder = 230,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 24,
+                Name = @"Bovespa (IBOVESPA)",
+                NormalizedName = @"BOVESPA (IBOVESPA)",
+                Code = @"IBOV",
+                NormalizedCode = @"IBOV",
+                Description = @"Взвешенный по ликвидности торгов индекс наиболее торгуемых акций биржи B3. Высокую долю занимают финансовые, сырьевые и энергетические компании. Подвержен влиянию бразильского реала, политических рисков и мировых цен на commodities. Является основным эталоном бразильского рынка акций.",
+                CountryOrRegion = @"Brazil",
+                SortOrder = 240,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 25,
+                Name = @"MSCI World",
+                NormalizedName = @"MSCI WORLD",
+                Code = @"MSCIW",
+                NormalizedCode = @"MSCIW",
+                Description = @"Взвешенный по free-float капитализации индекс акций крупной и средней капитализации из более 20 развитых стран. Охватывает около 85% рынка с поправкой на free-float в каждой стране. Широко используется как глобальный эталон для развитых рынков. Высокая доля США (более 60%) является ключевым ограничением географической диверсификации.",
+                CountryOrRegion = @"Developed Markets",
+                SortOrder = 250,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 26,
+                Name = @"MSCI Emerging Markets",
+                NormalizedName = @"MSCI EMERGING MARKETS",
+                Code = @"MSCIEM",
+                NormalizedCode = @"MSCIEM",
+                Description = @"Взвешенный по free-float капитализации индекс акций крупной и средней капитализации из более 20 развивающихся стран. Охватывает около 85% рынка с поправкой на free-float в каждой стране. Отражает возможности роста развивающихся экономик, но несёт повышенные риски: валютные, политические и ликвидности.",
+                CountryOrRegion = @"Emerging Markets",
+                SortOrder = 260,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            },
+            new MarketIndex
+            {
+                Id = 27,
+                Name = @"MSCI ACWI",
+                NormalizedName = @"MSCI ACWI",
+                Code = @"MSCIACWI",
+                NormalizedCode = @"MSCIACWI",
+                Description = @"Взвешенный по free-float капитализации индекс акций крупной и средней капитализации из 47 стран — как развитых, так и развивающихся рынков. Объединяет MSCI World и MSCI Emerging Markets. Используется как единый глобальный эталон. Высокая доля США сохраняется и в ACWI.",
+                CountryOrRegion = @"Global",
+                SortOrder = 270,
+                IsArchived = false,
+                CreatedAt = MarketIndicesSeedTimestampUtc,
+                UpdatedAt = MarketIndicesSeedTimestampUtc
+            }
+    ];
+
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<User> Users { get; set; } = null!;
@@ -20,6 +404,8 @@ public class AppDbContext : DbContext
     public DbSet<EarningsEvent> EarningsEvents { get; set; } = null!;
     public DbSet<Sector> Sectors { get; set; } = null!;
     public DbSet<Industry> Industries { get; set; } = null!;
+    public DbSet<MarketIndex> MarketIndices { get; set; } = null!;
+    public DbSet<StockMarketIndex> StockMarketIndices { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -87,6 +473,29 @@ public class AppDbContext : DbContext
             entity.HasOne(x => x.Sector)
                 .WithMany(x => x.Industries)
                 .HasForeignKey(x => x.SectorId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<MarketIndex>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(200);
+            entity.Property(x => x.NormalizedName).HasMaxLength(200);
+            entity.Property(x => x.Code).HasMaxLength(50);
+            entity.Property(x => x.NormalizedCode).HasMaxLength(50);
+            entity.HasIndex(x => x.NormalizedCode).IsUnique();
+            entity.HasData(MarketIndexSeedData);
+        });
+
+        modelBuilder.Entity<StockMarketIndex>(entity =>
+        {
+            entity.HasKey(x => new { x.StockId, x.MarketIndexId });
+            entity.HasOne(x => x.Stock)
+                .WithMany(x => x.MarketIndices)
+                .HasForeignKey(x => x.StockId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.MarketIndex)
+                .WithMany(x => x.StockMarketIndices)
+                .HasForeignKey(x => x.MarketIndexId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

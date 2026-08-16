@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage';
 import PortfolioDetailPage from './pages/PortfolioDetailPage';
 import StocksPage from './pages/StocksPage';
 import SectorsPage from './pages/SectorsPage';
+import MarketIndicesPage from './pages/MarketIndicesPage';
 import FinancialMetricsPage from './pages/FinancialMetricsPage';
 import ProfilePage from './pages/ProfilePage';
 
@@ -50,6 +51,14 @@ const App: React.FC = () => {
               element={
                 <PrivateRoute>
                   <SectorsPage />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/market-indices"
+              element={
+                <PrivateRoute>
+                  <MarketIndicesPage />
                 </PrivateRoute>
               }
             />

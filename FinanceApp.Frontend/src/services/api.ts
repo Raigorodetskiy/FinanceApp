@@ -30,11 +30,14 @@ import type {
   ChangePasswordRequest,
   SectorDto,
   IndustryDto,
+  MarketIndex,
   CreateSectorRequest,
   UpdateSectorRequest,
   CreateIndustryRequest,
   UpdateIndustryRequest,
   MoveIndustryRequest,
+  CreateMarketIndexRequest,
+  UpdateMarketIndexRequest,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -178,5 +181,24 @@ export const deleteIndustry = (sectorId: number, industryId: number) =>
 
 export const moveIndustry = (sectorId: number, industryId: number, req: MoveIndustryRequest) =>
   api.patch<IndustryDto>(`/sectors/${sectorId}/industries/${industryId}/move`, req).then((r) => r.data);
+
+// Market indices API
+export const getMarketIndices = (includeArchived = false) =>
+  api.get<MarketIndex[]>('/market-indices', { params: { includeArchived } }).then((r) => r.data);
+
+export const createMarketIndex = (req: CreateMarketIndexRequest) =>
+  api.post<MarketIndex>('/market-indices', req).then((r) => r.data);
+
+export const updateMarketIndex = (id: number, req: UpdateMarketIndexRequest) =>
+  api.put<MarketIndex>(`/market-indices/${id}`, req).then((r) => r.data);
+
+export const archiveMarketIndex = (id: number) =>
+  api.post<void>(`/market-indices/${id}/archive`).then((r) => r.data);
+
+export const restoreMarketIndex = (id: number) =>
+  api.post<void>(`/market-indices/${id}/restore`).then((r) => r.data);
+
+export const deleteMarketIndex = (id: number) =>
+  api.delete<void>(`/market-indices/${id}`).then((r) => r.data);
 
 export default api;
