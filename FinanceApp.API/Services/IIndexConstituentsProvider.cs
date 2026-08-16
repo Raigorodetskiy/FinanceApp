@@ -44,7 +44,15 @@ public sealed record IndexConstituentsResult(
     DateTime FetchedAt,
     IReadOnlyList<IndexConstituentEntry> Constituents,
     /// <summary>Human-readable message (error description, warning, unsupported reason).</summary>
-    string? Message = null
+    string? Message = null,
+    /// <summary>Snapshot effective date reported by source (if available).</summary>
+    DateTime? AsOfDate = null,
+    /// <summary>Human-readable source attribution URL (if available).</summary>
+    string? SourceUrl = null,
+    /// <summary>True when source is a curated/versioned snapshot, not a live endpoint.</summary>
+    bool IsCuratedSnapshot = false,
+    /// <summary>True when data may be stale.</summary>
+    bool IsStale = false
 )
 {
     public static IndexConstituentsResult Unsupported(string providerName, string? reason = null)

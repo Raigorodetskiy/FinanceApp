@@ -556,15 +556,27 @@ export interface IndexConstituentsResponse {
   marketIndexId: number;
   indexName: string;
   totalCount: number;
+  source?: string | null;
+  asOfDate?: string | null;
+  isCuratedSnapshot?: boolean;
+  isStale?: boolean;
+  staleReason?: string | null;
   constituents: IndexConstituentDto[];
 }
 
 export interface IndexConstituentsRefreshResponse {
   marketIndexId: number;
   providerStatus: string;
+  providerName?: string | null;
   providerMessage?: string | null;
+  fetchedAt?: string | null;
+  asOfDate?: string | null;
+  sourceUrl?: string | null;
+  isCuratedSnapshot?: boolean;
+  isStale?: boolean;
   added: number;
   updated: number;
   unchanged: number;
   closed: number;
+  conflicts?: number;
 }

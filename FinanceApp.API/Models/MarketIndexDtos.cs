@@ -79,6 +79,11 @@ public sealed class IndexConstituentsResponse
     public int MarketIndexId { get; init; }
     public string IndexName { get; init; } = string.Empty;
     public int TotalCount { get; init; }
+    public string? Source { get; init; }
+    public DateTime? AsOfDate { get; init; }
+    public bool IsCuratedSnapshot { get; init; }
+    public bool IsStale { get; init; }
+    public string? StaleReason { get; init; }
     public IReadOnlyList<IndexConstituentDto> Constituents { get; init; } = Array.Empty<IndexConstituentDto>();
 }
 
@@ -87,9 +92,16 @@ public sealed class IndexConstituentsRefreshResponse
 {
     public int MarketIndexId { get; init; }
     public string ProviderStatus { get; init; } = string.Empty;
+    public string? ProviderName { get; init; }
     public string? ProviderMessage { get; init; }
+    public DateTime? FetchedAt { get; init; }
+    public DateTime? AsOfDate { get; init; }
+    public string? SourceUrl { get; init; }
+    public bool IsCuratedSnapshot { get; init; }
+    public bool IsStale { get; init; }
     public int Added { get; init; }
     public int Updated { get; init; }
     public int Unchanged { get; init; }
     public int Closed { get; init; }
+    public int Conflicts { get; init; }
 }

@@ -14,6 +14,8 @@ namespace FinanceApp.API.Controllers;
 [Authorize]
 public class MarketIndicesController : ControllerBase
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> RefreshLocks = new();
+
     private readonly AppDbContext _context;
     private readonly IMarketIndexHistoryService _historyService;
     private readonly IIndexConstituentsProvider _constituentsProvider;
@@ -337,11 +339,24 @@ public class MarketIndicesController : ControllerBase
             ImportedAt = x.ImportedAt,
         }).ToList();
 
+        var latestMembership = memberships
+            .OrderByDescending(x => x.LastVerifiedAt ?? x.ImportedAt)
+            .ThenByDescending(x => x.ImportedAt)
+            .FirstOrDefault();
+
         return Ok(new IndexConstituentsResponse
         {
             MarketIndexId = id,
             IndexName = marketIndex.Name,
             TotalCount = dtos.Count,
+            Source = latestMembership?.Source,
+            AsOfDate = latestMembership?.LastVerifiedAt,
+            IsCuratedSnapshot = string.Equals(
+                latestMembership?.Source,
+                DowJonesIndustrialAverageConstituentsProvider.CuratedProviderName,
+                StringComparison.Ordinal),
+            IsStale = false,
+            StaleReason = null,
             Constituents = dtos,
         });
     }
@@ -361,193 +376,324 @@ public class MarketIndicesController : ControllerBase
             return Conflict("Нельзя обновлять состав архивного индекса.");
         }
 
-        var providerResult = await _constituentsProvider.GetConstituentsAsync(marketIndex, cancellationToken);
-
-        if (providerResult.Status == IndexConstituentsStatus.Unsupported)
+        var refreshLock = RefreshLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await refreshLock.WaitAsync(cancellationToken);
+        try
         {
-            return UnprocessableEntity(new IndexConstituentsRefreshResponse
+            var providerResult = await _constituentsProvider.GetConstituentsAsync(marketIndex, cancellationToken);
+
+            if (providerResult.Status == IndexConstituentsStatus.Unsupported)
             {
-                MarketIndexId = id,
-                ProviderStatus = providerResult.Status.ToString(),
-                ProviderMessage = providerResult.Message,
-            });
-        }
-
-        if (providerResult.Status == IndexConstituentsStatus.RateLimited)
-        {
-            return StatusCode(StatusCodes.Status429TooManyRequests, new IndexConstituentsRefreshResponse
-            {
-                MarketIndexId = id,
-                ProviderStatus = providerResult.Status.ToString(),
-                ProviderMessage = providerResult.Message,
-            });
-        }
-
-        if (providerResult.Status == IndexConstituentsStatus.ProviderFailure)
-        {
-            return StatusCode(StatusCodes.Status502BadGateway, new IndexConstituentsRefreshResponse
-            {
-                MarketIndexId = id,
-                ProviderStatus = providerResult.Status.ToString(),
-                ProviderMessage = providerResult.Message,
-            });
-        }
-
-        // Partial result: update/add but do NOT close missing memberships.
-        var isFullSnapshot = providerResult.Status == IndexConstituentsStatus.Success;
-
-        var now = providerResult.FetchedAt;
-        int added = 0, unchanged = 0, closed = 0;
-
-        // Load existing current memberships for this index.
-        var existingMemberships = await _context.StockMarketIndices
-            .Include(x => x.Stock)
-            .Where(x => x.MarketIndexId == id && x.EffectiveTo == null)
-            .ToListAsync(cancellationToken);
-
-        // Build lookup dictionaries for deduplication — load all relevant stocks upfront
-        // to avoid per-constituent round-trips (N+1).
-        var allIsins = providerResult.Constituents
-            .Where(c => !string.IsNullOrWhiteSpace(c.Isin))
-            .Select(c => c.Isin!)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var allProviderSymbols = providerResult.Constituents
-            .Where(c => !string.IsNullOrWhiteSpace(c.ProviderSymbol))
-            .Select(c => c.ProviderSymbol!)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var allTickers = providerResult.Constituents
-            .Select(c => c.Ticker)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var existingStocks = await _context.Stocks
-            .Where(s =>
-                (s.Isin != null && allIsins.Contains(s.Isin)) ||
-                (s.ProviderSymbol != null && allProviderSymbols.Contains(s.ProviderSymbol)) ||
-                allTickers.Contains(s.Ticker))
-            .ToListAsync(cancellationToken);
-
-        var byIsin = existingStocks
-            .Where(s => s.Isin != null)
-            .GroupBy(s => s.Isin!)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-        var byProviderSymbol = existingStocks
-            .Where(s => s.ProviderSymbol != null)
-            .GroupBy(s => s.ProviderSymbol!)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-
-        var byTickerExchange = existingStocks
-            .GroupBy(s => $"{s.Ticker}|{s.Exchange}")
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-
-        var seenStockIds = new HashSet<int>();
-
-        foreach (var constituent in providerResult.Constituents)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Deduplication: ISIN → ProviderSymbol → Ticker+Exchange.
-            Stock? stock = null;
-
-            if (!string.IsNullOrWhiteSpace(constituent.Isin))
-                byIsin.TryGetValue(constituent.Isin!, out stock);
-
-            if (stock is null && !string.IsNullOrWhiteSpace(constituent.ProviderSymbol))
-                byProviderSymbol.TryGetValue(constituent.ProviderSymbol!, out stock);
-
-            if (stock is null)
-            {
-                var normalizedExchange = StockExchanges.TryNormalize(constituent.ProviderExchange ?? string.Empty, out var ex)
-                    ? ex
-                    : StockExchanges.Nyse;
-                byTickerExchange.TryGetValue($"{constituent.Ticker}|{normalizedExchange}", out stock);
+                return UnprocessableEntity(CreateRefreshResponse(id, providerResult));
             }
 
-            bool isNewStock = stock is null;
-            if (isNewStock)
+            if (providerResult.Status == IndexConstituentsStatus.RateLimited)
             {
-                // Create new CatalogOnly record.
-                var normalizedExchange = StockExchanges.TryNormalize(constituent.ProviderExchange ?? string.Empty, out var ex)
-                    ? ex
-                    : StockExchanges.Nyse;
-                stock = new Stock
+                return StatusCode(StatusCodes.Status429TooManyRequests, CreateRefreshResponse(id, providerResult));
+            }
+
+            if (providerResult.Status == IndexConstituentsStatus.ProviderFailure)
+            {
+                return StatusCode(StatusCodes.Status502BadGateway, CreateRefreshResponse(id, providerResult));
+            }
+
+            var now = providerResult.FetchedAt;
+            int added = 0, updated = 0, unchanged = 0, closed = 0, conflicts = 0;
+
+            var normalizedConstituents = new List<(string Ticker, string ProviderSymbol, string CompanyName, string Exchange, string? Isin)>();
+            var sourceIdentities = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var constituent in providerResult.Constituents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var ticker = constituent.Ticker?.Trim().ToUpperInvariant();
+                var companyName = constituent.CompanyName?.Trim();
+                var exchangeRaw = constituent.ProviderExchange?.Trim();
+                var providerSymbol = constituent.ProviderSymbol?.Trim();
+                var normalizedIsin = StockIdentifiers.Normalize(constituent.Isin);
+
+                if (string.IsNullOrWhiteSpace(ticker)
+                    || string.IsNullOrWhiteSpace(companyName)
+                    || string.IsNullOrWhiteSpace(exchangeRaw)
+                    || !StockExchanges.TryNormalize(exchangeRaw, out var normalizedExchange))
                 {
-                    Ticker = constituent.Ticker,
-                    Name = constituent.CompanyName,
-                    CommonName = constituent.CompanyName,
-                    Exchange = normalizedExchange,
-                    Isin = StockIdentifiers.Normalize(constituent.Isin),
-                    ProviderSymbol = constituent.ProviderSymbol,
-                    TrackingStatus = StockTrackingStatus.CatalogOnly,
-                    UpdatedAt = now,
-                };
-                _context.Stocks.Add(stock);
-                // Update lookups so subsequent duplicates in the same provider batch resolve correctly.
-                if (stock.Isin != null) byIsin[stock.Isin] = stock;
-                if (stock.ProviderSymbol != null) byProviderSymbol[stock.ProviderSymbol] = stock;
-                byTickerExchange[$"{stock.Ticker}|{stock.Exchange}"] = stock;
-            }
+                    conflicts++;
+                    continue;
+                }
 
-            // Find or create current membership (identity by EF tracked instance; Id may be 0 until saved).
-            var membership = existingMemberships.FirstOrDefault(m => ReferenceEquals(m.Stock, stock) || (stock!.Id != 0 && m.StockId == stock.Id));
-            if (membership is null)
-            {
-                membership = new StockMarketIndex
+                if (normalizedIsin is not null && !StockIdentifiers.IsValidIsin(normalizedIsin))
                 {
-                    Stock = stock!,
-                    MarketIndexId = id,
-                    Source = _constituentsProvider.ProviderName,
-                    ProviderConstituentKey = constituent.ProviderSymbol,
-                    EffectiveFrom = now,
-                    ImportedAt = now,
-                    LastVerifiedAt = now,
-                };
-                _context.StockMarketIndices.Add(membership);
-                added++;
+                    conflicts++;
+                    continue;
+                }
+
+                providerSymbol ??= StockExchanges.ResolveProviderSymbol(ticker, normalizedExchange);
+                if (string.IsNullOrWhiteSpace(providerSymbol))
+                {
+                    conflicts++;
+                    continue;
+                }
+
+                var sourceIdentity = $"{providerSymbol}|{normalizedExchange}";
+                if (!sourceIdentities.Add(sourceIdentity))
+                {
+                    conflicts++;
+                    continue;
+                }
+
+                normalizedConstituents.Add((ticker, providerSymbol, companyName, normalizedExchange, normalizedIsin));
             }
-            else
+
+            var effectiveStatus = providerResult.Status;
+            var canCloseMissingMemberships = providerResult.Status == IndexConstituentsStatus.Success && conflicts == 0;
+            if (providerResult.Status == IndexConstituentsStatus.Success && conflicts > 0)
             {
-                membership.LastVerifiedAt = now;
-                unchanged++;
+                effectiveStatus = IndexConstituentsStatus.Partial;
             }
 
-            if (stock!.Id != 0) seenStockIds.Add(stock.Id);
-        }
+            // Load existing current memberships for this index.
+            var existingMemberships = await _context.StockMarketIndices
+                .Include(x => x.Stock)
+                .Where(x => x.MarketIndexId == id && x.EffectiveTo == null)
+                .ToListAsync(cancellationToken);
 
-        // Single SaveChanges for all additions.
-        await _context.SaveChangesAsync(cancellationToken);
+            var allIsins = normalizedConstituents
+                .Where(c => c.Isin is not null)
+                .Select(c => c.Isin!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // After save, collect all stock IDs (including newly inserted ones).
-        foreach (var entry in _context.ChangeTracker.Entries<Stock>()
-            .Where(e => e.State == Microsoft.EntityFrameworkCore.EntityState.Unchanged && e.Entity.Id != 0))
-        {
-            seenStockIds.Add(entry.Entity.Id);
-        }
+            var allProviderSymbols = normalizedConstituents
+                .Select(c => c.ProviderSymbol)
+                .ToHashSet(StringComparer.Ordinal);
 
-        // For full snapshots, close memberships for stocks no longer in the list.
-        if (isFullSnapshot)
-        {
-            foreach (var m in existingMemberships.Where(m => !seenStockIds.Contains(m.StockId)))
+            var allTickers = normalizedConstituents
+                .Select(c => c.Ticker)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var existingStocks = await _context.Stocks
+                .Where(s =>
+                    (s.Isin != null && allIsins.Contains(s.Isin)) ||
+                    (s.ProviderSymbol != null && allProviderSymbols.Contains(s.ProviderSymbol)) ||
+                    allTickers.Contains(s.Ticker))
+                .ToListAsync(cancellationToken);
+
+            var byIsin = existingStocks
+                .Where(s => s.Isin != null)
+                .GroupBy(s => s.Isin!)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var byProviderSymbol = existingStocks
+                .Where(s => s.ProviderSymbol != null)
+                .GroupBy(s => s.ProviderSymbol!)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+            var byTickerExchange = existingStocks
+                .GroupBy(s => $"{s.Ticker}|{s.Exchange}")
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+            var seenStocks = new HashSet<Stock>();
+
+            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? tx = null;
+            var isInMemoryProvider = _context.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) == true;
+            if (!isInMemoryProvider)
             {
-                m.EffectiveTo = now;
-                closed++;
+                tx = await _context.Database.BeginTransactionAsync(cancellationToken);
             }
-            if (closed > 0) await _context.SaveChangesAsync(cancellationToken);
-        }
+            try
+            {
+                foreach (var constituent in normalizedConstituents)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
 
-        return Ok(new IndexConstituentsRefreshResponse
+                    // Deduplication order: ISIN → ProviderSymbol → Ticker+Exchange.
+                    Stock? stock = null;
+
+                    if (constituent.Isin is not null)
+                        byIsin.TryGetValue(constituent.Isin, out stock);
+
+                    if (stock is null)
+                        byProviderSymbol.TryGetValue(constituent.ProviderSymbol, out stock);
+
+                    if (stock is null)
+                        byTickerExchange.TryGetValue($"{constituent.Ticker}|{constituent.Exchange}", out stock);
+
+                    if (stock is null)
+                    {
+                        stock = new Stock
+                        {
+                            Ticker = constituent.Ticker,
+                            Name = constituent.CompanyName,
+                            CommonName = constituent.CompanyName,
+                            Exchange = constituent.Exchange,
+                            Isin = constituent.Isin,
+                            ProviderSymbol = constituent.ProviderSymbol,
+                            TrackingStatus = StockTrackingStatus.CatalogOnly,
+                            UpdatedAt = now,
+                        };
+                        _context.Stocks.Add(stock);
+                        if (stock.Isin != null) byIsin[stock.Isin] = stock;
+                        byProviderSymbol[stock.ProviderSymbol!] = stock;
+                        byTickerExchange[$"{stock.Ticker}|{stock.Exchange}"] = stock;
+                    }
+                    else
+                    {
+                        var stockChanged = false;
+                        if (!string.Equals(stock.Name, constituent.CompanyName, StringComparison.Ordinal))
+                        {
+                            stock.Name = constituent.CompanyName;
+                            if (string.Equals(stock.CommonName, stock.Name, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(stock.CommonName))
+                            {
+                                stock.CommonName = constituent.CompanyName;
+                            }
+                            stockChanged = true;
+                        }
+                        if (stock.Isin is null && constituent.Isin is not null)
+                        {
+                            stock.Isin = constituent.Isin;
+                            stockChanged = true;
+                        }
+                        if (string.IsNullOrWhiteSpace(stock.ProviderSymbol))
+                        {
+                            stock.ProviderSymbol = constituent.ProviderSymbol;
+                            stockChanged = true;
+                        }
+                        if (stockChanged)
+                        {
+                            stock.UpdatedAt = now;
+                            updated++;
+                        }
+                    }
+
+                    var membership = existingMemberships.FirstOrDefault(m => ReferenceEquals(m.Stock, stock) || (stock.Id != 0 && m.StockId == stock.Id));
+                    if (membership is null)
+                    {
+                        membership = new StockMarketIndex
+                        {
+                            Stock = stock,
+                            MarketIndexId = id,
+                            Source = providerResult.ProviderName,
+                            ProviderConstituentKey = constituent.ProviderSymbol,
+                            EffectiveFrom = now,
+                            ImportedAt = now,
+                            LastVerifiedAt = providerResult.AsOfDate ?? now,
+                        };
+                        _context.StockMarketIndices.Add(membership);
+                        existingMemberships.Add(membership);
+                        added++;
+                    }
+                    else
+                    {
+                        if (!string.Equals(membership.Source, providerResult.ProviderName, StringComparison.Ordinal))
+                        {
+                            membership.Source = providerResult.ProviderName;
+                            updated++;
+                        }
+                        if (!string.Equals(membership.ProviderConstituentKey, constituent.ProviderSymbol, StringComparison.Ordinal))
+                        {
+                            membership.ProviderConstituentKey = constituent.ProviderSymbol;
+                            updated++;
+                        }
+                        membership.LastVerifiedAt = providerResult.AsOfDate ?? now;
+                        unchanged++;
+                    }
+
+                    seenStocks.Add(stock);
+                }
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                var seenStockIds = seenStocks
+                    .Where(s => s.Id != 0)
+                    .Select(s => s.Id)
+                    .ToHashSet();
+
+                if (canCloseMissingMemberships)
+                {
+                    foreach (var membership in existingMemberships
+                        .Where(m => m.EffectiveTo == null && !seenStockIds.Contains(m.StockId)))
+                    {
+                        membership.EffectiveTo = now;
+                        closed++;
+                    }
+                }
+
+                if (closed > 0)
+                {
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+
+                if (tx is not null)
+                {
+                    await tx.CommitAsync(cancellationToken);
+                }
+            }
+            catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
+            {
+                if (tx is not null)
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                }
+                return Conflict("Конкурентное обновление состава индекса. Повторите попытку.");
+            }
+            finally
+            {
+                if (tx is not null)
+                {
+                    await tx.DisposeAsync();
+                }
+            }
+
+            var providerMessage = providerResult.Message;
+            if (conflicts > 0)
+            {
+                var conflictsMessage = $"Пропущено конфликтных/некорректных записей: {conflicts}.";
+                providerMessage = string.IsNullOrWhiteSpace(providerMessage)
+                    ? conflictsMessage
+                    : $"{providerMessage} {conflictsMessage}";
+            }
+
+            return Ok(new IndexConstituentsRefreshResponse
+            {
+                MarketIndexId = id,
+                ProviderStatus = effectiveStatus.ToString(),
+                ProviderName = providerResult.ProviderName,
+                ProviderMessage = providerMessage,
+                FetchedAt = providerResult.FetchedAt,
+                AsOfDate = providerResult.AsOfDate,
+                SourceUrl = providerResult.SourceUrl,
+                IsCuratedSnapshot = providerResult.IsCuratedSnapshot,
+                IsStale = providerResult.IsStale || effectiveStatus == IndexConstituentsStatus.Partial,
+                Added = added,
+                Updated = updated,
+                Unchanged = unchanged,
+                Closed = closed,
+                Conflicts = conflicts,
+            });
+        }
+        finally
         {
-            MarketIndexId = id,
-            ProviderStatus = providerResult.Status.ToString(),
-            ProviderMessage = providerResult.Message,
-            Added = added,
-            Updated = 0,
-            Unchanged = unchanged,
-            Closed = closed,
-        });
+            refreshLock.Release();
+        }
     }
+
+    private static IndexConstituentsRefreshResponse CreateRefreshResponse(int marketIndexId, IndexConstituentsResult providerResult)
+        => new()
+        {
+            MarketIndexId = marketIndexId,
+            ProviderStatus = providerResult.Status.ToString(),
+            ProviderName = providerResult.ProviderName,
+            ProviderMessage = providerResult.Message,
+            FetchedAt = providerResult.FetchedAt,
+            AsOfDate = providerResult.AsOfDate,
+            SourceUrl = providerResult.SourceUrl,
+            IsCuratedSnapshot = providerResult.IsCuratedSnapshot,
+            IsStale = providerResult.IsStale,
+            Added = 0,
+            Updated = 0,
+            Unchanged = 0,
+            Closed = 0,
+            Conflicts = 0,
+        };
 
     private async Task<MarketIndexDto> LoadMarketIndexAsync(int id)
     {
