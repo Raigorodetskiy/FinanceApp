@@ -80,4 +80,6 @@ public interface IIndexConstituentsProvider
 
 public interface IDjiaIndexConstituentsProvider : IIndexConstituentsProvider;
 
+public interface INasdaq100IndexConstituentsProvider : IIndexConstituentsProvider;
+
 public interface IUnsupportedIndexConstituentsProvider : IIndexConstituentsProvider;

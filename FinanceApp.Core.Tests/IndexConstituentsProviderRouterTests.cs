@@ -14,7 +14,8 @@ public class IndexConstituentsProviderRouterTests
     public async Task Router_UsesDjiaProvider_ByStableCode()
     {
         var provider = CreateDjiaProvider();
-        var router = new IndexConstituentsProviderRouter(provider, new YahooIndexConstituentsProvider());
+        var ndxProvider = CreateNasdaq100Provider();
+        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, new YahooIndexConstituentsProvider());
         var djia = new MarketIndex { Id = 999, Code = "djia", NormalizedCode = "DJIA" };
 
         var result = await router.GetConstituentsAsync(djia);
@@ -27,13 +28,28 @@ public class IndexConstituentsProviderRouterTests
     public async Task Router_LeavesOtherIndicesOnUnsupportedFallback()
     {
         var provider = CreateDjiaProvider();
-        var router = new IndexConstituentsProviderRouter(provider, new YahooIndexConstituentsProvider());
+        var ndxProvider = CreateNasdaq100Provider();
+        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, new YahooIndexConstituentsProvider());
         var spx = new MarketIndex { Id = 1, Code = "SPX", NormalizedCode = "SPX" };
 
         var result = await router.GetConstituentsAsync(spx);
 
         Assert.Equal(IndexConstituentsStatus.Unsupported, result.Status);
         Assert.Equal("Yahoo Finance", result.ProviderName);
+    }
+
+    [Fact]
+    public async Task Router_UsesNasdaq100Provider_ByCanonicalCode()
+    {
+        var djiaProvider = CreateDjiaProvider();
+        var ndxProvider = CreateNasdaq100Provider();
+        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, new YahooIndexConstituentsProvider());
+        var ndx = new MarketIndex { Id = 4, Code = " ndx ", NormalizedCode = " nDx " };
+
+        var result = await router.GetConstituentsAsync(ndx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.Equal(Nasdaq100ConstituentsProvider.CuratedProviderName, result.ProviderName);
     }
 
     [Fact]
@@ -61,6 +77,36 @@ public class IndexConstituentsProviderRouterTests
                 .Select(c => $"{c.ProviderSymbol}|{c.ProviderExchange}")
                 .Distinct(StringComparer.Ordinal)
                 .Count());
+    }
+
+    [Fact]
+    public async Task Nasdaq100CuratedSnapshot_HasExpectedShape_AsOfAndUniqueConstituents()
+    {
+        var provider = CreateNasdaq100Provider();
+        var ndx = new MarketIndex { Code = "NDX", NormalizedCode = "NDX" };
+
+        var result = await provider.GetConstituentsAsync(ndx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.True(result.IsCuratedSnapshot);
+        Assert.NotNull(result.AsOfDate);
+        Assert.NotNull(result.SourceUrl);
+        Assert.Equal(101, result.Constituents.Count);
+        Assert.All(result.Constituents, c =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(c.Ticker));
+            Assert.False(string.IsNullOrWhiteSpace(c.CompanyName));
+            Assert.False(string.IsNullOrWhiteSpace(c.ProviderSymbol));
+            Assert.True(StockExchanges.TryNormalize(c.ProviderExchange, out _));
+        });
+        Assert.Equal(
+            101,
+            result.Constituents
+                .Select(c => $"{c.ProviderSymbol}|{c.ProviderExchange}")
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+        Assert.Contains(result.Constituents, c => c.Ticker == "GOOG");
+        Assert.Contains(result.Constituents, c => c.Ticker == "GOOGL");
     }
 
     [Fact]
@@ -122,6 +168,13 @@ public class IndexConstituentsProviderRouterTests
         return new DowJonesIndustrialAverageConstituentsProvider(
             new StubWebHostEnvironment { ContentRootPath = Path.Combine(FindRepositoryRoot(), "FinanceApp.API") },
             NullLogger<DowJonesIndustrialAverageConstituentsProvider>.Instance);
+    }
+
+    private static Nasdaq100ConstituentsProvider CreateNasdaq100Provider()
+    {
+        return new Nasdaq100ConstituentsProvider(
+            new StubWebHostEnvironment { ContentRootPath = Path.Combine(FindRepositoryRoot(), "FinanceApp.API") },
+            NullLogger<Nasdaq100ConstituentsProvider>.Instance);
     }
 
     private static string FindRepositoryRoot()

@@ -8,15 +8,19 @@ namespace FinanceApp.API.Services;
 public sealed class IndexConstituentsProviderRouter : IIndexConstituentsProvider
 {
     private const string DjiaCode = "DJIA";
+    private const string Nasdaq100Code = "NDX";
 
     private readonly IDjiaIndexConstituentsProvider _djiaProvider;
+    private readonly INasdaq100IndexConstituentsProvider _nasdaq100Provider;
     private readonly IUnsupportedIndexConstituentsProvider _fallbackProvider;
 
     public IndexConstituentsProviderRouter(
         IDjiaIndexConstituentsProvider djiaProvider,
+        INasdaq100IndexConstituentsProvider nasdaq100Provider,
         IUnsupportedIndexConstituentsProvider fallbackProvider)
     {
         _djiaProvider = djiaProvider;
+        _nasdaq100Provider = nasdaq100Provider;
         _fallbackProvider = fallbackProvider;
     }
 
@@ -30,6 +34,11 @@ public sealed class IndexConstituentsProviderRouter : IIndexConstituentsProvider
         if (string.Equals(normalizedCode, DjiaCode, StringComparison.Ordinal))
         {
             return _djiaProvider.GetConstituentsAsync(index, cancellationToken);
+        }
+
+        if (string.Equals(normalizedCode, Nasdaq100Code, StringComparison.Ordinal))
+        {
+            return _nasdaq100Provider.GetConstituentsAsync(index, cancellationToken);
         }
 
         return _fallbackProvider.GetConstituentsAsync(index, cancellationToken);
