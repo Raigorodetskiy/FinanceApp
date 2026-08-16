@@ -16,24 +16,117 @@ import { SearchOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import { getIndexConstituents, refreshIndexConstituents, trackStock } from '../services/api';
-import type { IndexConstituentDto } from '../types';
+import type { IndexConstituentDto, IndexConstituentsRefreshResponse } from '../types';
 
 const { Text } = Typography;
+export const UNSUPPORTED_REFRESH_MESSAGE_FALLBACK =
+  'Автоматическая загрузка состава для этого индекса не поддерживается';
 
 export interface IndexConstituentsPanelProps {
   indexId: number;
   isArchived: boolean;
 }
 
-function getErrMsg(err: unknown, fallback: string): string {
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function isIndexConstituentsRefreshResponse(
+  value: unknown,
+): value is IndexConstituentsRefreshResponse {
+  if (!isObjectRecord(value)) return false;
+  if (typeof value.marketIndexId !== 'number') return false;
+  if (typeof value.providerStatus !== 'string') return false;
+  if (typeof value.added !== 'number') return false;
+  if (typeof value.updated !== 'number') return false;
+  if (typeof value.unchanged !== 'number') return false;
+  if (typeof value.closed !== 'number') return false;
+  if ('providerMessage' in value) {
+    const providerMessage = value.providerMessage;
+    if (providerMessage != null && typeof providerMessage !== 'string') return false;
+  }
+  return true;
+}
+
+function getProviderMessageFromBody(data: unknown): string | null {
+  if (!isObjectRecord(data)) return null;
+  return getNonEmptyString(data.providerMessage);
+}
+
+export function getErrMsg(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data;
-    if (typeof data === 'string' && data.trim()) return data.trim();
-    if (data != null && typeof data === 'object') {
-      if ('message' in data && typeof data.message === 'string') return data.message.trim();
+    const providerMessage = getProviderMessageFromBody(data);
+    if (providerMessage) return providerMessage;
+    const rawMessage = getNonEmptyString(data);
+    if (rawMessage) return rawMessage;
+    if (isObjectRecord(data)) {
+      const message = getNonEmptyString(data.message);
+      if (message) return message;
     }
   }
   return fallback;
+}
+
+export type RefreshResultNotice =
+  | { kind: 'warning'; message: string; shouldReload: false }
+  | { kind: 'success'; message: string; shouldReload: true }
+  | { kind: 'error'; message: string; shouldReload: false };
+
+export function classifyRefreshResult(
+  response: IndexConstituentsRefreshResponse,
+): RefreshResultNotice {
+  if (response.providerStatus === 'Unsupported') {
+    return {
+      kind: 'warning',
+      message: getNonEmptyString(response.providerMessage) ?? UNSUPPORTED_REFRESH_MESSAGE_FALLBACK,
+      shouldReload: false,
+    };
+  }
+
+  if (response.providerStatus === 'Success' || response.providerStatus === 'Partial') {
+    return {
+      kind: 'success',
+      message: `Добавлено: ${response.added}, без изменений: ${response.unchanged}, закрыто: ${response.closed}`,
+      shouldReload: true,
+    };
+  }
+
+  return {
+    kind: 'error',
+    message: getNonEmptyString(response.providerMessage) ?? 'Ошибка загрузки от поставщика',
+    shouldReload: false,
+  };
+}
+
+export function classifyRefreshError(err: unknown, fallback: string): RefreshResultNotice {
+  if (axios.isAxiosError(err) && err.response?.status === 422) {
+    const responseData = err.response.data;
+    if (isIndexConstituentsRefreshResponse(responseData)) {
+      if (responseData.providerStatus === 'Unsupported') {
+        return {
+          kind: 'warning',
+          message:
+            getNonEmptyString(responseData.providerMessage) ?? UNSUPPORTED_REFRESH_MESSAGE_FALLBACK,
+          shouldReload: false,
+        };
+      }
+      return {
+        kind: 'error',
+        message: getNonEmptyString(responseData.providerMessage) ?? fallback,
+        shouldReload: false,
+      };
+    }
+    return { kind: 'error', message: fallback, shouldReload: false };
+  }
+
+  return { kind: 'error', message: getErrMsg(err, fallback), shouldReload: false };
 }
 
 const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
@@ -69,21 +162,24 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     setRefreshing(true);
     try {
       const res = await refreshIndexConstituents(indexId);
-      const status = res.data.providerStatus;
-      if (status === 'Unsupported') {
-        void messageApi.warning(
-          res.data.providerMessage ??
-            'Автоматическая загрузка состава не поддерживается для этого индекса',
-        );
-      } else if (status === 'Success' || status === 'Partial') {
-        const summary = `Добавлено: ${res.data.added}, без изменений: ${res.data.unchanged}, закрыто: ${res.data.closed}`;
-        void messageApi.success(summary);
-        await loadData();
+      const result = classifyRefreshResult(res.data);
+      if (result.kind === 'warning') {
+        void messageApi.warning(result.message);
+      } else if (result.kind === 'success') {
+        void messageApi.success(result.message);
       } else {
-        void messageApi.error(res.data.providerMessage ?? 'Ошибка загрузки от поставщика');
+        void messageApi.error(result.message);
+      }
+      if (result.shouldReload) {
+        await loadData();
       }
     } catch (err) {
-      void messageApi.error(getErrMsg(err, 'Ошибка обновления состава'));
+      const result = classifyRefreshError(err, 'Ошибка обновления состава');
+      if (result.kind === 'warning') {
+        void messageApi.warning(result.message);
+      } else {
+        void messageApi.error(result.message);
+      }
     } finally {
       setRefreshing(false);
     }
