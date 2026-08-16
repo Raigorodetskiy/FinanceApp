@@ -14,10 +14,11 @@ import {
   Typography,
   message,
 } from 'antd';
-import { DeleteOutlined, EditOutlined, InboxOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
+import { CaretDownOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, InboxOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import AuthenticatedShell from '../components/AuthenticatedShell';
+import MarketIndexPriceChart from '../components/MarketIndexPriceChart';
 import { useAuth } from '../contexts/AuthContext';
 import {
   archiveMarketIndex,
@@ -85,6 +86,7 @@ const MarketIndicesPage: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingMarketIndex, setEditingMarketIndex] = useState<MarketIndex | null>(null);
+  const [expandedIndexId, setExpandedIndexId] = useState<number | null>(null);
   const [form] = Form.useForm();
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -137,6 +139,7 @@ const MarketIndicesPage: React.FC = () => {
     form.setFieldsValue({
       name: marketIndex.name,
       code: marketIndex.code,
+      providerSymbol: marketIndex.providerSymbol ?? '',
       description: marketIndex.description,
       countryOrRegion: marketIndex.countryOrRegion,
       sortOrder: marketIndex.sortOrder,
@@ -152,6 +155,7 @@ const MarketIndicesPage: React.FC = () => {
       const payload = {
         name: values.name,
         code: values.code,
+        providerSymbol: (values.providerSymbol as string | undefined)?.trim() || null,
         description: values.description,
         countryOrRegion: values.countryOrRegion,
         sortOrder: values.sortOrder ?? 0,
@@ -204,18 +208,47 @@ const MarketIndicesPage: React.FC = () => {
     }
   };
 
+  const handleToggleExpand = (marketIndex: MarketIndex) => {
+    setExpandedIndexId((prev) => (prev === marketIndex.id ? null : marketIndex.id));
+  };
+
   const columns: ColumnsType<MarketIndex> = [
     {
       title: 'Код',
       dataIndex: 'code',
       key: 'code',
-      width: 120,
-      render: (_value, marketIndex) => (
-        <Space>
-          <Text strong>{marketIndex.code}</Text>
-          {marketIndex.isArchived && archiveTag}
-        </Space>
-      ),
+      width: 140,
+      render: (_value, marketIndex) => {
+        const isExpanded = expandedIndexId === marketIndex.id;
+        const panelId = `index-chart-panel-${marketIndex.id}`;
+        return (
+          <Space>
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              aria-controls={panelId}
+              aria-label={isExpanded ? `Скрыть график ${marketIndex.code}` : `Показать график ${marketIndex.code}`}
+              onClick={() => handleToggleExpand(marketIndex)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                fontWeight: 600,
+                fontSize: 14,
+                color: '#1677ff',
+              }}
+            >
+              {isExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
+              {marketIndex.code}
+            </button>
+            {marketIndex.isArchived && archiveTag}
+          </Space>
+        );
+      },
     },
     {
       title: 'Название',
@@ -312,6 +345,20 @@ const MarketIndicesPage: React.FC = () => {
               columns={columns}
               dataSource={filteredMarketIndices}
               pagination={false}
+              expandable={{
+                expandedRowKeys: expandedIndexId != null ? [expandedIndexId] : [],
+                expandIcon: () => null,
+                expandedRowRender: (record) => (
+                  <MarketIndexPriceChart
+                    panelId={`index-chart-panel-${record.id}`}
+                    indexId={record.id}
+                    code={record.code}
+                    name={record.name}
+                    providerSymbol={record.providerSymbol}
+                    isArchived={record.isArchived}
+                  />
+                ),
+              }}
             />
           )}
         </div>
@@ -340,6 +387,14 @@ const MarketIndicesPage: React.FC = () => {
             rules={[{ required: true, message: 'Введите название' }, { max: 200 }]}
           >
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="providerSymbol"
+            label="Символ поставщика (Yahoo Finance)"
+            rules={[{ max: 50 }]}
+            extra="Например: ^GSPC, ^DJI, ^N225. Оставьте пустым, если символ недоступен."
+          >
+            <Input placeholder="^GSPC" />
           </Form.Item>
           <Form.Item name="countryOrRegion" label="Страна / регион">
             <Input />
