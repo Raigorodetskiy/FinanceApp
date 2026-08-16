@@ -351,10 +351,8 @@ public class MarketIndicesController : ControllerBase
             TotalCount = dtos.Count,
             Source = latestMembership?.Source,
             AsOfDate = latestMembership?.LastVerifiedAt,
-            IsCuratedSnapshot = string.Equals(
-                latestMembership?.Source,
-                DowJonesIndustrialAverageConstituentsProvider.CuratedProviderName,
-                StringComparison.Ordinal),
+            IsCuratedSnapshot = GetNonEmptyTrimmed(latestMembership?.Source)?
+                .Contains("curated snapshot", StringComparison.OrdinalIgnoreCase) == true,
             IsStale = false,
             StaleReason = null,
             Constituents = dtos,
@@ -540,8 +538,9 @@ public class MarketIndicesController : ControllerBase
                         var stockChanged = false;
                         if (!string.Equals(stock.Name, constituent.CompanyName, StringComparison.Ordinal))
                         {
+                            var previousName = stock.Name;
                             stock.Name = constituent.CompanyName;
-                            if (string.Equals(stock.CommonName, stock.Name, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(stock.CommonName))
+                            if (string.Equals(stock.CommonName, previousName, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(stock.CommonName))
                             {
                                 stock.CommonName = constituent.CompanyName;
                             }
@@ -583,18 +582,26 @@ public class MarketIndicesController : ControllerBase
                     }
                     else
                     {
+                        var membershipChanged = false;
                         if (!string.Equals(membership.Source, providerResult.ProviderName, StringComparison.Ordinal))
                         {
                             membership.Source = providerResult.ProviderName;
-                            updated++;
+                            membershipChanged = true;
                         }
                         if (!string.Equals(membership.ProviderConstituentKey, constituent.ProviderSymbol, StringComparison.Ordinal))
                         {
                             membership.ProviderConstituentKey = constituent.ProviderSymbol;
-                            updated++;
+                            membershipChanged = true;
                         }
                         membership.LastVerifiedAt = providerResult.AsOfDate ?? now;
-                        unchanged++;
+                        if (membershipChanged)
+                        {
+                            updated++;
+                        }
+                        else
+                        {
+                            unchanged++;
+                        }
                     }
 
                     seenStocks.Add(stock);
@@ -675,6 +682,9 @@ public class MarketIndicesController : ControllerBase
             refreshLock.Release();
         }
     }
+
+    private static string? GetNonEmptyTrimmed(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static IndexConstituentsRefreshResponse CreateRefreshResponse(int marketIndexId, IndexConstituentsResult providerResult)
         => new()

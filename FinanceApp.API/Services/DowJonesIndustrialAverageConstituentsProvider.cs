@@ -8,7 +8,7 @@ namespace FinanceApp.API.Services;
 /// Provides DJIA constituents from a versioned curated snapshot bundled with the repository.
 /// Used because the official index owner does not provide a free, stable public runtime endpoint.
 /// </summary>
-public sealed class DowJonesIndustrialAverageConstituentsProvider : IIndexConstituentsProvider
+public sealed class DowJonesIndustrialAverageConstituentsProvider : IDjiaIndexConstituentsProvider
 {
     public const string CuratedProviderName = "S&P Dow Jones Indices (curated snapshot)";
     private const string SnapshotRelativePath = "Data/index-constituents/djia.curated.snapshot.json";
@@ -26,7 +26,7 @@ public sealed class DowJonesIndustrialAverageConstituentsProvider : IIndexConsti
 
     public string ProviderName => CuratedProviderName;
 
-    public Task<IndexConstituentsResult> GetConstituentsAsync(
+    public async Task<IndexConstituentsResult> GetConstituentsAsync(
         MarketIndex index,
         CancellationToken cancellationToken = default)
     {
@@ -35,27 +35,27 @@ public sealed class DowJonesIndustrialAverageConstituentsProvider : IIndexConsti
             var snapshotPath = Path.Combine(_environment.ContentRootPath, SnapshotRelativePath);
             if (!File.Exists(snapshotPath))
             {
-                return Task.FromResult(IndexConstituentsResult.Failure(
+                return IndexConstituentsResult.Failure(
                     ProviderName,
-                    "Curated snapshot DJIA не найден в приложении."));
+                    "Curated snapshot DJIA не найден в приложении.");
             }
 
-            var json = File.ReadAllText(snapshotPath);
+            var json = await File.ReadAllTextAsync(snapshotPath, cancellationToken);
             var snapshot = JsonSerializer.Deserialize<DjiaCuratedSnapshot>(json);
             if (snapshot is null)
             {
-                return Task.FromResult(IndexConstituentsResult.Failure(
+                return IndexConstituentsResult.Failure(
                     ProviderName,
-                    "Curated snapshot DJIA повреждён или пуст."));
+                    "Curated snapshot DJIA повреждён или пуст.");
             }
 
             var validationError = Validate(snapshot, out var entries);
             if (validationError is not null)
             {
-                return Task.FromResult(IndexConstituentsResult.Failure(ProviderName, validationError));
+                return IndexConstituentsResult.Failure(ProviderName, validationError);
             }
 
-            return Task.FromResult(new IndexConstituentsResult(
+            return new IndexConstituentsResult(
                 Status: IndexConstituentsStatus.Success,
                 ProviderName: ProviderName,
                 FetchedAt: DateTime.UtcNow,
@@ -64,14 +64,14 @@ public sealed class DowJonesIndustrialAverageConstituentsProvider : IIndexConsti
                 AsOfDate: snapshot.AsOfDate,
                 SourceUrl: snapshot.SourceUrl,
                 IsCuratedSnapshot: true,
-                IsStale: false));
+                IsStale: false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load curated DJIA snapshot");
-            return Task.FromResult(IndexConstituentsResult.Failure(
+            return IndexConstituentsResult.Failure(
                 ProviderName,
-                "Не удалось загрузить curated snapshot DJIA."));
+                "Не удалось загрузить curated snapshot DJIA.");
         }
     }
 

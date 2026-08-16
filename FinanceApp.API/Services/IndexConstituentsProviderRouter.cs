@@ -9,12 +9,12 @@ public sealed class IndexConstituentsProviderRouter : IIndexConstituentsProvider
 {
     private const string DjiaCode = "DJIA";
 
-    private readonly DowJonesIndustrialAverageConstituentsProvider _djiaProvider;
-    private readonly YahooIndexConstituentsProvider _fallbackProvider;
+    private readonly IDjiaIndexConstituentsProvider _djiaProvider;
+    private readonly IUnsupportedIndexConstituentsProvider _fallbackProvider;
 
     public IndexConstituentsProviderRouter(
-        DowJonesIndustrialAverageConstituentsProvider djiaProvider,
-        YahooIndexConstituentsProvider fallbackProvider)
+        IDjiaIndexConstituentsProvider djiaProvider,
+        IUnsupportedIndexConstituentsProvider fallbackProvider)
     {
         _djiaProvider = djiaProvider;
         _fallbackProvider = fallbackProvider;

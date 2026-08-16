@@ -77,3 +77,7 @@ public interface IIndexConstituentsProvider
         MarketIndex index,
         CancellationToken cancellationToken = default);
 }
+
+public interface IDjiaIndexConstituentsProvider : IIndexConstituentsProvider;
+
+public interface IUnsupportedIndexConstituentsProvider : IIndexConstituentsProvider;
