@@ -489,14 +489,7 @@ public class MarketIndicesController : ControllerBase
                 .GroupBy(s => $"{s.Ticker}|{s.Exchange}")
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
-            var seenStocks = new HashSet<Stock>();
-
-            Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? tx = null;
-            var isInMemoryProvider = _context.Database.ProviderName?.Contains("InMemory", StringComparison.OrdinalIgnoreCase) == true;
-            if (!isInMemoryProvider)
-            {
-                tx = await _context.Database.BeginTransactionAsync(cancellationToken);
-            }
+            var seenStocks = new HashSet<Stock>(ReferenceEqualityComparer.Instance);
             try
             {
                 foreach (var constituent in normalizedConstituents)
@@ -607,47 +600,21 @@ public class MarketIndicesController : ControllerBase
                     seenStocks.Add(stock);
                 }
 
-                await _context.SaveChangesAsync(cancellationToken);
-
-                var seenStockIds = seenStocks
-                    .Where(s => s.Id != 0)
-                    .Select(s => s.Id)
-                    .ToHashSet();
-
                 if (canCloseMissingMemberships)
                 {
                     foreach (var membership in existingMemberships
-                        .Where(m => m.EffectiveTo == null && !seenStockIds.Contains(m.StockId)))
+                        .Where(m => m.EffectiveTo == null && !seenStocks.Contains(m.Stock)))
                     {
                         membership.EffectiveTo = now;
                         closed++;
                     }
                 }
 
-                if (closed > 0)
-                {
-                    await _context.SaveChangesAsync(cancellationToken);
-                }
-
-                if (tx is not null)
-                {
-                    await tx.CommitAsync(cancellationToken);
-                }
+                await _context.SaveChangesAsync(cancellationToken);
             }
             catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
             {
-                if (tx is not null)
-                {
-                    await tx.RollbackAsync(cancellationToken);
-                }
                 return Conflict("Конкурентное обновление состава индекса. Повторите попытку.");
-            }
-            finally
-            {
-                if (tx is not null)
-                {
-                    await tx.DisposeAsync();
-                }
             }
 
             var providerMessage = providerResult.Message;

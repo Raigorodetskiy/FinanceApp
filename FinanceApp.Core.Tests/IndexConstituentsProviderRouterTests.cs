@@ -3,6 +3,7 @@ using FinanceApp.Core.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -62,6 +63,60 @@ public class IndexConstituentsProviderRouterTests
                 .Count());
     }
 
+    [Fact]
+    public async Task DjiProvider_PrefersAppBaseDirectorySnapshot_WhenBothLayoutsExist()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), $"financeapp-djia-base-{Guid.NewGuid():N}");
+        var contentRoot = Path.Combine(Path.GetTempPath(), $"financeapp-djia-content-{Guid.NewGuid():N}");
+        try
+        {
+            CreateSnapshot(baseDir, "https://example.test/base");
+            CreateSnapshot(contentRoot, "https://example.test/content");
+
+            var provider = new DowJonesIndustrialAverageConstituentsProvider(
+                new StubWebHostEnvironment { ContentRootPath = contentRoot },
+                NullLogger<DowJonesIndustrialAverageConstituentsProvider>.Instance,
+                baseDir);
+
+            var result = await provider.GetConstituentsAsync(new MarketIndex { Code = "DJIA", NormalizedCode = "DJIA" });
+
+            Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+            Assert.Equal("https://example.test/base", result.SourceUrl);
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+            if (Directory.Exists(contentRoot)) Directory.Delete(contentRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task DjiProvider_FallsBackToContentRoot_WhenAppBaseSnapshotMissing()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), $"financeapp-djia-base-missing-{Guid.NewGuid():N}");
+        var contentRoot = Path.Combine(Path.GetTempPath(), $"financeapp-djia-content-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(baseDir);
+            CreateSnapshot(contentRoot, "https://example.test/content-root");
+
+            var provider = new DowJonesIndustrialAverageConstituentsProvider(
+                new StubWebHostEnvironment { ContentRootPath = contentRoot },
+                NullLogger<DowJonesIndustrialAverageConstituentsProvider>.Instance,
+                baseDir);
+
+            var result = await provider.GetConstituentsAsync(new MarketIndex { Code = "DJIA", NormalizedCode = "DJIA" });
+
+            Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+            Assert.Equal("https://example.test/content-root", result.SourceUrl);
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+            if (Directory.Exists(contentRoot)) Directory.Delete(contentRoot, true);
+        }
+    }
+
     private static DowJonesIndustrialAverageConstituentsProvider CreateDjiaProvider()
     {
         return new DowJonesIndustrialAverageConstituentsProvider(
@@ -81,6 +136,31 @@ public class IndexConstituentsProviderRouterTests
             throw new InvalidOperationException("Repository root with FinanceApp.sln not found.");
 
         return dir.FullName;
+    }
+
+    private static void CreateSnapshot(string rootPath, string sourceUrl)
+    {
+        var snapshotPath = Path.Combine(rootPath, "Data", "index-constituents", "djia.curated.snapshot.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(snapshotPath)!);
+        var payload = """
+        {
+          "sourceName": "Test Source",
+          "sourceUrl": "SOURCE_URL",
+          "asOfDate": "2026-08-16T00:00:00Z",
+          "constituents": [
+            {
+              "ticker": "AAPL",
+              "providerSymbol": "AAPL",
+              "companyName": "Apple Inc.",
+              "exchange": "NASDAQ",
+              "isin": "US0378331005"
+            }
+          ]
+        }
+        """.Replace("SOURCE_URL", sourceUrl, StringComparison.Ordinal);
+
+        var validated = JsonSerializer.Deserialize<object>(payload);
+        File.WriteAllText(snapshotPath, JsonSerializer.Serialize(validated));
     }
 
     private sealed class StubWebHostEnvironment : IWebHostEnvironment
