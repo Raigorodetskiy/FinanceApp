@@ -10,21 +10,25 @@ public sealed class IndexConstituentsProviderRouter : IIndexConstituentsProvider
     private const string DjiaCode = "DJIA";
     private const string Nasdaq100Code = "NDX";
     private const string Sp500Code = "SPX";
+    private const string DaxCode = "DAX";
 
     private readonly IDjiaIndexConstituentsProvider _djiaProvider;
     private readonly INasdaq100IndexConstituentsProvider _nasdaq100Provider;
     private readonly ISp500IndexConstituentsProvider _sp500Provider;
+    private readonly IDaxIndexConstituentsProvider _daxProvider;
     private readonly IUnsupportedIndexConstituentsProvider _fallbackProvider;
 
     public IndexConstituentsProviderRouter(
         IDjiaIndexConstituentsProvider djiaProvider,
         INasdaq100IndexConstituentsProvider nasdaq100Provider,
         ISp500IndexConstituentsProvider sp500Provider,
+        IDaxIndexConstituentsProvider daxProvider,
         IUnsupportedIndexConstituentsProvider fallbackProvider)
     {
         _djiaProvider = djiaProvider;
         _nasdaq100Provider = nasdaq100Provider;
         _sp500Provider = sp500Provider;
+        _daxProvider = daxProvider;
         _fallbackProvider = fallbackProvider;
     }
 
@@ -48,6 +52,11 @@ public sealed class IndexConstituentsProviderRouter : IIndexConstituentsProvider
         if (string.Equals(normalizedCode, Sp500Code, StringComparison.Ordinal))
         {
             return _sp500Provider.GetConstituentsAsync(index, cancellationToken);
+        }
+
+        if (string.Equals(normalizedCode, DaxCode, StringComparison.Ordinal))
+        {
+            return _daxProvider.GetConstituentsAsync(index, cancellationToken);
         }
 
         return _fallbackProvider.GetConstituentsAsync(index, cancellationToken);
