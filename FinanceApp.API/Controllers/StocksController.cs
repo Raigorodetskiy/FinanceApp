@@ -364,7 +364,7 @@ public class StocksController : ControllerBase
         }
 
         // If still a current constituent of at least one index, demote to CatalogOnly instead of deleting.
-        var hasActiveIndexMembership = stock.MarketIndices.Any(x => x.EffectiveTo == null);
+        var hasActiveIndexMembership = stock.MarketIndices.Any();
         if (hasActiveIndexMembership && stock.TrackingStatus == StockTrackingStatus.Tracked)
         {
             stock.TrackingStatus = StockTrackingStatus.CatalogOnly;

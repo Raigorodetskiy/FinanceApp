@@ -220,6 +220,6 @@ export const refreshIndexConstituents = (id: number) =>
   api.post<IndexConstituentsRefreshResponse>(`/market-indices/${id}/constituents/refresh`);
 
 export const trackStock = (id: number) =>
-  api.post<Stock>(`/Stocks/${id}/track`);
+  api.post<Stock>(`/stocks/${id}/track`);
 
 export default api;
