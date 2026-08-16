@@ -342,7 +342,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
                     const fmt = xAxisFormatByRange[range];
                     return (
                       <div style={{ background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '8px 12px', fontSize: 12 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{dayjs.utc(ts).local().format(`DD.MM.YYYY ${fmt.includes('HH') ? 'HH:mm' : ''}`)}</div>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{dayjs.utc(ts).local().format(`DD.MM.YYYY${fmt.includes('HH') ? ' HH:mm' : ''}`)}</div>
                         {pt.closeChart != null && <div>Закрытие: <b>{formatIndexPoints(pt.closeChart)}</b></div>}
                         {pt.open > 0 && <div style={{ color: COLOR_SECONDARY_TEXT }}>О: {formatNumber(pt.open)} В: {formatNumber(pt.high)} Н: {formatNumber(pt.low)}</div>}
                         {hasVolume && pt.volume != null && <div style={{ color: COLOR_SECONDARY_TEXT }}>Объём: {formatNumber(pt.volume, 0)}</div>}

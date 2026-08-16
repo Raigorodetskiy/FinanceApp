@@ -245,7 +245,7 @@ public class MarketIndicesController : ControllerBase
             var result = await _historyService.GetHistoryAsync(marketIndex, normalizedRange, cancellationToken);
             return Ok(result);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             return StatusCode(502, "Не удалось загрузить исторические данные. Попробуйте позже.");
         }
@@ -283,7 +283,7 @@ public class MarketIndicesController : ControllerBase
         {
             return UnprocessableEntity(ex.Message);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             return StatusCode(502, "Не удалось обновить исторические данные. Попробуйте позже.");
         }

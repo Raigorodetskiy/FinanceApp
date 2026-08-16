@@ -97,6 +97,11 @@ public class MarketIndexHistoryService : IMarketIndexHistoryService
         finally
         {
             indexLock.Release();
+            // Remove idle semaphore to avoid unbounded growth; harmless race is fine.
+            if (indexLock.CurrentCount == 1)
+            {
+                IndexRefreshLocks.TryRemove(new KeyValuePair<int, SemaphoreSlim>(index.Id, indexLock));
+            }
         }
     }
 
