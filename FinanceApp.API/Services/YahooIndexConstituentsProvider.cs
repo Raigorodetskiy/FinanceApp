@@ -9,7 +9,7 @@ namespace FinanceApp.API.Services;
 /// public/free tier. This implementation returns <see cref="IndexConstituentsStatus.Unsupported"/>
 /// for all indices until a confirmed, stable endpoint is available.
 /// </summary>
-public sealed class YahooIndexConstituentsProvider : IIndexConstituentsProvider
+public sealed class YahooIndexConstituentsProvider : IUnsupportedIndexConstituentsProvider
 {
     public string ProviderName => "Yahoo Finance";
 

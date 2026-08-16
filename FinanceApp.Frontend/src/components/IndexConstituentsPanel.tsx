@@ -27,6 +27,13 @@ export interface IndexConstituentsPanelProps {
   isArchived: boolean;
 }
 
+interface SourceMeta {
+  source: string | null;
+  asOfDate: string | null;
+  isCuratedSnapshot: boolean;
+  isStale: boolean;
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -91,9 +98,11 @@ export function classifyRefreshResult(
   }
 
   if (response.providerStatus === 'Success' || response.providerStatus === 'Partial') {
+    const conflicts = response.conflicts ?? 0;
+    const conflictsPart = conflicts > 0 ? `, конфликтов: ${conflicts}` : '';
     return {
       kind: 'success',
-      message: `Добавлено: ${response.added}, без изменений: ${response.unchanged}, закрыто: ${response.closed}`,
+      message: `Добавлено: ${response.added}, без изменений: ${response.unchanged}, закрыто: ${response.closed}${conflictsPart}`,
       shouldReload: true,
     };
   }
@@ -137,6 +146,12 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [constituents, setConstituents] = useState<IndexConstituentDto[]>([]);
+  const [sourceMeta, setSourceMeta] = useState<SourceMeta>({
+    source: null,
+    asOfDate: null,
+    isCuratedSnapshot: false,
+    isStale: false,
+  });
   const [search, setSearch] = useState('');
   const [trackingId, setTrackingId] = useState<number | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
@@ -147,6 +162,12 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     try {
       const res = await getIndexConstituents(indexId);
       setConstituents(res.data.constituents);
+      setSourceMeta({
+        source: getNonEmptyString(res.data.source) ?? null,
+        asOfDate: getNonEmptyString(res.data.asOfDate) ?? null,
+        isCuratedSnapshot: res.data.isCuratedSnapshot === true,
+        isStale: res.data.isStale === true,
+      });
     } catch (err) {
       setError(getErrMsg(err, 'Ошибка загрузки состава индекса'));
     } finally {
@@ -173,6 +194,12 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       if (result.shouldReload) {
         await loadData();
       }
+      setSourceMeta((prev) => ({
+        source: getNonEmptyString(res.data.providerName) ?? prev.source,
+        asOfDate: getNonEmptyString(res.data.asOfDate) ?? prev.asOfDate,
+        isCuratedSnapshot: res.data.isCuratedSnapshot === true || prev.isCuratedSnapshot,
+        isStale: res.data.isStale === true,
+      }));
     } catch (err) {
       const result = classifyRefreshError(err, 'Ошибка обновления состава');
       if (result.kind === 'warning') {
@@ -326,6 +353,27 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           </Button>
         )}
       </div>
+
+      {(sourceMeta.source || sourceMeta.asOfDate) && (
+        <Alert
+          type={sourceMeta.isStale ? 'warning' : 'info'}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            <Space wrap size={8}>
+              <Text style={{ fontSize: 12 }}>
+                Источник: {sourceMeta.source ?? '—'}
+                {sourceMeta.isCuratedSnapshot ? ' (Проверенный снимок)' : ''}
+              </Text>
+              {sourceMeta.asOfDate && (
+                <Text style={{ fontSize: 12 }}>
+                  As of: {new Date(sourceMeta.asOfDate).toLocaleDateString('ru-RU')}
+                </Text>
+              )}
+            </Space>
+          }
+        />
+      )}
 
       {loading ? (
         <div style={{ padding: '24px 0', textAlign: 'center' }}>

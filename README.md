@@ -71,6 +71,28 @@ Notes:
 - Current quotes and historical refreshes share the same throttle, cooldown, and in-flight request coalescing.
 - When Yahoo returns HTTP `429`, FinanceApp stops sending new Yahoo requests until the shared cooldown expires.
 
+### DJIA constituents import source (index constituents)
+
+- In this PR, **only DJIA** (`MarketIndex.Code = DJIA`) has real constituent import.
+- Runtime source is a **curated versioned snapshot** stored in:
+  - `FinanceApp.API/Data/index-constituents/djia.curated.snapshot.json`
+- Source attribution:
+  - `https://www.spglobal.com/spdji/en/indices/equity/dow-jones-industrial-average/`
+- Snapshot metadata includes:
+  - `asOfDate` (date of verified snapshot),
+  - source URL,
+  - curated flag (UI shows it as **"Проверенный снимок"**, not live feed).
+- Why curated snapshot:
+  - official DJIA owner (S&P Dow Jones Indices) does not provide a free/public stable structured endpoint suitable for production runtime import in this app.
+- Explicit non-goal:
+  - ETF holdings (e.g. DIA) are **not** used as a silent substitute for DJIA constituents.
+- Manual update workflow:
+  1. Verify current DJIA list from authoritative source.
+  2. Update `djia.curated.snapshot.json` (`asOfDate` + constituents only with confirmed ticker/name/exchange).
+  3. Run backend/frontend tests and build.
+  4. Open PR describing source and as-of date.
+- Imported constituent stocks are created as `CatalogOnly` and do **not** trigger automatic price/history/fundamentals tracking.
+
 ---
 
 ## Frontend

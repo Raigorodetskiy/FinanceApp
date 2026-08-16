@@ -329,6 +329,203 @@ public class StockTrackingStatusTests
         Assert.Equal("Unsupported", body.ProviderStatus);
     }
 
+    [Fact]
+    public async Task RefreshConstituents_FirstImport_CreatesCatalogOnlyMemberships_WithoutHistoryOrFundamentals()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "Dow Jones", NormalizedName = "DOW JONES", Code = "DJIA",
+            NormalizedCode = "DJIA", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new SnapshotProvider(new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, null),
+            new IndexConstituentEntry("MSFT", "MSFT", "Microsoft Corporation", StockExchanges.Nasdaq, null),
+        });
+
+        var controller = CreateMarketIndicesController(context, provider);
+        var result = await controller.RefreshConstituents(1);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<IndexConstituentsRefreshResponse>(ok.Value);
+
+        Assert.Equal("Success", body.ProviderStatus);
+        Assert.Equal(2, body.Added);
+        Assert.Equal(0, body.Closed);
+        Assert.Equal(0, body.Conflicts);
+        Assert.Equal(2, await context.Stocks.CountAsync());
+        Assert.All(await context.Stocks.ToListAsync(), s => Assert.Equal(StockTrackingStatus.CatalogOnly, s.TrackingStatus));
+        Assert.Equal(2, await context.StockMarketIndices.CountAsync(x => x.MarketIndexId == 1 && x.EffectiveTo == null));
+        Assert.Equal(0, await context.StockHistoricalPrices.CountAsync());
+        Assert.Equal(0, await context.FundamentalsSnapshots.CountAsync());
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_RepeatedImport_IsIdempotent()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "Dow Jones", NormalizedName = "DOW JONES", Code = "DJIA",
+            NormalizedCode = "DJIA", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var snapshot = new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, null),
+            new IndexConstituentEntry("MSFT", "MSFT", "Microsoft Corporation", StockExchanges.Nasdaq, null),
+        };
+        var provider = new SnapshotProvider(snapshot);
+        var controller = CreateMarketIndicesController(context, provider);
+
+        await controller.RefreshConstituents(1);
+        var result2 = await controller.RefreshConstituents(1);
+        var ok2 = Assert.IsType<OkObjectResult>(result2.Result);
+        var body2 = Assert.IsType<IndexConstituentsRefreshResponse>(ok2.Value);
+
+        Assert.Equal(2, await context.Stocks.CountAsync());
+        Assert.Equal(2, await context.StockMarketIndices.CountAsync(x => x.MarketIndexId == 1 && x.EffectiveTo == null));
+        Assert.Equal(0, body2.Added);
+        Assert.Equal(0, body2.Closed);
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_ExistingTrackedStock_IsReusedWithoutDemotion()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "Dow Jones", NormalizedName = "DOW JONES", Code = "DJIA",
+            NormalizedCode = "DJIA", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        var tracked = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nasdaq,
+            CurrentPrice = 100m,
+            ProviderSymbol = "AAPL",
+            TrackingStatus = StockTrackingStatus.Tracked
+        };
+        context.Stocks.Add(tracked);
+        await context.SaveChangesAsync();
+
+        var provider = new SnapshotProvider(new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, null),
+        });
+        var controller = CreateMarketIndicesController(context, provider);
+        await controller.RefreshConstituents(1);
+
+        Assert.Equal(1, await context.Stocks.CountAsync());
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(StockTrackingStatus.Tracked, persisted.TrackingStatus);
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.MarketIndexId == 1 && x.EffectiveTo == null));
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_ClosureUsesOnlyImportedSnapshotSet()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.AddRange(
+            new MarketIndex
+            {
+                Id = 1, Name = "Dow Jones", NormalizedName = "DOW JONES", Code = "DJIA",
+                NormalizedCode = "DJIA", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            },
+            new MarketIndex
+            {
+                Id = 2, Name = "S&P 500", NormalizedName = "S&P 500", Code = "SPX",
+                NormalizedCode = "SPX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            });
+
+        var oldStock = new Stock
+        {
+            Ticker = "OLD",
+            Name = "Old Corp",
+            CommonName = "Old Corp",
+            Exchange = StockExchanges.Nyse,
+            ProviderSymbol = "OLD",
+            TrackingStatus = StockTrackingStatus.CatalogOnly
+        };
+        var unrelatedStock = new Stock
+        {
+            Ticker = "OTHER",
+            Name = "Other Corp",
+            CommonName = "Other Corp",
+            Exchange = StockExchanges.Nyse,
+            ProviderSymbol = "OTHER",
+            TrackingStatus = StockTrackingStatus.CatalogOnly
+        };
+        context.Stocks.AddRange(oldStock, unrelatedStock);
+        await context.SaveChangesAsync();
+        context.StockMarketIndices.AddRange(
+            new StockMarketIndex { MarketIndexId = 1, StockId = oldStock.Id, EffectiveFrom = DateTime.UtcNow, ImportedAt = DateTime.UtcNow },
+            new StockMarketIndex { MarketIndexId = 2, StockId = unrelatedStock.Id, EffectiveFrom = DateTime.UtcNow, ImportedAt = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var provider = new SnapshotProvider(new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, null),
+        });
+        var controller = CreateMarketIndicesController(context, provider);
+        await controller.RefreshConstituents(1);
+
+        Assert.Single(await context.StockMarketIndices.Where(x => x.MarketIndexId == 1 && x.EffectiveTo == null).ToListAsync());
+        var closedMembership = await context.StockMarketIndices.SingleAsync(x => x.MarketIndexId == 1 && x.StockId == oldStock.Id);
+        Assert.NotNull(closedMembership.EffectiveTo);
+        var unrelatedMembership = await context.StockMarketIndices.SingleAsync(x => x.MarketIndexId == 2 && x.StockId == unrelatedStock.Id);
+        Assert.Null(unrelatedMembership.EffectiveTo);
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_AmbiguousExchange_BecomesConflictAndDoesNotClose()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "Dow Jones", NormalizedName = "DOW JONES", Code = "DJIA",
+            NormalizedCode = "DJIA", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        var existing = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nasdaq,
+            ProviderSymbol = "AAPL",
+            TrackingStatus = StockTrackingStatus.CatalogOnly
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            MarketIndexId = 1,
+            StockId = existing.Id,
+            EffectiveFrom = DateTime.UtcNow,
+            ImportedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new SnapshotProvider(new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", "", null), // ambiguous -> conflict
+        });
+        var controller = CreateMarketIndicesController(context, provider);
+        var result = await controller.RefreshConstituents(1);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<IndexConstituentsRefreshResponse>(ok.Value);
+
+        Assert.Equal("Partial", body.ProviderStatus);
+        Assert.Equal(1, body.Conflicts);
+        Assert.Equal(0, body.Closed);
+        Assert.Null((await context.StockMarketIndices.SingleAsync(x => x.MarketIndexId == 1 && x.StockId == existing.Id)).EffectiveTo);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static AppDbContext CreateContext()
@@ -347,9 +544,11 @@ public class StockTrackingStatusTests
         };
     }
 
-    private static MarketIndicesController CreateMarketIndicesController(AppDbContext context)
+    private static MarketIndicesController CreateMarketIndicesController(
+        AppDbContext context,
+        IIndexConstituentsProvider? provider = null)
     {
-        return new MarketIndicesController(context, new NullMarketIndexHistoryService(), new NullIndexConstituentsProvider())
+        return new MarketIndicesController(context, new NullMarketIndexHistoryService(), provider ?? new NullIndexConstituentsProvider())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -385,5 +584,29 @@ public class StockTrackingStatusTests
 
         public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
             => Task.FromResult(IndexConstituentsResult.Unsupported(ProviderName));
+    }
+
+    private sealed class SnapshotProvider : IIndexConstituentsProvider
+    {
+        private readonly IReadOnlyList<IndexConstituentEntry> _entries;
+
+        public SnapshotProvider(IReadOnlyList<IndexConstituentEntry> entries)
+        {
+            _entries = entries;
+        }
+
+        public string ProviderName => "Test Snapshot";
+
+        public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
+            => Task.FromResult(new IndexConstituentsResult(
+                IndexConstituentsStatus.Success,
+                ProviderName,
+                DateTime.UtcNow,
+                _entries,
+                Message: null,
+                AsOfDate: new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc),
+                SourceUrl: "https://example.test/djia",
+                IsCuratedSnapshot: true,
+                IsStale: false));
     }
 }

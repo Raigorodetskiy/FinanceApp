@@ -139,6 +139,7 @@ describe('classifyRefreshResult', () => {
         added: 5,
         unchanged: 9,
         closed: 1,
+        conflicts: 2,
       }),
     );
     const partial = classifyRefreshResult(
@@ -150,6 +151,7 @@ describe('classifyRefreshResult', () => {
     expect(success.kind).toBe('success');
     expect(success.shouldReload).toBe(true);
     expect(success.message).toContain('Добавлено: 5');
+    expect(success.message).toContain('конфликтов: 2');
     expect(partial.kind).toBe('success');
     expect(partial.shouldReload).toBe(true);
   });

@@ -3,9 +3,10 @@ namespace FinanceApp.Core.Models;
 public static class StockExchanges
 {
     public const string Nyse = "NYSE";
+    public const string Nasdaq = "NASDAQ";
     public const string Frankfurt = "Frankfurt";
 
-    public static IReadOnlyList<string> Supported { get; } = new[] { Nyse, Frankfurt };
+    public static IReadOnlyList<string> Supported { get; } = new[] { Nyse, Nasdaq, Frankfurt };
 
     public static bool TryNormalize(string? value, out string normalized)
     {
@@ -20,6 +21,12 @@ public static class StockExchanges
         if (string.Equals(trimmedValue, Nyse, StringComparison.OrdinalIgnoreCase))
         {
             normalized = Nyse;
+            return true;
+        }
+
+        if (string.Equals(trimmedValue, Nasdaq, StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = Nasdaq;
             return true;
         }
 
