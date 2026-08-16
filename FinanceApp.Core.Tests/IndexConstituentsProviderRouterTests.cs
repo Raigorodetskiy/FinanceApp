@@ -15,7 +15,8 @@ public class IndexConstituentsProviderRouterTests
     {
         var provider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
-        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, new YahooIndexConstituentsProvider());
+        var spxProvider = CreateSp500Provider();
+        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
         var djia = new MarketIndex { Id = 999, Code = "djia", NormalizedCode = "DJIA" };
 
         var result = await router.GetConstituentsAsync(djia);
@@ -29,10 +30,11 @@ public class IndexConstituentsProviderRouterTests
     {
         var provider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
-        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, new YahooIndexConstituentsProvider());
-        var spx = new MarketIndex { Id = 1, Code = "SPX", NormalizedCode = "SPX" };
+        var spxProvider = CreateSp500Provider();
+        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
+        var dax = new MarketIndex { Id = 1, Code = "DAX", NormalizedCode = "DAX" };
 
-        var result = await router.GetConstituentsAsync(spx);
+        var result = await router.GetConstituentsAsync(dax);
 
         Assert.Equal(IndexConstituentsStatus.Unsupported, result.Status);
         Assert.Equal("Yahoo Finance", result.ProviderName);
@@ -43,13 +45,29 @@ public class IndexConstituentsProviderRouterTests
     {
         var djiaProvider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
-        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, new YahooIndexConstituentsProvider());
+        var spxProvider = CreateSp500Provider();
+        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
         var ndx = new MarketIndex { Id = 4, Code = " ndx ", NormalizedCode = " nDx " };
 
         var result = await router.GetConstituentsAsync(ndx);
 
         Assert.Equal(IndexConstituentsStatus.Success, result.Status);
         Assert.Equal(Nasdaq100ConstituentsProvider.CuratedProviderName, result.ProviderName);
+    }
+
+    [Fact]
+    public async Task Router_UsesSp500Provider_ByCanonicalCode()
+    {
+        var djiaProvider = CreateDjiaProvider();
+        var ndxProvider = CreateNasdaq100Provider();
+        var spxProvider = CreateSp500Provider();
+        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
+        var spx = new MarketIndex { Id = 5, Code = " spx ", NormalizedCode = " SpX " };
+
+        var result = await router.GetConstituentsAsync(spx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.Equal(Sp500ConstituentsProvider.CuratedProviderName, result.ProviderName);
     }
 
     [Fact]
@@ -107,6 +125,71 @@ public class IndexConstituentsProviderRouterTests
                 .Count());
         Assert.Contains(result.Constituents, c => c.Ticker == "GOOG");
         Assert.Contains(result.Constituents, c => c.Ticker == "GOOGL");
+    }
+
+    [Fact]
+    public async Task Sp500CuratedSnapshot_HasExpectedShape_AsOfAndUniqueConstituents()
+    {
+        var provider = CreateSp500Provider();
+        var spx = new MarketIndex { Code = "SPX", NormalizedCode = "SPX" };
+
+        var result = await provider.GetConstituentsAsync(spx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.True(result.IsCuratedSnapshot);
+        Assert.NotNull(result.AsOfDate);
+        Assert.NotNull(result.SourceUrl);
+        // S&P 500 has 500 companies but 503 securities due to multiple share classes
+        // (BRK.A/BRK.B and BF.A/BF.B each contribute two lines).
+        Assert.Equal(503, result.Constituents.Count);
+        Assert.All(result.Constituents, c =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(c.Ticker));
+            Assert.False(string.IsNullOrWhiteSpace(c.CompanyName));
+            Assert.False(string.IsNullOrWhiteSpace(c.ProviderSymbol));
+            Assert.True(StockExchanges.TryNormalize(c.ProviderExchange, out _));
+        });
+        Assert.Equal(
+            503,
+            result.Constituents
+                .Select(c => $"{c.ProviderSymbol}|{c.ProviderExchange}")
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public async Task Sp500CuratedSnapshot_HasRequiredRepresentativeSymbols()
+    {
+        var provider = CreateSp500Provider();
+        var spx = new MarketIndex { Code = "SPX", NormalizedCode = "SPX" };
+
+        var result = await provider.GetConstituentsAsync(spx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.Contains(result.Constituents, c => c.Ticker == "AAPL");
+        Assert.Contains(result.Constituents, c => c.Ticker == "MSFT");
+        Assert.Contains(result.Constituents, c => c.Ticker == "AMZN");
+        Assert.Contains(result.Constituents, c => c.Ticker == "NVDA");
+        // Class-share tickers must be present with correct providerSymbol (Yahoo Finance convention)
+        Assert.Contains(result.Constituents, c => c.Ticker == "BRK.B" && c.ProviderSymbol == "BRK-B");
+        Assert.Contains(result.Constituents, c => c.Ticker == "BRK.A" && c.ProviderSymbol == "BRK-A");
+        Assert.Contains(result.Constituents, c => c.Ticker == "BF.B" && c.ProviderSymbol == "BF-B");
+        Assert.Contains(result.Constituents, c => c.Ticker == "BF.A" && c.ProviderSymbol == "BF-A");
+    }
+
+    [Fact]
+    public async Task Sp500CuratedSnapshot_HasSourceUrlAndAsOf()
+    {
+        var provider = CreateSp500Provider();
+        var spx = new MarketIndex { Code = "SPX", NormalizedCode = "SPX" };
+
+        var result = await provider.GetConstituentsAsync(spx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.False(string.IsNullOrWhiteSpace(result.SourceUrl));
+        Assert.NotNull(result.AsOfDate);
+        Assert.True(result.IsCuratedSnapshot);
+        Assert.False(result.IsStale);
     }
 
     [Fact]
@@ -175,6 +258,13 @@ public class IndexConstituentsProviderRouterTests
         return new Nasdaq100ConstituentsProvider(
             new StubWebHostEnvironment { ContentRootPath = Path.Combine(FindRepositoryRoot(), "FinanceApp.API") },
             NullLogger<Nasdaq100ConstituentsProvider>.Instance);
+    }
+
+    private static Sp500ConstituentsProvider CreateSp500Provider()
+    {
+        return new Sp500ConstituentsProvider(
+            new StubWebHostEnvironment { ContentRootPath = Path.Combine(FindRepositoryRoot(), "FinanceApp.API") },
+            NullLogger<Sp500ConstituentsProvider>.Instance);
     }
 
     private static string FindRepositoryRoot()
