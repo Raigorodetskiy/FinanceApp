@@ -1,8 +1,12 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
+  ApartmentOutlined,
+  BookOutlined,
+  CalculatorOutlined,
   DashboardOutlined,
   FolderOutlined,
   FolderOpenOutlined,
+  GlobalOutlined,
   LogoutOutlined,
   StockOutlined,
   UnorderedListOutlined,
@@ -38,6 +42,49 @@ export interface AppSidebarProps {
   defaultOpenKeys?: string[];
   /** ID of the currently viewed portfolio, if any */
   activePortfolioId?: string | number;
+}
+
+export interface StocksDirectoriesMenuEntry {
+  key: 'sectors' | 'market-indices' | 'financial-metrics';
+  label: string;
+  route: string;
+  icon: React.ReactElement;
+}
+
+export const STOCKS_DIRECTORIES_PARENT_KEY = 'stocks-directories';
+export const STOCKS_DIRECTORIES_PARENT_LABEL = 'Справочники';
+export const STOCKS_DIRECTORIES_PARENT_ICON = <BookOutlined />;
+
+export const STOCKS_DIRECTORIES_MENU_ENTRIES: StocksDirectoriesMenuEntry[] = [
+  {
+    key: 'sectors',
+    label: 'Секторы и отрасли',
+    route: '/sectors',
+    icon: <ApartmentOutlined />,
+  },
+  {
+    key: 'market-indices',
+    label: 'Мировые индексы',
+    route: '/market-indices',
+    icon: <GlobalOutlined />,
+  },
+  {
+    key: 'financial-metrics',
+    label: 'Финансовые показатели',
+    route: '/financial-metrics',
+    icon: <CalculatorOutlined />,
+  },
+];
+
+export function buildStocksDirectoriesMenuItems(
+  onNavigate: (route: string) => void,
+): NonNullable<MenuProps['items']> {
+  return STOCKS_DIRECTORIES_MENU_ENTRIES.map((entry) => ({
+    key: entry.key,
+    icon: entry.icon,
+    label: entry.label,
+    onClick: () => onNavigate(entry.route),
+  }));
 }
 
 const AppSidebar: React.FC<AppSidebarProps> = ({
@@ -299,25 +346,13 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
             onClick: () => { navigate('/stocks'); setMobileOpen(false); },
           },
           {
-            key: 'stocks-directories',
-            label: 'Справочники',
-            children: [
-              {
-                key: 'sectors',
-                label: 'Секторы и отрасли',
-                onClick: () => { navigate('/sectors'); setMobileOpen(false); },
-              },
-              {
-                key: 'market-indices',
-                label: 'Мировые индексы',
-                onClick: () => { navigate('/market-indices'); setMobileOpen(false); },
-              },
-              {
-                key: 'financial-metrics',
-                label: 'Финансовые показатели',
-                onClick: () => { navigate('/financial-metrics'); setMobileOpen(false); },
-              },
-            ],
+            key: STOCKS_DIRECTORIES_PARENT_KEY,
+            icon: STOCKS_DIRECTORIES_PARENT_ICON,
+            label: STOCKS_DIRECTORIES_PARENT_LABEL,
+            children: buildStocksDirectoriesMenuItems((route) => {
+              navigate(route);
+              setMobileOpen(false);
+            }),
           },
         ],
       },
