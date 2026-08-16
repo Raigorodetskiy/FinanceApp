@@ -1,5 +1,6 @@
 using FinanceApp.API.Controllers;
 using FinanceApp.API.Models;
+using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.AspNetCore.Http;
@@ -153,11 +154,22 @@ public class MarketIndicesControllerTests
     }
 
     private static MarketIndicesController CreateController(AppDbContext context)
-        => new(context)
+    {
+        return new MarketIndicesController(context, new NullMarketIndexHistoryService())
         {
             ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext()
             }
         };
+    }
+
+    private sealed class NullMarketIndexHistoryService : IMarketIndexHistoryService
+    {
+        public Task<MarketIndexHistoryResponse> GetHistoryAsync(MarketIndex index, string range, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MarketIndexHistoryResponse { MarketIndexId = index.Id, Range = range, Interval = "1d" });
+
+        public Task<MarketIndexRefreshResponse> RefreshHistoryAsync(MarketIndex index, string range, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MarketIndexRefreshResponse { MarketIndexId = index.Id });
+    }
 }

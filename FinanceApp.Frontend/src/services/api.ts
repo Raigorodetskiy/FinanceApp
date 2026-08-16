@@ -31,6 +31,9 @@ import type {
   SectorDto,
   IndustryDto,
   MarketIndex,
+  MarketIndexHistoryRange,
+  MarketIndexHistoryResponse,
+  MarketIndexRefreshResponse,
   CreateSectorRequest,
   UpdateSectorRequest,
   CreateIndustryRequest,
@@ -200,5 +203,11 @@ export const restoreMarketIndex = (id: number) =>
 
 export const deleteMarketIndex = (id: number) =>
   api.delete<void>(`/market-indices/${id}`).then((r) => r.data);
+
+export const getMarketIndexHistory = (id: number, range: MarketIndexHistoryRange) =>
+  api.get<MarketIndexHistoryResponse>(`/market-indices/${id}/history`, { params: { range } });
+
+export const refreshMarketIndexHistory = (id: number) =>
+  api.post<MarketIndexRefreshResponse>(`/market-indices/${id}/history/refresh`);
 
 export default api;

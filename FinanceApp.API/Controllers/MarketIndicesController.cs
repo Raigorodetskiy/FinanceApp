@@ -1,4 +1,5 @@
 using FinanceApp.API.Models;
+using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -14,10 +15,12 @@ namespace FinanceApp.API.Controllers;
 public class MarketIndicesController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IMarketIndexHistoryService _historyService;
 
-    public MarketIndicesController(AppDbContext context)
+    public MarketIndicesController(AppDbContext context, IMarketIndexHistoryService historyService)
     {
         _context = context;
+        _historyService = historyService;
     }
 
     [HttpGet]
@@ -54,12 +57,19 @@ public class MarketIndicesController : ControllerBase
         }
 
         var now = DateTime.UtcNow;
+        var normalizedProviderSymbol = NormalizeProviderSymbol(request.ProviderSymbol);
+        if (normalizedProviderSymbol is not null && !MarketIndexHistoryService.IsValidProviderSymbol(normalizedProviderSymbol))
+        {
+            return BadRequest("Символ поставщика содержит недопустимые символы.");
+        }
+
         var marketIndex = new MarketIndex
         {
             Name = request.Name.Trim(),
             NormalizedName = normalizedName,
             Code = request.Code.Trim(),
             NormalizedCode = normalizedCode,
+            ProviderSymbol = normalizedProviderSymbol,
             Description = request.Description?.Trim() ?? string.Empty,
             CountryOrRegion = request.CountryOrRegion?.Trim() ?? string.Empty,
             SortOrder = request.SortOrder,
@@ -107,14 +117,36 @@ public class MarketIndicesController : ControllerBase
             return Conflict("Индекс с таким кодом уже существует.");
         }
 
+        var newProviderSymbol = NormalizeProviderSymbol(request.ProviderSymbol);
+        if (newProviderSymbol is not null && !MarketIndexHistoryService.IsValidProviderSymbol(newProviderSymbol))
+        {
+            return BadRequest("Символ поставщика содержит недопустимые символы.");
+        }
+
+        var symbolChanged = !string.Equals(
+            marketIndex.ProviderSymbol, newProviderSymbol, StringComparison.OrdinalIgnoreCase);
+
         marketIndex.Name = request.Name.Trim();
         marketIndex.NormalizedName = normalizedName;
         marketIndex.Code = request.Code.Trim();
         marketIndex.NormalizedCode = normalizedCode;
+        marketIndex.ProviderSymbol = newProviderSymbol;
         marketIndex.Description = request.Description?.Trim() ?? string.Empty;
         marketIndex.CountryOrRegion = request.CountryOrRegion?.Trim() ?? string.Empty;
         marketIndex.SortOrder = request.SortOrder;
         marketIndex.UpdatedAt = DateTime.UtcNow;
+
+        // When ProviderSymbol changes, invalidate old history to prevent mixing data from different symbols
+        if (symbolChanged)
+        {
+            var oldHistory = await _context.MarketIndexHistoricalPrices
+                .Where(x => x.MarketIndexId == id)
+                .ToListAsync();
+            if (oldHistory.Count > 0)
+            {
+                _context.MarketIndexHistoricalPrices.RemoveRange(oldHistory);
+            }
+        }
 
         try
         {
@@ -179,6 +211,84 @@ public class MarketIndicesController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id:int}/history")]
+    public async Task<ActionResult<MarketIndexHistoryResponse>> GetHistory(
+        int id,
+        [FromQuery] string range = "1y",
+        CancellationToken cancellationToken = default)
+    {
+        var marketIndex = await _context.MarketIndices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (marketIndex is null)
+        {
+            return NotFound("Индекс не найден.");
+        }
+
+        if (string.IsNullOrWhiteSpace(marketIndex.ProviderSymbol))
+        {
+            return UnprocessableEntity("Символ поставщика не указан для этого индекса. Укажите ProviderSymbol в настройках индекса.");
+        }
+
+        string normalizedRange;
+        try
+        {
+            normalizedRange = MarketIndexHistoryService.NormalizeRange(range);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        try
+        {
+            var result = await _historyService.GetHistoryAsync(marketIndex, normalizedRange, cancellationToken);
+            return Ok(result);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return StatusCode(502, "Не удалось загрузить исторические данные. Попробуйте позже.");
+        }
+    }
+
+    [HttpPost("{id:int}/history/refresh")]
+    public async Task<ActionResult<MarketIndexRefreshResponse>> RefreshHistory(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var marketIndex = await _context.MarketIndices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (marketIndex is null)
+        {
+            return NotFound("Индекс не найден.");
+        }
+
+        if (string.IsNullOrWhiteSpace(marketIndex.ProviderSymbol))
+        {
+            return UnprocessableEntity("Символ поставщика не указан. Укажите ProviderSymbol для обновления истории.");
+        }
+
+        if (marketIndex.IsArchived)
+        {
+            return Conflict("Нельзя обновлять историю архивного индекса через этот endpoint. Снимите индекс с архива.");
+        }
+
+        try
+        {
+            var result = await _historyService.RefreshHistoryAsync(marketIndex, "5y", cancellationToken);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UnprocessableEntity(ex.Message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return StatusCode(502, "Не удалось обновить исторические данные. Попробуйте позже.");
+        }
+    }
+
     private async Task<MarketIndexDto> LoadMarketIndexAsync(int id)
     {
         var marketIndex = await _context.MarketIndices
@@ -196,6 +306,7 @@ public class MarketIndicesController : ControllerBase
             NormalizedName = marketIndex.NormalizedName,
             Code = marketIndex.Code,
             NormalizedCode = marketIndex.NormalizedCode,
+            ProviderSymbol = marketIndex.ProviderSymbol,
             Description = marketIndex.Description,
             CountryOrRegion = marketIndex.CountryOrRegion,
             SortOrder = marketIndex.SortOrder,
@@ -206,6 +317,9 @@ public class MarketIndicesController : ControllerBase
 
     private static string Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
+
+    private static string? NormalizeProviderSymbol(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static bool IsDuplicateKeyException(DbUpdateException ex)
     {
