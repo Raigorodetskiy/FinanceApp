@@ -1,0 +1,389 @@
+using FinanceApp.API.Controllers;
+using FinanceApp.API.Models;
+using FinanceApp.API.Services;
+using FinanceApp.Core.Models;
+using FinanceApp.Data.Data;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace FinanceApp.Core.Tests;
+
+/// <summary>
+/// Tests for CatalogOnly vs Tracked stock architecture.
+/// </summary>
+public class StockTrackingStatusTests
+{
+    // ── GET /api/stocks ───────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAll_DefaultRequest_ReturnsOnlyTrackedStocks()
+    {
+        await using var context = CreateContext();
+        context.Stocks.AddRange(
+            new Stock { Ticker = "AAPL", Name = "Apple", CommonName = "Apple", Exchange = StockExchanges.Nyse, CurrentPrice = 100m, TrackingStatus = StockTrackingStatus.Tracked },
+            new Stock { Ticker = "MSFT", Name = "Microsoft", CommonName = "Microsoft", Exchange = StockExchanges.Nyse, CurrentPrice = 200m, TrackingStatus = StockTrackingStatus.CatalogOnly });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetAll();
+
+        var stocks = Assert.IsAssignableFrom<IEnumerable<Stock>>(
+            Assert.IsType<ActionResult<IEnumerable<Stock>>>(result).Value);
+        Assert.Single(stocks);
+        Assert.All(stocks, s => Assert.Equal(StockTrackingStatus.Tracked, s.TrackingStatus));
+    }
+
+    [Fact]
+    public async Task GetAll_IncludeCatalogTrue_ReturnsAllStocks()
+    {
+        await using var context = CreateContext();
+        context.Stocks.AddRange(
+            new Stock { Ticker = "AAPL", Name = "Apple", CommonName = "Apple", Exchange = StockExchanges.Nyse, CurrentPrice = 100m, TrackingStatus = StockTrackingStatus.Tracked },
+            new Stock { Ticker = "MSFT", Name = "Microsoft", CommonName = "Microsoft", Exchange = StockExchanges.Nyse, CurrentPrice = 200m, TrackingStatus = StockTrackingStatus.CatalogOnly });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetAll(includeCatalog: true);
+
+        var stocks = Assert.IsAssignableFrom<IEnumerable<Stock>>(
+            Assert.IsType<ActionResult<IEnumerable<Stock>>>(result).Value);
+        Assert.Equal(2, stocks.Count());
+    }
+
+    // ── POST /api/stocks — standard create always Tracked ────────────────────
+
+    [Fact]
+    public async Task Create_StandardRequest_CreatesTrackedStock()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "TSLA",
+            Name = "Tesla Inc.",
+            CommonName = "Tesla",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 300m,
+        });
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var stock = Assert.IsType<Stock>(created.Value);
+        Assert.Equal(StockTrackingStatus.Tracked, stock.TrackingStatus);
+    }
+
+    [Fact]
+    public async Task Create_CatalogOnlyInPayload_StillCreatesTrackedStock()
+    {
+        // Clients must not be able to create CatalogOnly stocks through the standard API.
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.Create(new Stock
+        {
+            Ticker = "TSLA",
+            Name = "Tesla Inc.",
+            CommonName = "Tesla",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 300m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly, // should be overridden
+        });
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var stock = Assert.IsType<Stock>(created.Value);
+        Assert.Equal(StockTrackingStatus.Tracked, stock.TrackingStatus);
+    }
+
+    // ── GET history / fundamentals reject CatalogOnly ─────────────────────────
+
+    [Fact]
+    public async Task GetHistory_CatalogOnlyStock_Returns409()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetHistory(stock.Id, "1y");
+
+        Assert.Equal(StatusCodes.Status409Conflict, (result as ObjectResult)?.StatusCode);
+    }
+
+    [Fact]
+    public async Task RefreshHistory_CatalogOnlyStock_Returns409()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.RefreshHistory(stock.Id);
+
+        Assert.Equal(StatusCodes.Status409Conflict, (result.Result as ObjectResult)?.StatusCode);
+    }
+
+    // ── POST /api/stocks/{id}/track ──────────────────────────────────────────
+
+    [Fact]
+    public async Task Track_CatalogOnlyStock_PromotesToTracked()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Track(stock.Id);
+
+        var ok = Assert.IsType<ActionResult<Stock>>(result);
+        var promoted = Assert.IsType<Stock>(ok.Value);
+        Assert.Equal(StockTrackingStatus.Tracked, promoted.TrackingStatus);
+        Assert.Equal(StockTrackingStatus.Tracked, (await context.Stocks.FindAsync(stock.Id))!.TrackingStatus);
+    }
+
+    [Fact]
+    public async Task Track_AlreadyTrackedStock_Returns200WithoutDuplicate()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.Tracked,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Track(stock.Id);
+
+        var ok = Assert.IsType<ActionResult<Stock>>(result);
+        Assert.Equal(StockTrackingStatus.Tracked, ok.Value!.TrackingStatus);
+        Assert.Equal(1, await context.Stocks.CountAsync());
+    }
+
+    // ── DELETE demotes CatalogOnly when still in an index ────────────────────
+
+    [Fact]
+    public async Task Delete_TrackedStockStillInIndex_DemotesToCatalogOnly()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "S&P 500", NormalizedName = "S&P 500", Code = "SPX",
+            NormalizedCode = "SPX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        var stock = new Stock
+        {
+            Ticker = "AAPL", Name = "Apple", CommonName = "Apple",
+            Exchange = StockExchanges.Nyse, CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { MarketIndexId = 1 }
+            }
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Delete(stock.Id);
+
+        Assert.IsType<NoContentResult>(result);
+        // Stock must still exist but as CatalogOnly
+        var remaining = await context.Stocks.FindAsync(stock.Id);
+        Assert.NotNull(remaining);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, remaining!.TrackingStatus);
+    }
+
+    [Fact]
+    public async Task Delete_TrackedStockNoIndexMembership_DeletesPhysically()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "AAPL", Name = "Apple", CommonName = "Apple",
+            Exchange = StockExchanges.Nyse, CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.Tracked,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Delete(stock.Id);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Null(await context.Stocks.FindAsync(stock.Id));
+    }
+
+    // ── Membership history: EffectiveTo semantics ─────────────────────────────
+
+    [Fact]
+    public async Task UpdateMetadata_RemoveIndexMembership_SetsEffectiveTo_NotPhysicalDelete()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "S&P 500", NormalizedName = "S&P 500", Code = "SPX",
+            NormalizedCode = "SPX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        var stock = new Stock
+        {
+            Ticker = "AAPL", Name = "Apple", CommonName = "Apple",
+            Exchange = StockExchanges.Nyse, CurrentPrice = 100m,
+            MarketIndices = new List<StockMarketIndex> { new() { MarketIndexId = 1 } }
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        await controller.UpdateMetadata(stock.Id, new UpdateStockMetadataRequest
+        {
+            Name = stock.Name,
+            CommonName = stock.CommonName,
+            CurrentPrice = stock.CurrentPrice,
+            MarketIndexIds = new List<int>(),
+        });
+
+        // The row must still exist but with EffectiveTo set
+        var allRows = await context.StockMarketIndices.Where(x => x.StockId == stock.Id).ToListAsync();
+        Assert.Single(allRows);
+        Assert.NotNull(allRows[0].EffectiveTo);
+
+        // Current membership is empty
+        var current = await context.StockMarketIndices.Where(x => x.StockId == stock.Id && x.EffectiveTo == null).ToListAsync();
+        Assert.Empty(current);
+    }
+
+    // ── GetAll excludes catalog stocks from response ─────────────────────────
+
+    [Fact]
+    public async Task GetAll_CatalogOnlyStocksAreExcluded()
+    {
+        await using var context = CreateContext();
+        context.Stocks.AddRange(
+            new Stock { Ticker = "A", Name = "Alpha", CommonName = "Alpha", Exchange = StockExchanges.Nyse, CurrentPrice = 1m, TrackingStatus = StockTrackingStatus.Tracked },
+            new Stock { Ticker = "B", Name = "Beta", CommonName = "Beta", Exchange = StockExchanges.Nyse, CurrentPrice = 2m, TrackingStatus = StockTrackingStatus.CatalogOnly },
+            new Stock { Ticker = "C", Name = "Gamma", CommonName = "Gamma", Exchange = StockExchanges.Nyse, CurrentPrice = 3m, TrackingStatus = StockTrackingStatus.CatalogOnly });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetAll();
+        var stocks = Assert.IsAssignableFrom<IEnumerable<Stock>>(
+            Assert.IsType<ActionResult<IEnumerable<Stock>>>(result).Value).ToList();
+
+        Assert.Single(stocks);
+        Assert.Equal("A", stocks[0].Ticker);
+    }
+
+    // ── Constituents refresh: unsupported provider ────────────────────────────
+
+    [Fact]
+    public async Task RefreshConstituents_UnsupportedProvider_Returns422()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 1, Name = "S&P 500", NormalizedName = "S&P 500", Code = "SPX",
+            NormalizedCode = "SPX", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateMarketIndicesController(context);
+        var result = await controller.RefreshConstituents(1);
+
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, (result.Result as ObjectResult)?.StatusCode);
+        var body = Assert.IsType<IndexConstituentsRefreshResponse>((result.Result as ObjectResult)?.Value);
+        Assert.Equal("Unsupported", body.ProviderStatus);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private static AppDbContext CreateContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        return new AppDbContext(options);
+    }
+
+    private static StocksController CreateController(AppDbContext context)
+    {
+        return new StocksController(context, new NullStockHistoryService(), NullLogger<StocksController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+    }
+
+    private static MarketIndicesController CreateMarketIndicesController(AppDbContext context)
+    {
+        return new MarketIndicesController(context, new NullMarketIndexHistoryService(), new NullIndexConstituentsProvider())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+    }
+
+    private sealed class NullStockHistoryService : IStockHistoryService
+    {
+        public Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default)
+            => Task.FromResult(new StockHistoryResponse());
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
+            => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+
+        public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    private sealed class NullMarketIndexHistoryService : IMarketIndexHistoryService
+    {
+        public Task<MarketIndexHistoryResponse> GetHistoryAsync(MarketIndex index, string range, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MarketIndexHistoryResponse { MarketIndexId = index.Id, Range = range, Interval = "1d" });
+
+        public Task<MarketIndexRefreshResponse> RefreshHistoryAsync(MarketIndex index, string range, CancellationToken cancellationToken = default)
+            => Task.FromResult(new MarketIndexRefreshResponse { MarketIndexId = index.Id });
+    }
+
+    private sealed class NullIndexConstituentsProvider : IIndexConstituentsProvider
+    {
+        public string ProviderName => "Null";
+
+        public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
+            => Task.FromResult(IndexConstituentsResult.Unsupported(ProviderName));
+    }
+}

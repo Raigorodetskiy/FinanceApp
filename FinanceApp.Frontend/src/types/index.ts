@@ -98,6 +98,15 @@ export interface Stock {
   industry?: IndustryRef | null;
   sector?: SectorRef | null;
   marketIndexIds?: number[];
+  /** Tracking status. 0 = CatalogOnly, 1 = Tracked. Tracked stocks appear in the main table and participate in price updates. */
+  trackingStatus?: StockTrackingStatus;
+  /** Symbol as provided by the data provider used to import this stock. */
+  providerSymbol?: string | null;
+}
+
+export enum StockTrackingStatus {
+  CatalogOnly = 0,
+  Tracked = 1,
 }
 
 export type StockHistoryRange = '5y' | '3y' | '1y' | '6m' | '3m' | '1m' | '1w' | '24h' | 'today';
@@ -522,4 +531,40 @@ export interface UpdateOrderRequest {
   price: number;
   stopLoss?: number;
   stopMarket?: number;
+}
+
+// ── Index constituents ──────────────────────────────────────────────────────
+
+export interface IndexConstituentDto {
+  stockId: number;
+  ticker: string;
+  providerSymbol?: string | null;
+  name: string;
+  exchange: string;
+  isin?: string | null;
+  /** "CatalogOnly" or "Tracked" */
+  trackingStatus: string;
+  source?: string | null;
+  providerConstituentKey?: string | null;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  lastVerifiedAt?: string | null;
+  importedAt: string;
+}
+
+export interface IndexConstituentsResponse {
+  marketIndexId: number;
+  indexName: string;
+  totalCount: number;
+  constituents: IndexConstituentDto[];
+}
+
+export interface IndexConstituentsRefreshResponse {
+  marketIndexId: number;
+  providerStatus: string;
+  providerMessage?: string | null;
+  added: number;
+  updated: number;
+  unchanged: number;
+  closed: number;
 }

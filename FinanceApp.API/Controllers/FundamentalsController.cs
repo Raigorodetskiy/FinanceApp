@@ -1,8 +1,11 @@
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
+using FinanceApp.Data.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace FinanceApp.API.Controllers;
 
@@ -12,10 +15,12 @@ namespace FinanceApp.API.Controllers;
 public class FundamentalsController : ControllerBase
 {
     private readonly IFundamentalsService _fundamentalsService;
+    private readonly AppDbContext _context;
 
-    public FundamentalsController(IFundamentalsService fundamentalsService)
+    public FundamentalsController(IFundamentalsService fundamentalsService, AppDbContext context)
     {
         _fundamentalsService = fundamentalsService;
+        _context = context;
     }
 
     [HttpGet]
@@ -35,6 +40,15 @@ public class FundamentalsController : ControllerBase
     [HttpPost("refresh")]
     public async Task<ActionResult<FundamentalsResponse>> Refresh(int stockId, CancellationToken ct)
     {
+        var stock = await _context.Stocks.FindAsync([stockId], ct);
+        if (stock is null) return NotFound();
+
+        if (stock.TrackingStatus == StockTrackingStatus.CatalogOnly)
+        {
+            return StatusCode(StatusCodes.Status409Conflict,
+                "Обновление фундаментальных данных недоступно для каталожных акций. Добавьте акцию в отслеживаемые.");
+        }
+
         try
         {
             var result = await _fundamentalsService.RefreshFundamentalsAsync(stockId, ct);

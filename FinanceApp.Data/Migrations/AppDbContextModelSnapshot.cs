@@ -1045,6 +1045,15 @@ namespace FinanceApp.Data.Migrations
                         .HasMaxLength(6)
                         .HasColumnType("varchar(6)");
 
+                    b.Property<int>("TrackingStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<string>("ProviderSymbol")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IndustryId");
@@ -1056,6 +1065,13 @@ namespace FinanceApp.Data.Migrations
                     b.HasIndex("Wkn")
                         .IsUnique()
                         .HasFilter("`Wkn` IS NOT NULL");
+
+                    b.HasIndex("TrackingStatus")
+                        .HasDatabaseName("IX_Stocks_TrackingStatus");
+
+                    b.HasIndex("ProviderSymbol")
+                        .HasDatabaseName("IX_Stocks_ProviderSymbol")
+                        .HasFilter("`ProviderSymbol` IS NOT NULL");
 
                     b.ToTable("Stocks");
                 });
@@ -1125,15 +1141,44 @@ namespace FinanceApp.Data.Migrations
 
             modelBuilder.Entity("FinanceApp.Core.Models.StockMarketIndex", b =>
                 {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
                     b.Property<int>("StockId")
                         .HasColumnType("int");
 
                     b.Property<int>("MarketIndexId")
                         .HasColumnType("int");
 
-                    b.HasKey("StockId", "MarketIndexId");
+                    b.Property<string>("Source")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("ProviderConstituentKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime?>("EffectiveFrom")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("EffectiveTo")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("LastVerifiedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("ImportedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
 
                     b.HasIndex("MarketIndexId");
+
+                    b.HasIndex("StockId", "MarketIndexId")
+                        .HasDatabaseName("IX_StockMarketIndices_StockId_MarketIndexId");
 
                     b.ToTable("StockMarketIndices");
                 });

@@ -54,3 +54,42 @@ public sealed class MarketIndexRefreshResponse
     public int ImportedPoints { get; init; }
 }
 
+/// <summary>DTO representing one current or historical constituent of an index.</summary>
+public sealed class IndexConstituentDto
+{
+    public int StockId { get; init; }
+    public string Ticker { get; init; } = string.Empty;
+    public string? ProviderSymbol { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Exchange { get; init; } = string.Empty;
+    public string? Isin { get; init; }
+    /// <summary>"CatalogOnly" or "Tracked"</summary>
+    public string TrackingStatus { get; init; } = string.Empty;
+    public string? Source { get; init; }
+    public string? ProviderConstituentKey { get; init; }
+    public DateTime? EffectiveFrom { get; init; }
+    public DateTime? EffectiveTo { get; init; }
+    public DateTime? LastVerifiedAt { get; init; }
+    public DateTime ImportedAt { get; init; }
+}
+
+/// <summary>Response for GET /api/market-indices/{id}/constituents</summary>
+public sealed class IndexConstituentsResponse
+{
+    public int MarketIndexId { get; init; }
+    public string IndexName { get; init; } = string.Empty;
+    public int TotalCount { get; init; }
+    public IReadOnlyList<IndexConstituentDto> Constituents { get; init; } = Array.Empty<IndexConstituentDto>();
+}
+
+/// <summary>Response for POST /api/market-indices/{id}/constituents/refresh</summary>
+public sealed class IndexConstituentsRefreshResponse
+{
+    public int MarketIndexId { get; init; }
+    public string ProviderStatus { get; init; } = string.Empty;
+    public string? ProviderMessage { get; init; }
+    public int Added { get; init; }
+    public int Updated { get; init; }
+    public int Unchanged { get; init; }
+    public int Closed { get; init; }
+}

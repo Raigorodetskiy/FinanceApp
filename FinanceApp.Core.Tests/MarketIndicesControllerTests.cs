@@ -413,7 +413,7 @@ public class MarketIndicesControllerTests
 
     private static MarketIndicesController CreateController(AppDbContext context)
     {
-        return new MarketIndicesController(context, new NullMarketIndexHistoryService())
+        return new MarketIndicesController(context, new NullMarketIndexHistoryService(), new NullIndexConstituentsProvider())
         {
             ControllerContext = new ControllerContext
             {
@@ -429,5 +429,13 @@ public class MarketIndicesControllerTests
 
         public Task<MarketIndexRefreshResponse> RefreshHistoryAsync(MarketIndex index, string range, CancellationToken cancellationToken = default)
             => Task.FromResult(new MarketIndexRefreshResponse { MarketIndexId = index.Id });
+    }
+
+    private sealed class NullIndexConstituentsProvider : IIndexConstituentsProvider
+    {
+        public string ProviderName => "Null";
+
+        public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
+            => Task.FromResult(IndexConstituentsResult.Unsupported(ProviderName));
     }
 }

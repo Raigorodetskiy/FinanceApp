@@ -41,6 +41,8 @@ import type {
   MoveIndustryRequest,
   CreateMarketIndexRequest,
   UpdateMarketIndexRequest,
+  IndexConstituentsResponse,
+  IndexConstituentsRefreshResponse,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -209,5 +211,15 @@ export const getMarketIndexHistory = (id: number, range: MarketIndexHistoryRange
 
 export const refreshMarketIndexHistory = (id: number) =>
   api.post<MarketIndexRefreshResponse>(`/market-indices/${id}/history/refresh`);
+
+// Index constituents
+export const getIndexConstituents = (id: number, includeFormer = false) =>
+  api.get<IndexConstituentsResponse>(`/market-indices/${id}/constituents`, { params: { includeFormer } });
+
+export const refreshIndexConstituents = (id: number) =>
+  api.post<IndexConstituentsRefreshResponse>(`/market-indices/${id}/constituents/refresh`);
+
+export const trackStock = (id: number) =>
+  api.post<Stock>(`/Stocks/${id}/track`);
 
 export default api;

@@ -36,7 +36,8 @@ public class StockHistoryService : IStockHistoryService
     public async Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default)
     {
         var stocks = await _dbContext.Stocks
-            .Where(s => s.Ticker != null && s.Ticker != string.Empty)
+            .Where(s => s.Ticker != null && s.Ticker != string.Empty
+                        && s.TrackingStatus == StockTrackingStatus.Tracked)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 

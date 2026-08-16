@@ -89,13 +89,22 @@ public class StocksController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Stock>>> GetAll()
-        => PrepareStocksForResponse(await _context.Stocks
+    public async Task<ActionResult<IEnumerable<Stock>>> GetAll([FromQuery] bool includeCatalog = false)
+    {
+        var query = _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
-            .Include(s => s.MarketIndices)
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
             .ThenInclude(x => x.MarketIndex)
-            .ToListAsync());
+            .AsQueryable();
+
+        if (!includeCatalog)
+        {
+            query = query.Where(s => s.TrackingStatus == StockTrackingStatus.Tracked);
+        }
+
+        return PrepareStocksForResponse(await query.ToListAsync());
+    }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Stock>> GetById(int id)
@@ -103,7 +112,7 @@ public class StocksController : ControllerBase
         var stock = await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
-            .Include(s => s.MarketIndices)
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
             .ThenInclude(x => x.MarketIndex)
             .FirstOrDefaultAsync(s => s.Id == id);
         if (stock == null) return NotFound();
@@ -117,6 +126,12 @@ public class StocksController : ControllerBase
         if (stock == null)
         {
             return NotFound();
+        }
+
+        if (stock.TrackingStatus == StockTrackingStatus.CatalogOnly)
+        {
+            return StatusCode(StatusCodes.Status409Conflict,
+                "История цен недоступна для каталожных акций. Добавьте акцию в отслеживаемые.");
         }
 
         var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
@@ -136,6 +151,12 @@ public class StocksController : ControllerBase
         if (stock == null)
         {
             return NotFound();
+        }
+
+        if (stock.TrackingStatus == StockTrackingStatus.CatalogOnly)
+        {
+            return StatusCode(StatusCodes.Status409Conflict,
+                "Обновление истории недоступно для каталожных акций. Добавьте акцию в отслеживаемые.");
         }
 
         if (string.IsNullOrWhiteSpace(stock.Ticker))
@@ -174,12 +195,17 @@ public class StocksController : ControllerBase
         if (marketIndicesValidationError != null) return marketIndicesValidationError;
 
         stock.UpdatedAt = DateTime.UtcNow;
+        // Standard create always produces a Tracked stock; CatalogOnly is set only by import jobs.
+        stock.TrackingStatus = StockTrackingStatus.Tracked;
         stock.Industry = null;
+        var now = DateTime.UtcNow;
         stock.MarketIndices = marketIndices
             .Select(marketIndex => new StockMarketIndex
             {
                 MarketIndexId = marketIndex.Id,
-                Stock = stock
+                Stock = stock,
+                Source = "Manual",
+                ImportedAt = now,
             })
             .ToList();
         _context.Stocks.Add(stock);
@@ -234,7 +260,7 @@ public class StocksController : ControllerBase
         var existing = await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
-            .Include(s => s.MarketIndices)
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
             .FirstOrDefaultAsync(s => s.Id == id);
         if (existing == null) return NotFound();
 
@@ -326,7 +352,9 @@ public class StocksController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var stock = await _context.Stocks.FindAsync(id);
+        var stock = await _context.Stocks
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
+            .FirstOrDefaultAsync(s => s.Id == id);
         if (stock == null) return NotFound();
 
         var isReferenced = await _context.PortfolioItems.AnyAsync(item => item.StockId == id);
@@ -335,9 +363,54 @@ public class StocksController : ControllerBase
             return Conflict("Невозможно удалить акцию: она используется как минимум в одном портфеле.");
         }
 
+        // If still a current constituent of at least one index, demote to CatalogOnly instead of deleting.
+        var hasActiveIndexMembership = stock.MarketIndices.Any(x => x.EffectiveTo == null);
+        if (hasActiveIndexMembership && stock.TrackingStatus == StockTrackingStatus.Tracked)
+        {
+            stock.TrackingStatus = StockTrackingStatus.CatalogOnly;
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
         _context.Stocks.Remove(stock);
         await _context.SaveChangesAsync();
         return NoContent();
+    }
+
+    /// <summary>
+    /// Promotes a CatalogOnly stock to Tracked status.
+    /// If the stock is already Tracked, returns 200 without changes.
+    /// Triggers history sync after promotion.
+    /// </summary>
+    [HttpPost("{id}/track")]
+    public async Task<ActionResult<Stock>> Track(int id, CancellationToken cancellationToken = default)
+    {
+        var stock = await _context.Stocks
+            .Include(s => s.Industry)
+            .ThenInclude(i => i!.Sector)
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
+            .ThenInclude(x => x.MarketIndex)
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+
+        if (stock == null) return NotFound();
+
+        if (stock.TrackingStatus != StockTrackingStatus.Tracked)
+        {
+            stock.TrackingStatus = StockTrackingStatus.Tracked;
+            stock.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            try
+            {
+                await _stockHistoryService.SyncHistoricalDataForStockAsync(stock, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Stock promoted but history sync failed for stock {StockId}", stock.Id);
+            }
+        }
+
+        return PrepareStockForResponse(stock);
     }
 
     private static bool IsDuplicateKeyException(DbUpdateException ex)
@@ -348,7 +421,7 @@ public class StocksController : ControllerBase
         => await _context.Stocks
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
-            .Include(s => s.MarketIndices)
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
             .ThenInclude(x => x.MarketIndex)
             .FirstAsync(s => s.Id == id);
 
@@ -429,22 +502,30 @@ public class StocksController : ControllerBase
         }
 
         var requestedIdSet = requestedIds.Distinct().ToHashSet();
-        var existingJoins = stock.MarketIndices.ToDictionary(x => x.MarketIndexId);
+        // Only consider current memberships (EffectiveTo IS NULL) for the diff.
+        var currentJoins = stock.MarketIndices
+            .Where(x => x.EffectiveTo == null)
+            .ToDictionary(x => x.MarketIndexId);
 
-        foreach (var join in stock.MarketIndices.Where(x => !requestedIdSet.Contains(x.MarketIndexId)).ToList())
+        var now = DateTime.UtcNow;
+
+        // Close memberships that are no longer requested (set EffectiveTo instead of deleting).
+        foreach (var join in currentJoins.Values.Where(x => !requestedIdSet.Contains(x.MarketIndexId)).ToList())
         {
-            stock.MarketIndices.Remove(join);
-            _context.StockMarketIndices.Remove(join);
+            join.EffectiveTo = now;
         }
 
+        // Add new memberships for newly requested indices.
         foreach (var marketIndex in marketIndices)
         {
-            if (!existingJoins.ContainsKey(marketIndex.Id))
+            if (!currentJoins.ContainsKey(marketIndex.Id))
             {
                 stock.MarketIndices.Add(new StockMarketIndex
                 {
                     StockId = stock.Id,
-                    MarketIndexId = marketIndex.Id
+                    MarketIndexId = marketIndex.Id,
+                    Source = "Manual",
+                    ImportedAt = now,
                 });
             }
         }
@@ -456,6 +537,7 @@ public class StocksController : ControllerBase
     private static Stock PrepareStockForResponse(Stock stock)
     {
         stock.MarketIndexIds = stock.MarketIndices
+            .Where(x => x.EffectiveTo == null)
             .OrderBy(x => x.MarketIndex.SortOrder)
             .ThenBy(x => x.MarketIndex.Name)
             .Select(x => x.MarketIndexId)
