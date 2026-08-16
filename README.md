@@ -88,8 +88,8 @@ Notes:
   - curated flag (UI shows **"Проверенный снимок"**, not live feed).
 - Current curated snapshot date for all three files in this repository: `2026-08-16`.
 - S&P 500 note: the index contains 500 companies but **503 securities** in this snapshot, because
-  Berkshire Hathaway (`BRK.A`/`BRK.B`) and Brown-Forman (`BF.A`/`BF.B`) each have two share classes
-  listed separately. Class-share tickers that contain a dot (e.g. `BRK.B`) use the Yahoo Finance
+  Berkshire Hathaway (`BRK.A`/`BRK.B`), Brown-Forman (`BF.A`/`BF.B`), and Alphabet (`GOOGL`/`GOOG`)
+  each have two share classes listed separately (500 companies + 3 extra class lines = 503). Class-share tickers that contain a dot (e.g. `BRK.B`) use the Yahoo Finance
   provider-symbol convention with a hyphen (`BRK-B`) in the `providerSymbol` field so that quote
   lookups work correctly; the internal `ticker` field keeps the canonical dot notation.
 - Why curated snapshots:

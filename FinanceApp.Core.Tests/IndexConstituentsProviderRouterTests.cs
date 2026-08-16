@@ -140,7 +140,7 @@ public class IndexConstituentsProviderRouterTests
         Assert.NotNull(result.AsOfDate);
         Assert.NotNull(result.SourceUrl);
         // S&P 500 has 500 companies but 503 securities due to multiple share classes
-        // (BRK.A/BRK.B and BF.A/BF.B each contribute two lines).
+        // (BRK.A/BRK.B, BF.A/BF.B, and GOOGL/GOOG each contribute two lines: 500 + 3 = 503).
         Assert.Equal(503, result.Constituents.Count);
         Assert.All(result.Constituents, c =>
         {
