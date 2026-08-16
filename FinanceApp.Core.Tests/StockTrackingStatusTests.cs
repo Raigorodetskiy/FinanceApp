@@ -5,6 +5,7 @@ using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -393,6 +394,48 @@ public class StockTrackingStatusTests
     }
 
     [Fact]
+    public async Task RefreshConstituents_ConflictFreeSnapshot_UsesSingleSaveChangesAndClosesMissing()
+    {
+        await using var context = await CountingAppDbContext.CreateSqliteAsync();
+        var old = new Stock
+        {
+            Ticker = "OLD",
+            Name = "Old Corp",
+            CommonName = "Old Corp",
+            Exchange = StockExchanges.Nyse,
+            ProviderSymbol = "OLD",
+            TrackingStatus = StockTrackingStatus.CatalogOnly
+        };
+        context.Stocks.Add(old);
+        await context.SaveChangesAsync();
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            MarketIndexId = 1,
+            StockId = old.Id,
+            EffectiveFrom = DateTime.UtcNow,
+            ImportedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new SnapshotProvider(new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, null),
+        });
+
+        context.ResetSaveChangesAsyncCalls();
+        var controller = CreateMarketIndicesController(context, provider);
+        var result = await controller.RefreshConstituents(1);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<IndexConstituentsRefreshResponse>(ok.Value);
+
+        Assert.Equal(1, context.SaveChangesAsyncCalls);
+        Assert.Equal(1, body.Added);
+        Assert.Equal(1, body.Closed);
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.MarketIndexId == 1 && x.EffectiveTo == null));
+        Assert.NotNull((await context.StockMarketIndices.SingleAsync(x => x.MarketIndexId == 1 && x.StockId == old.Id)).EffectiveTo);
+    }
+
+    [Fact]
     public async Task RefreshConstituents_ExistingTrackedStock_IsReusedWithoutDemotion()
     {
         await using var context = CreateContext();
@@ -425,6 +468,29 @@ public class StockTrackingStatusTests
         var persisted = await context.Stocks.SingleAsync();
         Assert.Equal(StockTrackingStatus.Tracked, persisted.TrackingStatus);
         Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.MarketIndexId == 1 && x.EffectiveTo == null));
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_DuplicateKeyDuringSave_Returns409WithoutPartialChanges()
+    {
+        await using var context = await CountingAppDbContext.CreateSqliteAsync();
+
+        var provider = new SnapshotProvider(new[]
+        {
+            new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, "US0378331005"),
+        });
+
+        context.ThrowDuplicateOnSave = true;
+        context.ResetSaveChangesAsyncCalls();
+        var controller = CreateMarketIndicesController(context, provider);
+        var result = await controller.RefreshConstituents(1);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+        Assert.Equal("Конкурентное обновление состава индекса. Повторите попытку.", conflict.Value);
+        Assert.Equal(1, context.SaveChangesAsyncCalls);
+        Assert.Equal(0, await context.Stocks.CountAsync());
+        Assert.Equal(0, await context.StockMarketIndices.CountAsync());
     }
 
     [Fact]
@@ -608,5 +674,54 @@ public class StockTrackingStatusTests
                 SourceUrl: "https://example.test/djia",
                 IsCuratedSnapshot: true,
                 IsStale: false));
+    }
+
+    private sealed class CountingAppDbContext : AppDbContext
+    {
+        private readonly SqliteConnection _connection;
+
+        private CountingAppDbContext(DbContextOptions<AppDbContext> options, SqliteConnection connection)
+            : base(options)
+        {
+            _connection = connection;
+        }
+
+        public int SaveChangesAsyncCalls { get; private set; }
+        public bool ThrowDuplicateOnSave { get; set; }
+
+        public static async Task<CountingAppDbContext> CreateSqliteAsync()
+        {
+            var connection = new SqliteConnection("DataSource=:memory:");
+            await connection.OpenAsync();
+
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite(connection)
+                .Options;
+
+            var context = new CountingAppDbContext(options, connection);
+            await context.Database.EnsureCreatedAsync();
+            return context;
+        }
+
+        public void ResetSaveChangesAsyncCalls() => SaveChangesAsyncCalls = 0;
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            SaveChangesAsyncCalls++;
+            if (ThrowDuplicateOnSave)
+            {
+                throw new DbUpdateException(
+                   "Duplicate key test exception",
+                   new InvalidOperationException("Duplicate entry"));
+            }
+
+            return base.SaveChangesAsync(cancellationToken);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await base.DisposeAsync();
+            await _connection.DisposeAsync();
+        }
     }
 }

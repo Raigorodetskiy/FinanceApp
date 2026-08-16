@@ -15,13 +15,18 @@ public sealed class DowJonesIndustrialAverageConstituentsProvider : IDjiaIndexCo
 
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<DowJonesIndustrialAverageConstituentsProvider> _logger;
+    private readonly string _baseDirectory;
 
     public DowJonesIndustrialAverageConstituentsProvider(
         IWebHostEnvironment environment,
-        ILogger<DowJonesIndustrialAverageConstituentsProvider> logger)
+        ILogger<DowJonesIndustrialAverageConstituentsProvider> logger,
+        string? baseDirectoryOverride = null)
     {
         _environment = environment;
         _logger = logger;
+        _baseDirectory = string.IsNullOrWhiteSpace(baseDirectoryOverride)
+            ? AppContext.BaseDirectory
+            : baseDirectoryOverride;
     }
 
     public string ProviderName => CuratedProviderName;
@@ -32,7 +37,7 @@ public sealed class DowJonesIndustrialAverageConstituentsProvider : IDjiaIndexCo
     {
         try
         {
-            var snapshotPath = Path.Combine(_environment.ContentRootPath, SnapshotRelativePath);
+            var snapshotPath = ResolveSnapshotPath();
             if (!File.Exists(snapshotPath))
             {
                 return IndexConstituentsResult.Failure(
@@ -73,6 +78,17 @@ public sealed class DowJonesIndustrialAverageConstituentsProvider : IDjiaIndexCo
                 ProviderName,
                 "Не удалось загрузить curated snapshot DJIA.");
         }
+    }
+
+    private string ResolveSnapshotPath()
+    {
+        var appBaseSnapshotPath = Path.GetFullPath(Path.Combine(_baseDirectory, SnapshotRelativePath));
+        if (File.Exists(appBaseSnapshotPath))
+        {
+            return appBaseSnapshotPath;
+        }
+
+        return Path.GetFullPath(Path.Combine(_environment.ContentRootPath, SnapshotRelativePath));
     }
 
     private static string? Validate(
