@@ -165,6 +165,7 @@ builder.Services.AddScoped<IMarketIndexHistoryService, MarketIndexHistoryService
 builder.Services.AddScoped<IDjiaIndexConstituentsProvider, DowJonesIndustrialAverageConstituentsProvider>();
 builder.Services.AddScoped<INasdaq100IndexConstituentsProvider, Nasdaq100ConstituentsProvider>();
 builder.Services.AddScoped<ISp500IndexConstituentsProvider, Sp500ConstituentsProvider>();
+builder.Services.AddScoped<IDaxIndexConstituentsProvider, DaxConstituentsProvider>();
 builder.Services.AddScoped<IUnsupportedIndexConstituentsProvider, YahooIndexConstituentsProvider>();
 builder.Services.AddScoped<IIndexConstituentsProvider, IndexConstituentsProviderRouter>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();

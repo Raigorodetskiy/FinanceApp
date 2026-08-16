@@ -84,4 +84,6 @@ public interface INasdaq100IndexConstituentsProvider : IIndexConstituentsProvide
 
 public interface ISp500IndexConstituentsProvider : IIndexConstituentsProvider;
 
+public interface IDaxIndexConstituentsProvider : IIndexConstituentsProvider;
+
 public interface IUnsupportedIndexConstituentsProvider : IIndexConstituentsProvider;

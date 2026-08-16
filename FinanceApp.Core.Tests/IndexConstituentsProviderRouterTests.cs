@@ -11,12 +11,29 @@ namespace FinanceApp.Core.Tests;
 public class IndexConstituentsProviderRouterTests
 {
     [Fact]
+    public async Task Router_UsesDaxProvider_ByCanonicalCode()
+    {
+        var djiaProvider = CreateDjiaProvider();
+        var ndxProvider = CreateNasdaq100Provider();
+        var spxProvider = CreateSp500Provider();
+        var daxProvider = CreateDaxProvider();
+        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, daxProvider, new YahooIndexConstituentsProvider());
+        var dax = new MarketIndex { Id = 7, Code = " dax ", NormalizedCode = " DaX " };
+
+        var result = await router.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.Equal(DaxConstituentsProvider.CuratedProviderName, result.ProviderName);
+    }
+
+    [Fact]
     public async Task Router_UsesDjiaProvider_ByStableCode()
     {
         var provider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
         var spxProvider = CreateSp500Provider();
-        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
+        var daxProvider = CreateDaxProvider();
+        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, spxProvider, daxProvider, new YahooIndexConstituentsProvider());
         var djia = new MarketIndex { Id = 999, Code = "djia", NormalizedCode = "DJIA" };
 
         var result = await router.GetConstituentsAsync(djia);
@@ -31,10 +48,11 @@ public class IndexConstituentsProviderRouterTests
         var provider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
         var spxProvider = CreateSp500Provider();
-        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
-        var dax = new MarketIndex { Id = 1, Code = "DAX", NormalizedCode = "DAX" };
+        var daxProvider = CreateDaxProvider();
+        var router = new IndexConstituentsProviderRouter(provider, ndxProvider, spxProvider, daxProvider, new YahooIndexConstituentsProvider());
+        var unknown = new MarketIndex { Id = 1, Code = "MSCI", NormalizedCode = "MSCI" };
 
-        var result = await router.GetConstituentsAsync(dax);
+        var result = await router.GetConstituentsAsync(unknown);
 
         Assert.Equal(IndexConstituentsStatus.Unsupported, result.Status);
         Assert.Equal("Yahoo Finance", result.ProviderName);
@@ -46,7 +64,8 @@ public class IndexConstituentsProviderRouterTests
         var djiaProvider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
         var spxProvider = CreateSp500Provider();
-        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
+        var daxProvider = CreateDaxProvider();
+        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, daxProvider, new YahooIndexConstituentsProvider());
         var ndx = new MarketIndex { Id = 4, Code = " ndx ", NormalizedCode = " nDx " };
 
         var result = await router.GetConstituentsAsync(ndx);
@@ -61,7 +80,8 @@ public class IndexConstituentsProviderRouterTests
         var djiaProvider = CreateDjiaProvider();
         var ndxProvider = CreateNasdaq100Provider();
         var spxProvider = CreateSp500Provider();
-        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, new YahooIndexConstituentsProvider());
+        var daxProvider = CreateDaxProvider();
+        var router = new IndexConstituentsProviderRouter(djiaProvider, ndxProvider, spxProvider, daxProvider, new YahooIndexConstituentsProvider());
         var spx = new MarketIndex { Id = 5, Code = " spx ", NormalizedCode = " SpX " };
 
         var result = await router.GetConstituentsAsync(spx);
@@ -193,6 +213,118 @@ public class IndexConstituentsProviderRouterTests
     }
 
     [Fact]
+    public async Task DaxCuratedSnapshot_HasExpectedShape_AsOfAndUniqueConstituents()
+    {
+        var provider = CreateDaxProvider();
+        var dax = new MarketIndex { Code = "DAX", NormalizedCode = "DAX" };
+
+        var result = await provider.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.True(result.IsCuratedSnapshot);
+        Assert.NotNull(result.AsOfDate);
+        Assert.NotNull(result.SourceUrl);
+        Assert.Equal(40, result.Constituents.Count);
+        Assert.All(result.Constituents, c =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(c.Ticker));
+            Assert.False(string.IsNullOrWhiteSpace(c.CompanyName));
+            Assert.False(string.IsNullOrWhiteSpace(c.ProviderSymbol));
+            Assert.True(StockExchanges.TryNormalize(c.ProviderExchange, out var ex) && ex == StockExchanges.Frankfurt);
+        });
+        Assert.Equal(
+            40,
+            result.Constituents
+                .Select(c => $"{c.ProviderSymbol}|{c.ProviderExchange}")
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public async Task DaxCuratedSnapshot_HasRepresentativeSymbols()
+    {
+        var provider = CreateDaxProvider();
+        var dax = new MarketIndex { Code = "DAX", NormalizedCode = "DAX" };
+
+        var result = await provider.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        // Representative well-known DAX constituents
+        Assert.Contains(result.Constituents, c => c.Ticker == "SAP" && c.ProviderSymbol == "SAP.DE");
+        Assert.Contains(result.Constituents, c => c.Ticker == "SIE" && c.ProviderSymbol == "SIE.DE");
+        Assert.Contains(result.Constituents, c => c.Ticker == "ALV" && c.ProviderSymbol == "ALV.DE");
+        Assert.Contains(result.Constituents, c => c.Ticker == "BMW" && c.ProviderSymbol == "BMW.DE");
+        Assert.Contains(result.Constituents, c => c.Ticker == "RHM" && c.ProviderSymbol == "RHM.DE");
+    }
+
+    [Fact]
+    public async Task DaxCuratedSnapshot_HasDotDeProviderSymbolConvention()
+    {
+        var provider = CreateDaxProvider();
+        var dax = new MarketIndex { Code = "DAX", NormalizedCode = "DAX" };
+
+        var result = await provider.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        // All DAX provider symbols must end with .DE (Yahoo Finance convention for Xetra/Frankfurt)
+        Assert.All(result.Constituents, c =>
+            Assert.True(c.ProviderSymbol.EndsWith(".DE", StringComparison.OrdinalIgnoreCase),
+                $"Expected .DE suffix on providerSymbol for {c.Ticker}, got: {c.ProviderSymbol}"));
+    }
+
+    [Fact]
+    public async Task DaxCuratedSnapshot_SpecialTickerCases_AreCorrect()
+    {
+        var provider = CreateDaxProvider();
+        var dax = new MarketIndex { Code = "DAX", NormalizedCode = "DAX" };
+
+        var result = await provider.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        // Numeric-prefixed ticker
+        Assert.Contains(result.Constituents, c => c.Ticker == "1COV" && c.ProviderSymbol == "1COV.DE");
+        // Preference-share tickers with numeric suffix
+        Assert.Contains(result.Constituents, c => c.Ticker == "VOW3" && c.ProviderSymbol == "VOW3.DE");
+        Assert.Contains(result.Constituents, c => c.Ticker == "HEN3" && c.ProviderSymbol == "HEN3.DE");
+        Assert.Contains(result.Constituents, c => c.Ticker == "MUV2" && c.ProviderSymbol == "MUV2.DE");
+        // P911 (Porsche AG)
+        Assert.Contains(result.Constituents, c => c.Ticker == "P911" && c.ProviderSymbol == "P911.DE");
+    }
+
+    [Fact]
+    public async Task DaxCuratedSnapshot_HasSourceUrlAndAsOf()
+    {
+        var provider = CreateDaxProvider();
+        var dax = new MarketIndex { Code = "DAX", NormalizedCode = "DAX" };
+
+        var result = await provider.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        Assert.False(string.IsNullOrWhiteSpace(result.SourceUrl));
+        Assert.NotNull(result.AsOfDate);
+        Assert.True(result.IsCuratedSnapshot);
+        Assert.False(result.IsStale);
+    }
+
+    [Fact]
+    public async Task DaxCuratedSnapshot_MrkTicker_IsNotMergedWithUsMrkNyse()
+    {
+        // Merck KGaA (Frankfurt, MRK.DE) must not have the same identity as Merck & Co. (NYSE, MRK)
+        var provider = CreateDaxProvider();
+        var dax = new MarketIndex { Code = "DAX", NormalizedCode = "DAX" };
+
+        var result = await provider.GetConstituentsAsync(dax);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        var mrkDax = result.Constituents.SingleOrDefault(c => c.Ticker == "MRK");
+        Assert.NotNull(mrkDax);
+        Assert.Equal("MRK.DE", mrkDax.ProviderSymbol);
+        Assert.Equal(StockExchanges.Frankfurt, mrkDax.ProviderExchange);
+        // The identity MRK.DE|Frankfurt is distinct from MRK|NYSE used by Merck & Co.
+        Assert.NotEqual("MRK|NYSE", $"{mrkDax.ProviderSymbol}|{mrkDax.ProviderExchange}");
+    }
+
+    [Fact]
     public async Task DjiProvider_PrefersAppBaseDirectorySnapshot_WhenBothLayoutsExist()
     {
         var baseDir = Path.Combine(Path.GetTempPath(), $"financeapp-djia-base-{Guid.NewGuid():N}");
@@ -265,6 +397,13 @@ public class IndexConstituentsProviderRouterTests
         return new Sp500ConstituentsProvider(
             new StubWebHostEnvironment { ContentRootPath = Path.Combine(FindRepositoryRoot(), "FinanceApp.API") },
             NullLogger<Sp500ConstituentsProvider>.Instance);
+    }
+
+    private static DaxConstituentsProvider CreateDaxProvider()
+    {
+        return new DaxConstituentsProvider(
+            new StubWebHostEnvironment { ContentRootPath = Path.Combine(FindRepositoryRoot(), "FinanceApp.API") },
+            NullLogger<DaxConstituentsProvider>.Instance);
     }
 
     private static string FindRepositoryRoot()
