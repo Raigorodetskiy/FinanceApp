@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { getMarketIndexHistory, refreshMarketIndexHistory } from '../services/api';
 import type { MarketIndexHistoryRange, MarketIndexHistoryPoint } from '../types';
+import { MARKET_INDEX_HISTORY_RANGE_OPTIONS, toMarketIndexHistoryRange } from './historyRangeOptions';
 
 dayjs.extend(utc);
 
@@ -106,18 +107,6 @@ export interface MarketIndexPriceChartProps {
   providerSymbol?: string | null;
   isArchived?: boolean;
 }
-
-const RANGE_OPTIONS: Array<{ label: string; value: MarketIndexHistoryRange }> = [
-  { label: 'Сегодня', value: 'today' },
-  { label: '24ч', value: '24h' },
-  { label: '1н', value: '1w' },
-  { label: '1м', value: '1m' },
-  { label: '3м', value: '3m' },
-  { label: '6м', value: '6m' },
-  { label: '1г', value: '1y' },
-  { label: '3г', value: '3y' },
-  { label: '5г', value: '5y' },
-];
 
 const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
   panelId,
@@ -289,8 +278,8 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
 
         <Segmented
           value={range}
-          onChange={(v) => setRange(v as MarketIndexHistoryRange)}
-          options={RANGE_OPTIONS}
+          onChange={(value) => setRange(toMarketIndexHistoryRange(value, range))}
+          options={MARKET_INDEX_HISTORY_RANGE_OPTIONS}
           style={{ marginBottom: 12 }}
         />
 

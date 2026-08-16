@@ -27,6 +27,7 @@ import {
   getDayHighLowDisplay,
   getDayRangeLabel,
 } from './dayHighLow';
+import { STOCK_HISTORY_RANGE_OPTIONS, toStockHistoryRange } from './historyRangeOptions';
 import type {
   StockHistoryRange,
   StockHistoryResponse,
@@ -453,18 +454,8 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           <Segmented
             className="stock-price-chart-segmented"
             value={historyRange}
-            onChange={(value) => setHistoryRange(value as StockHistoryRange)}
-            options={[
-              { label: '5 лет', value: '5y' },
-              { label: '3 года', value: '3y' },
-              { label: '1 год', value: '1y' },
-              { label: '6 мес.', value: '6m' },
-              { label: '3 мес.', value: '3m' },
-              { label: '1 мес.', value: '1m' },
-              { label: '1 нед.', value: '1w' },
-              { label: '24 ч.', value: '24h' },
-              { label: 'Сегодня', value: 'today' },
-            ]}
+            onChange={(value) => setHistoryRange(toStockHistoryRange(value, historyRange))}
+            options={STOCK_HISTORY_RANGE_OPTIONS}
           />
         </div>
       </div>
