@@ -902,7 +902,7 @@ public class StocksControllerTests
 
         Assert.IsType<NoContentResult>(result);
         var joins = await context.StockMarketIndices
-            .Where(x => x.StockId == stock.Id)
+            .Where(x => x.StockId == stock.Id && x.EffectiveTo == null)
             .OrderBy(x => x.MarketIndexId)
             .Select(x => x.MarketIndexId)
             .ToListAsync();

@@ -9,16 +9,18 @@ import {
   Space,
   Spin,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
   message,
 } from 'antd';
-import { CaretDownOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, InboxOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
+import { AreaChartOutlined, CaretDownOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, InboxOutlined, OrderedListOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import MarketIndexPriceChart from '../components/MarketIndexPriceChart';
+import IndexConstituentsPanel from '../components/IndexConstituentsPanel';
 import { useAuth } from '../contexts/AuthContext';
 import {
   archiveMarketIndex,
@@ -87,6 +89,7 @@ const MarketIndicesPage: React.FC = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingMarketIndex, setEditingMarketIndex] = useState<MarketIndex | null>(null);
   const [expandedIndexId, setExpandedIndexId] = useState<number | null>(null);
+  const [expandedTab, setExpandedTab] = useState<'chart' | 'constituents'>('chart');
   const [form] = Form.useForm();
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -209,7 +212,11 @@ const MarketIndicesPage: React.FC = () => {
   };
 
   const handleToggleExpand = (marketIndex: MarketIndex) => {
-    setExpandedIndexId((prev) => (prev === marketIndex.id ? null : marketIndex.id));
+    setExpandedIndexId((prev) => {
+      if (prev === marketIndex.id) return null;
+      setExpandedTab('chart');
+      return marketIndex.id;
+    });
   };
 
   const columns: ColumnsType<MarketIndex> = [
@@ -227,7 +234,7 @@ const MarketIndicesPage: React.FC = () => {
               type="button"
               aria-expanded={isExpanded}
               aria-controls={panelId}
-              aria-label={isExpanded ? `Скрыть график ${marketIndex.code}` : `Показать график ${marketIndex.code}`}
+              aria-label={isExpanded ? `Скрыть ${marketIndex.code}` : `Показать ${marketIndex.code}`}
               onClick={() => handleToggleExpand(marketIndex)}
               style={{
                 background: 'none',
@@ -349,13 +356,37 @@ const MarketIndicesPage: React.FC = () => {
                 expandedRowKeys: expandedIndexId != null ? [expandedIndexId] : [],
                 expandIcon: () => null,
                 expandedRowRender: (record) => (
-                  <MarketIndexPriceChart
-                    panelId={`index-chart-panel-${record.id}`}
-                    indexId={record.id}
-                    code={record.code}
-                    name={record.name}
-                    providerSymbol={record.providerSymbol}
-                    isArchived={record.isArchived}
+                  <Tabs
+                    activeKey={expandedTab}
+                    onChange={(key) => setExpandedTab(key as 'chart' | 'constituents')}
+                    size="small"
+                    style={{ marginTop: -4 }}
+                    items={[
+                      {
+                        key: 'chart',
+                        label: <><AreaChartOutlined /> График</>,
+                        children: (
+                          <MarketIndexPriceChart
+                            panelId={`index-chart-panel-${record.id}`}
+                            indexId={record.id}
+                            code={record.code}
+                            name={record.name}
+                            providerSymbol={record.providerSymbol}
+                            isArchived={record.isArchived}
+                          />
+                        ),
+                      },
+                      {
+                        key: 'constituents',
+                        label: <><OrderedListOutlined /> Состав</>,
+                        children: (
+                          <IndexConstituentsPanel
+                            indexId={record.id}
+                            isArchived={record.isArchived}
+                          />
+                        ),
+                      },
+                    ]}
                   />
                 ),
               }}

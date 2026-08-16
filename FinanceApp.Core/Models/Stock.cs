@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
@@ -45,6 +46,21 @@ public class Stock
     public DateTime? CurrentPriceAt { get; set; }
     public int? IndustryId { get; set; }
     public Industry? Industry { get; set; }
+
+    /// <summary>
+    /// Tracking status. Defaults to <see cref="StockTrackingStatus.Tracked"/> for stocks created
+    /// through the standard API. Stocks imported as index constituents start as
+    /// <see cref="StockTrackingStatus.CatalogOnly"/> and can be promoted to Tracked explicitly.
+    /// </summary>
+    public StockTrackingStatus TrackingStatus { get; set; } = StockTrackingStatus.Tracked;
+
+    /// <summary>
+    /// Symbol as provided by the data provider used to import this stock (e.g. Yahoo Finance).
+    /// Distinct from the user-editable <see cref="Ticker"/>; preserved for deduplication and
+    /// re-import matching. Max 50 characters; null when unknown or not imported via a provider.
+    /// </summary>
+    [MaxLength(50)]
+    public string? ProviderSymbol { get; set; }
 
     [JsonIgnore]
     public ICollection<StockMarketIndex> MarketIndices { get; set; } = new List<StockMarketIndex>();

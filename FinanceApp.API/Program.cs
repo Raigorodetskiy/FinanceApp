@@ -162,6 +162,7 @@ builder.Services.AddScoped<IStockQuoteConversionService, StockQuoteConversionSer
 builder.Services.AddScoped<IStockHistoryService, StockHistoryService>();
 builder.Services.AddScoped<IFundamentalsService, FundamentalsService>();
 builder.Services.AddScoped<IMarketIndexHistoryService, MarketIndexHistoryService>();
+builder.Services.AddScoped<IIndexConstituentsProvider, YahooIndexConstituentsProvider>();
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();

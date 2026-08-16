@@ -484,6 +484,18 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
             entity.HasIndex(x => x.IndustryId);
+            // TrackingStatus: stored as int, DB default 1 (Tracked) so that raw legacy inserts
+            // without an explicit status remain visible. Application code sets CatalogOnly explicitly.
+            entity.Property(x => x.TrackingStatus)
+                .HasConversion<int>()
+                .HasDefaultValue(StockTrackingStatus.Tracked);
+            entity.HasIndex(x => x.TrackingStatus)
+                .HasDatabaseName("IX_Stocks_TrackingStatus");
+            // ProviderSymbol index for deduplication lookups
+            entity.Property(x => x.ProviderSymbol).HasMaxLength(50);
+            entity.HasIndex(x => x.ProviderSymbol)
+                .HasDatabaseName("IX_Stocks_ProviderSymbol")
+                .HasFilter("`ProviderSymbol` IS NOT NULL");
         });
 
         modelBuilder.Entity<Sector>(entity =>
@@ -530,7 +542,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<StockMarketIndex>(entity =>
         {
-            entity.HasKey(x => new { x.StockId, x.MarketIndexId });
+            entity.HasKey(x => x.Id);
             entity.HasOne(x => x.Stock)
                 .WithMany(x => x.MarketIndices)
                 .HasForeignKey(x => x.StockId)
@@ -539,6 +551,10 @@ public class AppDbContext : DbContext
                 .WithMany(x => x.StockMarketIndices)
                 .HasForeignKey(x => x.MarketIndexId)
                 .OnDelete(DeleteBehavior.Restrict);
+            // A stock can be current in an index only once (EffectiveTo IS NULL marks current membership).
+            // Historical rows are distinguished by EffectiveFrom / EffectiveTo.
+            entity.HasIndex(x => new { x.StockId, x.MarketIndexId })
+                .HasDatabaseName("IX_StockMarketIndices_StockId_MarketIndexId");
         });
 
         modelBuilder.Entity<CompanyFundamentalsSnapshot>(entity =>
