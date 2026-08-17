@@ -16,6 +16,7 @@ const makeJob = (
   createdAtUtc: '2026-08-17T00:00:00Z',
   total: 0,
   processed: 0,
+  remaining: 0,
   succeeded: 0,
   delayed: 0,
   noEurConversion: 0,
@@ -23,6 +24,10 @@ const makeJob = (
   providerFailed: 0,
   persistFailed: 0,
   rateLimited: 0,
+  rateLimitRetries: 0,
+  rateLimitedSkipped: 0,
+  isWaitingForRetry: false,
+  nextRetryAtUtc: null,
   ...overrides,
 });
 
@@ -49,6 +54,12 @@ describe('buildBatchQuoteJobSummary', () => {
 
   it('reports rateLimited count', () => {
     expect(buildBatchQuoteJobSummary(makeJob({ rateLimited: 5 }))).toContain('ограничение запросов: 5');
+  });
+
+  it('reports rate-limit retries and skipped counters', () => {
+    const summary = buildBatchQuoteJobSummary(makeJob({ rateLimitRetries: 2, rateLimitedSkipped: 1 }));
+    expect(summary).toContain('повторов после лимита: 2');
+    expect(summary).toContain('пропущено из-за лимита: 1');
   });
 
   it('returns "нет изменений" when all zero', () => {
@@ -117,6 +128,38 @@ describe('runIndexConstituentsBatchQuoteRefreshJob', () => {
     expect(notice?.level).toBe('success');
     expect(notice?.text).toContain('Обновление цен завершено');
     expect(progressUpdates.some(([p, t]) => t === 5)).toBe(true);
+  });
+
+  it('continues polling while waiting for retry', async () => {
+    const startJob = vi.fn(async () => makeJob({ state: 'Queued', total: 3, remaining: 3 }));
+    const getJobStatus = vi
+      .fn()
+      .mockResolvedValueOnce(makeJob({
+        state: 'Running',
+        total: 3,
+        processed: 1,
+        remaining: 2,
+        isWaitingForRetry: true,
+        nextRetryAtUtc: new Date(Date.now() + 5000).toISOString(),
+      }))
+      .mockResolvedValueOnce(makeJob({ state: 'Running', total: 3, processed: 2, remaining: 1 }))
+      .mockResolvedValueOnce(makeJob({ state: 'Succeeded', total: 3, processed: 3, remaining: 0, succeeded: 3 }));
+
+    const waitTexts: string[] = [];
+    const notice = await runIndexConstituentsBatchQuoteRefreshJob({
+      indexId: 1,
+      startJob,
+      getJobStatus,
+      pollIntervalMs: 1,
+      timeoutMs: 5000,
+      onRetryWaitText: (text) => {
+        if (text) waitTexts.push(text);
+      },
+    });
+
+    expect(notice?.level).toBe('success');
+    expect(getJobStatus).toHaveBeenCalledTimes(3);
+    expect(waitTexts.some((x) => x.includes('повтор через'))).toBe(true);
   });
 
   it('handles reused active job and shows info', async () => {

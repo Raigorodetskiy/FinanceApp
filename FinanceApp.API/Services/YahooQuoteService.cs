@@ -13,13 +13,15 @@ public interface IYahooQuoteService
 public sealed record YahooQuoteResult(
     YahooQuoteData? Quote,
     int StatusCode,
-    string? ErrorMessage)
+    string? ErrorMessage,
+    TimeSpan? RetryAfterDelay = null)
 {
     public bool IsSuccess => Quote is not null;
 
     public static YahooQuoteResult Success(YahooQuoteData quote) => new(quote, StatusCodes.Status200OK, null);
 
-    public static YahooQuoteResult Failure(int statusCode, string errorMessage) => new(null, statusCode, errorMessage);
+    public static YahooQuoteResult Failure(int statusCode, string errorMessage, TimeSpan? retryAfterDelay = null)
+        => new(null, statusCode, errorMessage, retryAfterDelay);
 }
 
 public sealed record YahooQuoteData(
@@ -100,11 +102,16 @@ public sealed class YahooQuoteService : IYahooQuoteService
 
             if (response.IsRateLimited)
             {
+                var retryAfterDelay = NormalizeRetryAfterDelay(ParseRetryAfterDelay(response.RetryAfter, _timeProvider.GetUtcNow()));
                 _logger.LogWarning(
-                    "Yahoo quote request rate limit exceeded for {Symbol}; cooldownUntilUtc={CooldownUntilUtc}.",
+                    "Yahoo quote request rate limit exceeded for {Symbol}; cooldownUntilUtc={CooldownUntilUtc}; retryAfterMs={RetryAfterMs}.",
                     safeSymbol,
-                    response.CooldownUntilUtc);
-                return YahooQuoteResult.Failure(StatusCodes.Status429TooManyRequests, "Quote provider rate limit exceeded.");
+                    response.CooldownUntilUtc,
+                    retryAfterDelay.HasValue ? (int)retryAfterDelay.Value.TotalMilliseconds : 0);
+                return YahooQuoteResult.Failure(
+                    StatusCodes.Status429TooManyRequests,
+                    "Quote provider rate limit exceeded.",
+                    retryAfterDelay);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -135,6 +142,35 @@ public sealed class YahooQuoteService : IYahooQuoteService
 
     private static string SanitizeForLog(string value) =>
         value.Replace('\r', '_').Replace('\n', '_');
+
+    private static TimeSpan? ParseRetryAfterDelay(RetryConditionHeaderValue? retryAfter, DateTimeOffset now)
+    {
+        if (retryAfter?.Delta is { } delta)
+        {
+            return delta;
+        }
+
+        if (retryAfter?.Date is { } date)
+        {
+            return date - now;
+        }
+
+        return null;
+    }
+
+    private TimeSpan? NormalizeRetryAfterDelay(TimeSpan? delay)
+    {
+        if (!delay.HasValue || delay.Value <= TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        var maxRetryAfter = _options.MaxAcceptedRetryAfter > TimeSpan.Zero
+            ? _options.MaxAcceptedRetryAfter
+            : TimeSpan.FromMinutes(5);
+
+        return delay.Value > maxRetryAfter ? maxRetryAfter : delay.Value;
+    }
 
     private static YahooQuoteResult ParseQuote(string symbol, string payload, TimeProvider timeProvider, TimeSpan intradayStaleThreshold)
     {

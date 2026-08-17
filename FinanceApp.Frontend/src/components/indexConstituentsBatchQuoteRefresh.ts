@@ -13,6 +13,7 @@ export type BatchQuoteJobNotice = {
 };
 
 export type BatchQuoteProgressCallback = (processed: number, total: number) => void;
+export type BatchQuoteRetryWaitCallback = (text: string | null) => void;
 
 export interface RunIndexConstituentsBatchQuoteRefreshOptions {
   indexId: number;
@@ -20,6 +21,7 @@ export interface RunIndexConstituentsBatchQuoteRefreshOptions {
   getJobStatus: (indexId: number, jobId: string) => Promise<IndexConstituentsBatchQuoteRefreshJobResponse>;
   onProgress?: BatchQuoteProgressCallback;
   onInfo?: (text: string) => void;
+  onRetryWaitText?: BatchQuoteRetryWaitCallback;
   pollIntervalMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -59,6 +61,8 @@ export function buildBatchQuoteJobSummary(
   const failed = (payload.providerFailed ?? 0) + (payload.persistFailed ?? 0);
   if (failed > 0) parts.push(`ошибок: ${failed}`);
   if (payload.rateLimited > 0) parts.push(`ограничение запросов: ${payload.rateLimited}`);
+  if (payload.rateLimitRetries > 0) parts.push(`повторов после лимита: ${payload.rateLimitRetries}`);
+  if (payload.rateLimitedSkipped > 0) parts.push(`пропущено из-за лимита: ${payload.rateLimitedSkipped}`);
   return parts.length > 0 ? parts.join(', ') : 'нет изменений';
 }
 
@@ -116,6 +120,7 @@ export async function runIndexConstituentsBatchQuoteRefreshJob(
     getJobStatus,
     onProgress,
     onInfo,
+    onRetryWaitText,
     pollIntervalMs = INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
     timeoutMs = INDEX_BATCH_QUOTE_JOB_POLL_TIMEOUT_MS,
     signal,
@@ -131,6 +136,7 @@ export async function runIndexConstituentsBatchQuoteRefreshJob(
   if (initial.total > 0) {
     onProgress?.(initial.processed, initial.total);
   }
+  onRetryWaitText?.(formatRetryWaitText(initial));
 
   if (!isKnownState(initial.state)) {
     return buildInvalidStateNotice(initial.state);
@@ -163,6 +169,7 @@ export async function runIndexConstituentsBatchQuoteRefreshJob(
       if (payload.total > 0) {
         onProgress?.(payload.processed, payload.total);
       }
+      onRetryWaitText?.(formatRetryWaitText(payload));
       if (!isKnownState(payload.state)) {
         return buildInvalidStateNotice(payload.state);
       }
@@ -183,6 +190,21 @@ export async function runIndexConstituentsBatchQuoteRefreshJob(
   }
 
   return null;
+}
+
+function formatRetryWaitText(payload: IndexConstituentsBatchQuoteRefreshJobResponse): string | null {
+  if (!payload.isWaitingForRetry || !payload.nextRetryAtUtc) {
+    return null;
+  }
+
+  const nextRetryAt = new Date(payload.nextRetryAtUtc).getTime();
+  if (!Number.isFinite(nextRetryAt)) {
+    return 'Поставщик ограничил запросы, ожидаем повтор.';
+  }
+
+  const remainingMs = nextRetryAt - Date.now();
+  const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
+  return `Поставщик ограничил запросы, повтор через ${remainingSeconds} с.`;
 }
 
 function waitForDelay(ms: number, signal?: AbortSignal): Promise<void> {

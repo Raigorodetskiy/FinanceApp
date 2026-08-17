@@ -173,7 +173,8 @@ builder.Services.AddSingleton<IndexConstituentHistoryRefreshJobService>();
 builder.Services.AddSingleton<IIndexConstituentHistoryRefreshJobService>(sp =>
     sp.GetRequiredService<IndexConstituentHistoryRefreshJobService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<IndexConstituentHistoryRefreshJobService>());
-builder.Services.Configure<IndexConstituentsBatchQuoteRefreshJobOptions>(options => { });
+builder.Services.Configure<IndexConstituentsBatchQuoteRefreshJobOptions>(
+    builder.Configuration.GetSection("IndexConstituentsBatchQuoteRefreshJob"));
 builder.Services.AddSingleton<IndexConstituentsBatchQuoteRefreshJobService>();
 builder.Services.AddSingleton<IIndexConstituentsBatchQuoteRefreshJobService>(sp =>
     sp.GetRequiredService<IndexConstituentsBatchQuoteRefreshJobService>());

@@ -160,6 +160,68 @@ public class YahooQuoteServiceTests
     }
 
     [Fact]
+    public async Task GetQuoteAsync_Http429_UsesRetryAfterDelta()
+    {
+        var handler = new StubHttpMessageHandler();
+        var response = new HttpResponseMessage((HttpStatusCode)StatusCodes.Status429TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(12));
+        handler.EnqueueResponse(response);
+
+        var service = CreateService(handler);
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(TimeSpan.FromSeconds(12), result.RetryAfterDelay);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_Http429_ParsesRetryAfterDate()
+    {
+        var fakeNow = new DateTimeOffset(2026, 8, 17, 12, 0, 0, TimeSpan.Zero);
+        var handler = new StubHttpMessageHandler();
+        var response = new HttpResponseMessage((HttpStatusCode)StatusCodes.Status429TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(fakeNow.AddSeconds(25));
+        handler.EnqueueResponse(response);
+
+        var service = CreateService(handler, new FakeTimeProvider(fakeNow));
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(TimeSpan.FromSeconds(25), result.RetryAfterDelay);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_Http429_ClampsExcessiveRetryAfter()
+    {
+        var handler = new StubHttpMessageHandler();
+        var response = new HttpResponseMessage((HttpStatusCode)StatusCodes.Status429TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(30));
+        handler.EnqueueResponse(response);
+
+        var service = CreateService(handler, options: new YahooFinanceOptions { MaxAcceptedRetryAfter = TimeSpan.FromMinutes(2) });
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(TimeSpan.FromMinutes(2), result.RetryAfterDelay);
+    }
+
+    [Fact]
+    public async Task GetQuoteAsync_Http429_IgnoresInvalidRetryAfter()
+    {
+        var fakeNow = new DateTimeOffset(2026, 8, 17, 12, 0, 0, TimeSpan.Zero);
+        var handler = new StubHttpMessageHandler();
+        var response = new HttpResponseMessage((HttpStatusCode)StatusCodes.Status429TooManyRequests);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(fakeNow.AddSeconds(-10));
+        handler.EnqueueResponse(response);
+
+        var service = CreateService(handler, new FakeTimeProvider(fakeNow));
+        var result = await service.GetQuoteAsync("RHM.DE");
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.RetryAfterDelay);
+    }
+
+    [Fact]
     public async Task GetQuoteAsync_HttpFailure_ReturnsBadGateway()
     {
         var handler = new StubHttpMessageHandler
@@ -1223,27 +1285,29 @@ public class YahooQuoteServiceTests
         }
         """;
 
-    private static YahooQuoteService CreateService(HttpMessageHandler handler, TimeProvider? timeProvider = null)
+    private static YahooQuoteService CreateService(
+        HttpMessageHandler handler,
+        TimeProvider? timeProvider = null,
+        YahooFinanceOptions? options = null)
     {
+        options ??= new YahooFinanceOptions
+        {
+            MinRequestInterval = TimeSpan.Zero,
+            CooldownDuration = TimeSpan.FromMinutes(30),
+            QuoteCacheDuration = TimeSpan.Zero,
+            RequestTimeout = TimeSpan.FromSeconds(10),
+            MaxAcceptedRetryAfter = TimeSpan.FromMinutes(5)
+        };
         var httpClientFactory = new StubHttpClientFactory(new HttpClient(handler));
         var coordinator = new YahooRequestCoordinator(
             httpClientFactory,
             NullLogger<YahooRequestCoordinator>.Instance,
-            Options.Create(new YahooFinanceOptions
-            {
-                MinRequestInterval = TimeSpan.Zero,
-                CooldownDuration = TimeSpan.FromMinutes(30),
-                QuoteCacheDuration = TimeSpan.Zero,
-                RequestTimeout = TimeSpan.FromSeconds(10)
-            }),
+            Options.Create(options),
             timeProvider);
         return new YahooQuoteService(
             coordinator,
             NullLogger<YahooQuoteService>.Instance,
-            Options.Create(new YahooFinanceOptions
-            {
-                QuoteCacheDuration = TimeSpan.Zero
-            }),
+            Options.Create(options),
             timeProvider);
     }
 

@@ -13,18 +13,21 @@ public interface IFinnhubQuoteService
 public sealed class FinnhubOptions
 {
     public string? ApiKey { get; set; }
+    public TimeSpan MaxAcceptedRetryAfter { get; set; } = TimeSpan.FromMinutes(5);
 }
 
 public sealed record FinnhubQuoteResult(
     FinnhubQuoteData? Quote,
     int StatusCode,
-    string? ErrorMessage)
+    string? ErrorMessage,
+    TimeSpan? RetryAfterDelay = null)
 {
     public bool IsSuccess => Quote is not null;
 
     public static FinnhubQuoteResult Success(FinnhubQuoteData quote) => new(quote, StatusCodes.Status200OK, null);
 
-    public static FinnhubQuoteResult Failure(int statusCode, string errorMessage) => new(null, statusCode, errorMessage);
+    public static FinnhubQuoteResult Failure(int statusCode, string errorMessage, TimeSpan? retryAfterDelay = null)
+        => new(null, statusCode, errorMessage, retryAfterDelay);
 }
 
 public sealed record FinnhubQuoteData(
@@ -58,17 +61,20 @@ public sealed class FinnhubQuoteService : IFinnhubQuoteService
     private readonly IMemoryCache _memoryCache;
     private readonly FinnhubOptions _options;
     private readonly ILogger<FinnhubQuoteService> _logger;
+    private readonly TimeProvider _timeProvider;
 
     public FinnhubQuoteService(
         HttpClient httpClient,
         IMemoryCache memoryCache,
         IOptions<FinnhubOptions> options,
-        ILogger<FinnhubQuoteService> logger)
+        ILogger<FinnhubQuoteService> logger,
+        TimeProvider? timeProvider = null)
     {
         _httpClient = httpClient;
         _memoryCache = memoryCache;
         _options = options.Value;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<FinnhubQuoteResult> GetQuoteAsync(string symbol, CancellationToken cancellationToken = default)
@@ -87,7 +93,10 @@ public sealed class FinnhubQuoteService : IFinnhubQuoteService
             cancellationToken);
         if (!quotePayload.IsSuccess || quotePayload.Payload is null)
         {
-            return FinnhubQuoteResult.Failure(quotePayload.StatusCode, quotePayload.ErrorMessage ?? "Quote provider request failed.");
+            return FinnhubQuoteResult.Failure(
+                quotePayload.StatusCode,
+                quotePayload.ErrorMessage ?? "Quote provider request failed.",
+                quotePayload.RetryAfterDelay);
         }
 
         var quoteParseResult = ParseQuote(symbol, quotePayload.Payload);
@@ -185,7 +194,10 @@ public sealed class FinnhubQuoteService : IFinnhubQuoteService
             if ((int)response.StatusCode == StatusCodes.Status429TooManyRequests)
             {
                 _logger.LogWarning("Finnhub {Endpoint} request hit rate limit.", endpointName);
-                return FinnhubPayloadResult.Failure(StatusCodes.Status429TooManyRequests, "Quote provider rate limit exceeded.");
+                return FinnhubPayloadResult.Failure(
+                    StatusCodes.Status429TooManyRequests,
+                    "Quote provider rate limit exceeded.",
+                    ParseRetryAfterDelay(response.Headers.RetryAfter));
             }
 
             if (!response.IsSuccessStatusCode)
@@ -409,13 +421,42 @@ public sealed class FinnhubQuoteService : IFinnhubQuoteService
     private sealed record FinnhubPayloadResult(
         string? Payload,
         int StatusCode,
-        string? ErrorMessage)
+        string? ErrorMessage,
+        TimeSpan? RetryAfterDelay = null)
     {
         public bool IsSuccess => Payload is not null;
 
         public static FinnhubPayloadResult Success(string payload) => new(payload, StatusCodes.Status200OK, null);
 
-        public static FinnhubPayloadResult Failure(int statusCode, string errorMessage) => new(null, statusCode, errorMessage);
+        public static FinnhubPayloadResult Failure(int statusCode, string errorMessage, TimeSpan? retryAfterDelay = null)
+            => new(null, statusCode, errorMessage, retryAfterDelay);
+    }
+
+    private TimeSpan? ParseRetryAfterDelay(System.Net.Http.Headers.RetryConditionHeaderValue? retryAfter)
+    {
+        if (retryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            return ClampRetryAfter(delta);
+        }
+
+        if (retryAfter?.Date is { } date)
+        {
+            var delay = date - _timeProvider.GetUtcNow();
+            if (delay > TimeSpan.Zero)
+            {
+                return ClampRetryAfter(delay);
+            }
+        }
+
+        return null;
+    }
+
+    private TimeSpan ClampRetryAfter(TimeSpan delay)
+    {
+        var max = _options.MaxAcceptedRetryAfter > TimeSpan.Zero
+            ? _options.MaxAcceptedRetryAfter
+            : TimeSpan.FromMinutes(5);
+        return delay > max ? max : delay;
     }
 
     private sealed record FinnhubProfileResult(

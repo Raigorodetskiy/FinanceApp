@@ -665,6 +665,7 @@ export interface IndexConstituentsBatchQuoteRefreshJobResponse {
   expiresAtUtc?: string | null;
   total: number;
   processed: number;
+  remaining: number;
   succeeded: number;
   delayed: number;
   noEurConversion: number;
@@ -672,5 +673,9 @@ export interface IndexConstituentsBatchQuoteRefreshJobResponse {
   providerFailed: number;
   persistFailed: number;
   rateLimited: number;
+  rateLimitRetries: number;
+  rateLimitedSkipped: number;
+  isWaitingForRetry: boolean;
+  nextRetryAtUtc?: string | null;
   error?: string | null;
 }

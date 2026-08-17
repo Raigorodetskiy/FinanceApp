@@ -12,14 +12,21 @@ public sealed record StockQuoteFetchResult
     public StockQuoteResponse? Quote { get; init; }
     public bool IsSuccess => Quote is not null;
     public bool IsRateLimited { get; init; }
+    public TimeSpan? RetryAfterDelay { get; init; }
     public int StatusCode { get; init; }
     public string? ErrorMessage { get; init; }
 
     public static StockQuoteFetchResult Success(StockQuoteResponse quote) =>
         new() { Quote = quote, StatusCode = StatusCodes.Status200OK };
 
-    public static StockQuoteFetchResult RateLimit(string message) =>
-        new() { IsRateLimited = true, StatusCode = StatusCodes.Status429TooManyRequests, ErrorMessage = message };
+    public static StockQuoteFetchResult RateLimit(string message, TimeSpan? retryAfterDelay = null) =>
+        new()
+        {
+            IsRateLimited = true,
+            RetryAfterDelay = retryAfterDelay,
+            StatusCode = StatusCodes.Status429TooManyRequests,
+            ErrorMessage = message
+        };
 
     public static StockQuoteFetchResult Failure(int statusCode, string message) =>
         new() { StatusCode = statusCode, ErrorMessage = message };
@@ -88,7 +95,9 @@ public sealed class StockQuoteFetchService : IStockQuoteFetchService
             {
                 if (quoteResult.StatusCode == StatusCodes.Status429TooManyRequests)
                 {
-                    return StockQuoteFetchResult.RateLimit(quoteResult.ErrorMessage ?? "Quote provider rate limit exceeded.");
+                    return StockQuoteFetchResult.RateLimit(
+                        quoteResult.ErrorMessage ?? "Quote provider rate limit exceeded.",
+                        quoteResult.RetryAfterDelay);
                 }
 
                 return StockQuoteFetchResult.Failure(quoteResult.StatusCode, quoteResult.ErrorMessage ?? "Could not fetch current quote.");
@@ -114,7 +123,9 @@ public sealed class StockQuoteFetchService : IStockQuoteFetchService
             {
                 if (quoteResult.StatusCode == StatusCodes.Status429TooManyRequests)
                 {
-                    return StockQuoteFetchResult.RateLimit(quoteResult.ErrorMessage ?? "Quote provider rate limit exceeded.");
+                    return StockQuoteFetchResult.RateLimit(
+                        quoteResult.ErrorMessage ?? "Quote provider rate limit exceeded.",
+                        quoteResult.RetryAfterDelay);
                 }
 
                 return StockQuoteFetchResult.Failure(quoteResult.StatusCode, quoteResult.ErrorMessage ?? "Could not fetch current quote.");

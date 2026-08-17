@@ -11,6 +11,7 @@ public sealed class YahooFinanceOptions
 {
     public TimeSpan MinRequestInterval { get; init; } = TimeSpan.FromSeconds(1.5);
     public TimeSpan CooldownDuration { get; init; } = TimeSpan.FromMinutes(30);
+    public TimeSpan MaxAcceptedRetryAfter { get; init; } = TimeSpan.FromMinutes(5);
     public TimeSpan QuoteCacheDuration { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan FundamentalsCacheDuration { get; init; } = TimeSpan.FromHours(24);
@@ -345,6 +346,11 @@ public sealed class YahooRequestCoordinator : IYahooRequestCoordinator
     {
         var now = _timeProvider.GetUtcNow();
         var retryAfterDelay = GetRetryAfterDelay(retryAfter, now);
+        var maxRetryAfter = NormalizePositive(_options.Value.MaxAcceptedRetryAfter, TimeSpan.FromMinutes(5));
+        if (retryAfterDelay.HasValue && retryAfterDelay.Value > maxRetryAfter)
+        {
+            retryAfterDelay = maxRetryAfter;
+        }
         var cooldownDelay = retryAfterDelay ?? NormalizePositive(_options.Value.CooldownDuration, TimeSpan.FromMinutes(30));
         var cooldownUntilUtc = now.Add(cooldownDelay);
 
