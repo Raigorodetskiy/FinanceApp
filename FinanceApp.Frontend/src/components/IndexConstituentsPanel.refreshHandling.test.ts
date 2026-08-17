@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   UNSUPPORTED_REFRESH_MESSAGE_FALLBACK,
-  buildHistoryJobNotice,
   classifyRefreshError,
   classifyRefreshResult,
   formatBatchHistorySummary,
   getErrMsg,
 } from './IndexConstituentsPanel';
+import { buildIndexConstituentHistoryJobNotice } from './indexConstituentHistoryRefresh';
 import type {
   IndexConstituentHistoryRefreshBatchResponse,
   IndexConstituentsRefreshResponse,
@@ -230,9 +230,9 @@ describe('buildHistoryJobNotice', () => {
   };
 
   it('maps terminal states to user-facing messages', () => {
-    expect(buildHistoryJobNotice('AAPL', 'Succeeded', { ...baseJob, state: 'Succeeded' }).level).toBe('success');
-    expect(buildHistoryJobNotice('AAPL', 'RateLimited', { ...baseJob, state: 'RateLimited' }).level).toBe('warning');
-    expect(buildHistoryJobNotice('AAPL', 'Interrupted', { ...baseJob, state: 'Interrupted' }).level).toBe('warning');
-    expect(buildHistoryJobNotice('AAPL', 'Failed', { ...baseJob, state: 'Failed' }).level).toBe('error');
+    expect(buildIndexConstituentHistoryJobNotice('AAPL', 'Succeeded', { ...baseJob, state: 'Succeeded' }).level).toBe('success');
+    expect(buildIndexConstituentHistoryJobNotice('AAPL', 'RateLimited', { ...baseJob, state: 'RateLimited' }).level).toBe('warning');
+    expect(buildIndexConstituentHistoryJobNotice('AAPL', 'Interrupted', { ...baseJob, state: 'Interrupted' }).level).toBe('warning');
+    expect(buildIndexConstituentHistoryJobNotice('AAPL', 'Failed', { ...baseJob, state: 'Failed' }).level).toBe('error');
   });
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -25,6 +25,7 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
+  getIndexConstituentHistory,
   getIndexConstituents,
   getIndexConstituentHistoryRefreshJob,
   getStockPrice,
@@ -41,11 +42,12 @@ import { isQuoteDelayed } from '../utils/quote';
 import type {
   IndexConstituentDto,
   IndexConstituentHistoryRefreshBatchResponse,
-  IndexConstituentHistoryRefreshJobResponse,
   IndexConstituentHistoryRefreshJobState,
   IndexConstituentsRefreshResponse,
+  StockHistoryRange,
   StockQuoteResponse,
 } from '../types';
+import { INDEX_HISTORY_JOB_POLL_INTERVAL_MS, INDEX_HISTORY_JOB_POLL_TIMEOUT_MS } from './indexConstituentHistoryRefresh';
 
 const { Text } = Typography;
 dayjs.extend(utc);
@@ -176,41 +178,6 @@ export function formatBatchHistorySummary(response: IndexConstituentHistoryRefre
   return `История акций: успешно ${response.succeeded}, ошибок ${response.failed}, лимит ${response.rateLimited}, пропущено ${response.skippedRateLimited} из ${response.total}.${suffix}`;
 }
 
-const HISTORY_JOB_POLL_INTERVAL_MS = 2500;
-const HISTORY_JOB_POLL_TIMEOUT_MS = 4 * 60 * 1000;
-
-type HistoryJobNotice = { level: 'success' | 'warning' | 'error' | 'info'; text: string; refreshChart: boolean };
-
-export function buildHistoryJobNotice(
-  ticker: string,
-  state: IndexConstituentHistoryRefreshJobState,
-  payload: IndexConstituentHistoryRefreshJobResponse,
-): HistoryJobNotice {
-  const providerError = getNonEmptyString(payload.error);
-  if (state === 'Succeeded') {
-    return { level: 'success', text: `Исторические данные обновлены для ${ticker}`, refreshChart: true };
-  }
-  if (state === 'RateLimited') {
-    return {
-      level: 'warning',
-      text: providerError ?? `Поставщик ограничил запросы для ${ticker}. Попробуйте позже.`,
-      refreshChart: false,
-    };
-  }
-  if (state === 'Interrupted') {
-    return {
-      level: 'warning',
-      text: providerError ?? `Обновление истории для ${ticker} прервано. Повторите попытку.`,
-      refreshChart: false,
-    };
-  }
-  return {
-    level: 'error',
-    text: providerError ?? `Ошибка обновления исторических данных для ${ticker}`,
-    refreshChart: false,
-  };
-}
-
 type LivePriceEntry = {
   quote: StockQuoteResponse | null;
   loading: boolean;
@@ -333,8 +300,6 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     name: string;
   } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
-  const historyJobTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
-  const historyJobPollingRef = useRef<Map<number, { jobId: string; startedAt: number }>>(new Map());
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -437,141 +402,44 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     }
   };
 
-  const clearHistoryPolling = useCallback((stockId: number) => {
-    const timer = historyJobTimersRef.current.get(stockId);
-    if (timer != null) {
-      clearTimeout(timer);
-      historyJobTimersRef.current.delete(stockId);
-    }
-    historyJobPollingRef.current.delete(stockId);
-    setHistoryRefreshStates((prev) => {
-      if (!(stockId in prev)) return prev;
-      const next = { ...prev };
-      delete next[stockId];
-      return next;
-    });
-  }, []);
-
-  const showHistoryNotice = useCallback((notice: HistoryJobNotice) => {
-    if (notice.level === 'success') {
-      void messageApi.success(notice.text);
-      return;
-    }
-    if (notice.level === 'warning') {
-      void messageApi.warning(notice.text);
-      return;
-    }
-    if (notice.level === 'info') {
-      void messageApi.info(notice.text);
-      return;
-    }
-    void messageApi.error(notice.text);
-  }, [messageApi]);
-
-  const scheduleHistoryStatusPoll = useCallback((
-    stockId: number,
-    ticker: string,
-    job: IndexConstituentHistoryRefreshJobResponse,
-  ) => {
-    clearHistoryPolling(stockId);
-    historyJobPollingRef.current.set(stockId, { jobId: job.jobId, startedAt: Date.now() });
-    setHistoryRefreshStates((prev) => ({ ...prev, [stockId]: job.state }));
-
-    const poll = async () => {
-      const current = historyJobPollingRef.current.get(stockId);
-      if (!current || current.jobId !== job.jobId) {
-        return;
-      }
-
-      if (Date.now() - current.startedAt > HISTORY_JOB_POLL_TIMEOUT_MS) {
-        showHistoryNotice({
-          level: 'error',
-          text: `Время ожидания обновления истории для ${ticker} истекло. Проверьте позже.`,
-          refreshChart: false,
-        });
-        clearHistoryPolling(stockId);
-        return;
-      }
-
-      try {
-        const status = await getIndexConstituentHistoryRefreshJob(indexId, stockId, job.jobId);
-        const payload = status.data;
-        setHistoryRefreshStates((prev) => ({ ...prev, [stockId]: payload.state }));
-        if (payload.state === 'Queued' || payload.state === 'Running') {
-          historyJobTimersRef.current.set(stockId, setTimeout(() => void poll(), HISTORY_JOB_POLL_INTERVAL_MS));
-          return;
-        }
-
-        const notice = buildHistoryJobNotice(ticker, payload.state, payload);
-        showHistoryNotice(notice);
-        if (notice.refreshChart) {
-          setChartRefreshTokens((prev) => ({
-            ...prev,
-            [stockId]: (prev[stockId] ?? 0) + 1,
-          }));
-        }
-        clearHistoryPolling(stockId);
-      } catch (err) {
-        if (axios.isAxiosError(err) && err.response?.status === 404) {
-          showHistoryNotice({
-            level: 'warning',
-            text: `Задача обновления истории для ${ticker} больше недоступна (истекла/перезапуск). Запустите снова.`,
-            refreshChart: false,
-          });
-          clearHistoryPolling(stockId);
-          return;
-        }
-
-        showHistoryNotice({
-          level: 'error',
-          text: getErrMsg(err, `Ошибка проверки статуса обновления истории для ${ticker}`),
-          refreshChart: false,
-        });
-        clearHistoryPolling(stockId);
-      }
-    };
-
-    historyJobTimersRef.current.set(stockId, setTimeout(() => void poll(), HISTORY_JOB_POLL_INTERVAL_MS));
-  }, [clearHistoryPolling, indexId, showHistoryNotice]);
-
-  useEffect(() => () => {
-    for (const timer of historyJobTimersRef.current.values()) {
-      clearTimeout(timer);
-    }
-    historyJobTimersRef.current.clear();
-    historyJobPollingRef.current.clear();
-  }, []);
-
   useEffect(() => {
-    for (const timer of historyJobTimersRef.current.values()) {
-      clearTimeout(timer);
-    }
-    historyJobTimersRef.current.clear();
-    historyJobPollingRef.current.clear();
     setHistoryRefreshStates({});
   }, [indexId]);
 
-  const handleRefreshConstituentHistory = async (constituent: IndexConstituentDto) => {
-    if (historyJobPollingRef.current.has(constituent.stockId) || batchHistoryRefreshing) {
-      return;
-    }
+  const loadConstituentHistory = useCallback(async ({
+    stockId,
+    range,
+  }: {
+    stockId: number;
+    range: StockHistoryRange;
+  }) => {
+    const response = await getIndexConstituentHistory(indexId, stockId, range);
+    return response.data;
+  }, [indexId]);
 
-    historyJobPollingRef.current.set(constituent.stockId, {
-      jobId: 'starting',
-      startedAt: Date.now(),
-    });
-    setHistoryRefreshStates((prev) => ({ ...prev, [constituent.stockId]: 'Queued' }));
-    try {
-      const response = await refreshIndexConstituentHistory(indexId, constituent.stockId);
-      if (response.data.reusedActiveJob) {
-        void messageApi.info(`Обновление истории для ${constituent.ticker} уже выполняется. Подключаемся к текущей задаче.`);
+  const constituentHistoryRefreshJobAdapter = useMemo(() => ({
+    startJob: async (targetIndexId: number, targetStockId: number) => (
+      await refreshIndexConstituentHistory(targetIndexId, targetStockId)
+    ).data,
+    getJobStatus: async (targetIndexId: number, targetStockId: number, jobId: string) => (
+      await getIndexConstituentHistoryRefreshJob(targetIndexId, targetStockId, jobId)
+    ).data,
+    pollIntervalMs: INDEX_HISTORY_JOB_POLL_INTERVAL_MS,
+    timeoutMs: INDEX_HISTORY_JOB_POLL_TIMEOUT_MS,
+  }), []);
+
+  const handleChartHistoryRefreshStateChange = useCallback((stockId: number, state: IndexConstituentHistoryRefreshJobState | null) => {
+    setHistoryRefreshStates((prev) => {
+      if (state == null) {
+        if (!(stockId in prev)) return prev;
+        const next = { ...prev };
+        delete next[stockId];
+        return next;
       }
-      scheduleHistoryStatusPoll(constituent.stockId, constituent.ticker, response.data);
-    } catch (err) {
-      clearHistoryPolling(constituent.stockId);
-      void messageApi.error(getErrMsg(err, `Ошибка запуска обновления исторических данных для ${constituent.ticker}`));
-    }
-  };
+
+      return { ...prev, [stockId]: state };
+    });
+  }, []);
 
   const handleBatchRefreshHistory = async () => {
     if (batchHistoryRefreshing || constituents.length === 0) {
@@ -637,6 +505,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
               <StockPriceChart
                 panelId={`chart-panel-${record._stockId}`}
                 stockId={record._stockId}
+                indexId={indexId}
                 ticker={stock?.ticker ?? ''}
                 name={stock?.name ?? ''}
                 wkn={stock?.wkn ?? null}
@@ -646,6 +515,9 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
                 storedPriceEur={stock?.currentPrice ?? null}
                 storedPriceChangeEur={stock?.currentPriceChange ?? null}
                 refreshToken={chartRefreshTokens[record._stockId] ?? 0}
+                historyLoader={loadConstituentHistory}
+                historyRefreshJobAdapter={constituentHistoryRefreshJobAdapter}
+                onIndexHistoryRefreshStateChange={handleChartHistoryRefreshStateChange}
               />
             ),
             props: { colSpan: INDEX_CONSTITUENTS_TOTAL_COLS },
@@ -832,9 +704,6 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const trackingLoading = trackingId === record.stockId;
         const trackButtonState = getTrackButtonState(record.trackingStatus, trackingLoading);
-        const historyState = historyRefreshStates[record.stockId];
-        const historyLoading = historyState === 'Queued' || historyState === 'Running';
-        const historyDisabled = batchHistoryRefreshing || historyLoading || !record.ticker?.trim();
 
         const addButton = (
           <Button
@@ -857,16 +726,6 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
               onClick={() => void handleFetchLivePrice(record)}
               aria-label={`Обновить цену ${record.ticker}`}
             />
-            <Tooltip title={`Обновить исторические данные ${record.ticker}`}>
-              <Button
-                icon={<BarChartOutlined />}
-                size="small"
-                loading={historyLoading}
-                disabled={historyDisabled}
-                onClick={() => void handleRefreshConstituentHistory(record)}
-                aria-label={`Обновить исторические данные ${record.ticker}`}
-              />
-            </Tooltip>
             <Tooltip title={FUNDAMENTALS_ARIA_LABEL}>
               <Button
                 icon={<FundOutlined />}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Segmented, Spin, Typography, Empty, Alert, Button, Tooltip, message, Popconfirm } from 'antd';
 import { LinkOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -14,7 +14,11 @@ import {
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { getStockHistory, refreshStockHistory } from '../services/api';
+import {
+  getIndexConstituentHistory,
+  getStockHistory,
+  refreshStockHistory,
+} from '../services/api';
 import {
   getStockPriceChartSummary,
 } from './stockPriceChartSummary';
@@ -29,10 +33,16 @@ import {
 } from './dayHighLow';
 import { STOCK_HISTORY_RANGE_OPTIONS, toStockHistoryRange } from './historyRangeOptions';
 import type {
+  IndexConstituentHistoryRefreshJobResponse,
+  IndexConstituentHistoryRefreshJobState,
   StockHistoryRange,
   StockHistoryResponse,
   StockQuoteResponse,
 } from '../types';
+import {
+  getHistoryRefreshErrorMessage,
+  runIndexConstituentHistoryRefreshJob,
+} from './indexConstituentHistoryRefresh';
 import './StockPriceChart.css';
 
 dayjs.extend(utc);
@@ -64,6 +74,7 @@ const xAxisFormatByRange: Record<StockHistoryRange, string> = {
 export interface StockPriceChartProps {
   panelId: string;
   stockId: number;
+  indexId?: number;
   ticker: string;
   name: string;
   wkn?: string | null;
@@ -73,6 +84,25 @@ export interface StockPriceChartProps {
   storedPriceEur?: number | null;
   storedPriceChangeEur?: number | null;
   refreshToken?: number;
+  historyLoader?: (params: {
+    stockId: number;
+    range: StockHistoryRange;
+    indexId?: number;
+  }) => Promise<StockHistoryResponse>;
+  historyRefreshJobAdapter?: {
+    startJob: (indexId: number, stockId: number) => Promise<IndexConstituentHistoryRefreshJobResponse>;
+    getJobStatus: (
+      indexId: number,
+      stockId: number,
+      jobId: string,
+    ) => Promise<IndexConstituentHistoryRefreshJobResponse>;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  };
+  onIndexHistoryRefreshStateChange?: (
+    stockId: number,
+    state: IndexConstituentHistoryRefreshJobState | null,
+  ) => void;
 }
 
 const formatSigned = (value: number, suffix = '') =>
@@ -98,6 +128,7 @@ const formatCompactNumber = (value: number): string =>
 const StockPriceChart: React.FC<StockPriceChartProps> = ({
   panelId,
   stockId,
+  indexId,
   ticker,
   name,
   wkn,
@@ -107,26 +138,47 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   storedPriceEur,
   storedPriceChangeEur,
   refreshToken,
+  historyLoader,
+  historyRefreshJobAdapter,
+  onIndexHistoryRefreshStateChange,
 }) => {
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [historyResponse, setHistoryResponse] = useState<StockHistoryResponse | null>(null);
+  const historyRefreshAbortRef = useRef<AbortController | null>(null);
+  const historyRefreshStateChangeRef = useRef(onIndexHistoryRefreshStateChange);
+
+  useEffect(() => {
+    historyRefreshStateChangeRef.current = onIndexHistoryRefreshStateChange;
+  }, [onIndexHistoryRefreshStateChange]);
+
+  const notifyIndexHistoryRefreshStateChange = useCallback((state: IndexConstituentHistoryRefreshJobState | null) => {
+    historyRefreshStateChangeRef.current?.(stockId, state);
+  }, [stockId]);
 
   const finanzenNetUrl = useMemo(() => buildFinanzenNetUrl(finanzenNetSlug), [finanzenNetSlug]);
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const res = await getStockHistory(stockId, historyRange);
-      setHistoryResponse(res.data);
+      if (historyLoader) {
+        const response = await historyLoader({ stockId, range: historyRange, indexId });
+        setHistoryResponse(response);
+      } else if (indexId != null) {
+        const response = await getIndexConstituentHistory(indexId, stockId, historyRange);
+        setHistoryResponse(response.data);
+      } else {
+        const response = await getStockHistory(stockId, historyRange);
+        setHistoryResponse(response.data);
+      }
     } catch {
       setHistoryResponse(null);
       message.error('Ошибка загрузки исторических данных');
     } finally {
       setHistoryLoading(false);
     }
-  }, [historyRange, stockId]);
+  }, [historyLoader, historyRange, indexId, stockId]);
 
   useEffect(() => {
     fetchHistory();
@@ -137,28 +189,78 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       return;
     }
 
+    historyRefreshAbortRef.current?.abort();
+    const abortController = new AbortController();
+    historyRefreshAbortRef.current = abortController;
     setHistoryRefreshing(true);
     try {
-      const refreshRes = await refreshStockHistory(stockId);
-      await fetchHistory();
-      const { deletedPoints, importedPoints } = refreshRes.data;
-      message.success(`История перезагружена: удалено ${deletedPoints}, загружено ${importedPoints}`);
+      if (indexId != null && historyRefreshJobAdapter != null) {
+        const notice = await runIndexConstituentHistoryRefreshJob({
+          indexId,
+          stockId,
+          ticker,
+          startJob: historyRefreshJobAdapter.startJob,
+          getJobStatus: historyRefreshJobAdapter.getJobStatus,
+          pollIntervalMs: historyRefreshJobAdapter.pollIntervalMs,
+          timeoutMs: historyRefreshJobAdapter.timeoutMs,
+          signal: abortController.signal,
+          onInfo: (text) => { void message.info(text); },
+          onStateChange: notifyIndexHistoryRefreshStateChange,
+        });
+
+        if (notice != null) {
+          if (notice.level === 'success') {
+            void message.success(notice.text);
+          } else if (notice.level === 'warning') {
+            void message.warning(notice.text);
+          } else if (notice.level === 'info') {
+            void message.info(notice.text);
+          } else {
+            void message.error(notice.text);
+          }
+
+          if (notice.refreshChart) {
+            await fetchHistory();
+          }
+        }
+      } else {
+        const refreshRes = await refreshStockHistory(stockId);
+        await fetchHistory();
+        const { deletedPoints, importedPoints } = refreshRes.data;
+        message.success(`История перезагружена: удалено ${deletedPoints}, загружено ${importedPoints}`);
+      }
     } catch (error: unknown) {
-      const errorMessage =
-        error != null &&
-        typeof error === 'object' &&
-        'response' in error &&
-        error.response != null &&
-        typeof error.response === 'object' &&
-        'data' in error.response &&
-        typeof error.response.data === 'string'
-          ? error.response.data
-          : 'Не удалось перезагрузить историю';
-      message.error(errorMessage);
+      if (!abortController.signal.aborted) {
+        message.error(getHistoryRefreshErrorMessage(error, `Ошибка запуска обновления исторических данных для ${ticker}`));
+      }
     } finally {
+      notifyIndexHistoryRefreshStateChange(null);
+      if (historyRefreshAbortRef.current === abortController) {
+        historyRefreshAbortRef.current = null;
+      }
       setHistoryRefreshing(false);
     }
-  }, [fetchHistory, historyRefreshing, stockId]);
+  }, [
+    fetchHistory,
+    historyRefreshJobAdapter,
+    historyRefreshing,
+    indexId,
+    notifyIndexHistoryRefreshStateChange,
+    stockId,
+    ticker,
+  ]);
+
+  useEffect(() => () => {
+    historyRefreshAbortRef.current?.abort();
+    historyRefreshAbortRef.current = null;
+    notifyIndexHistoryRefreshStateChange(null);
+  }, [notifyIndexHistoryRefreshStateChange]);
+
+  useEffect(() => {
+    historyRefreshAbortRef.current?.abort();
+    historyRefreshAbortRef.current = null;
+    notifyIndexHistoryRefreshStateChange(null);
+  }, [indexId, notifyIndexHistoryRefreshStateChange, stockId]);
 
   const historyData = historyResponse?.points ?? [];
   const historyHasEurConversion = historyResponse?.rateToEur != null;
