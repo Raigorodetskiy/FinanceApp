@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
+  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -139,7 +140,7 @@ const MarketIndicesPage: React.FC = () => {
     setEditingMarketIndex(null);
     form.resetFields();
     const maxSortOrder = marketIndices.reduce((max, item) => Math.max(max, item.sortOrder), 0);
-    form.setFieldsValue({ sortOrder: maxSortOrder + 10 });
+    form.setFieldsValue({ sortOrder: maxSortOrder + 10, showInNavigation: true });
     setModalOpen(true);
   };
 
@@ -152,6 +153,7 @@ const MarketIndicesPage: React.FC = () => {
       description: marketIndex.description,
       countryOrRegion: marketIndex.countryOrRegion,
       sortOrder: marketIndex.sortOrder,
+      showInNavigation: marketIndex.showInNavigation,
     });
     setModalOpen(true);
   };
@@ -168,6 +170,7 @@ const MarketIndicesPage: React.FC = () => {
         description: values.description,
         countryOrRegion: values.countryOrRegion,
         sortOrder: values.sortOrder ?? 0,
+        showInNavigation: values.showInNavigation as boolean ?? true,
       };
 
       if (editingMarketIndex) {
@@ -518,6 +521,13 @@ const MarketIndicesPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="sortOrder" label="Порядок сортировки">
             <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="showInNavigation"
+            valuePropName="checked"
+            extra="Отображать индекс отдельным пунктом в разделе «Мировые индексы»"
+          >
+            <Checkbox>Показывать в навигации</Checkbox>
           </Form.Item>
         </Form>
       </Modal>

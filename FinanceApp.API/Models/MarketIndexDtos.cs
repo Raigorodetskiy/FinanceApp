@@ -14,6 +14,7 @@ public sealed class MarketIndexDto
     public string CountryOrRegion { get; init; } = string.Empty;
     public int SortOrder { get; init; }
     public bool IsArchived { get; init; }
+    public bool ShowInNavigation { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }
@@ -26,6 +27,7 @@ public sealed class UpsertMarketIndexRequest
     public string? Description { get; init; }
     public string? CountryOrRegion { get; init; }
     public int SortOrder { get; init; }
+    public bool? ShowInNavigation { get; init; }
 }
 
 public sealed class MarketIndexHistoryPointDto

@@ -843,6 +843,148 @@ public class MarketIndicesControllerTests
         await firstBatchTask;
     }
 
+    [Fact]
+    public async Task Create_DefaultsShowInNavigationToTrue_WhenOmitted()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        var result = await controller.CreateMarketIndex(new UpsertMarketIndexRequest
+        {
+            Name = "Test Nav Default",
+            Code = "TNDX",
+            SortOrder = 1
+        });
+
+        var created = Assert.IsType<ObjectResult>(result.Result);
+        var dto = Assert.IsType<MarketIndexDto>(created.Value);
+        Assert.True(dto.ShowInNavigation);
+    }
+
+    [Fact]
+    public async Task Create_CanExplicitlySetShowInNavigationFalse()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        var result = await controller.CreateMarketIndex(new UpsertMarketIndexRequest
+        {
+            Name = "Hidden Index",
+            Code = "HIDX",
+            SortOrder = 1,
+            ShowInNavigation = false
+        });
+
+        var created = Assert.IsType<ObjectResult>(result.Result);
+        var dto = Assert.IsType<MarketIndexDto>(created.Value);
+        Assert.False(dto.ShowInNavigation);
+    }
+
+    [Fact]
+    public async Task Update_TogglesShowInNavigation_TrueToFalse()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        var createResult = await controller.CreateMarketIndex(new UpsertMarketIndexRequest
+        {
+            Name = "Visible Index",
+            Code = "VIDX",
+            SortOrder = 1,
+            ShowInNavigation = true
+        });
+        var dto = Assert.IsType<MarketIndexDto>(Assert.IsType<ObjectResult>(createResult.Result).Value);
+        Assert.True(dto.ShowInNavigation);
+
+        var updateResult = await controller.UpdateMarketIndex(dto.Id, new UpsertMarketIndexRequest
+        {
+            Name = dto.Name,
+            Code = dto.Code,
+            SortOrder = dto.SortOrder,
+            ShowInNavigation = false
+        });
+
+        var updated = Assert.IsType<OkObjectResult>(updateResult.Result);
+        var updatedDto = Assert.IsType<MarketIndexDto>(updated.Value);
+        Assert.False(updatedDto.ShowInNavigation);
+        Assert.Equal("VIDX", updatedDto.Code);
+    }
+
+    [Fact]
+    public async Task Update_TogglesShowInNavigation_FalseToTrue()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        var createResult = await controller.CreateMarketIndex(new UpsertMarketIndexRequest
+        {
+            Name = "Hidden Index",
+            Code = "HIDX2",
+            SortOrder = 1,
+            ShowInNavigation = false
+        });
+        var dto = Assert.IsType<MarketIndexDto>(Assert.IsType<ObjectResult>(createResult.Result).Value);
+
+        var updateResult = await controller.UpdateMarketIndex(dto.Id, new UpsertMarketIndexRequest
+        {
+            Name = dto.Name,
+            Code = dto.Code,
+            SortOrder = dto.SortOrder,
+            ShowInNavigation = true
+        });
+
+        var updated = Assert.IsType<OkObjectResult>(updateResult.Result);
+        Assert.True(Assert.IsType<MarketIndexDto>(updated.Value).ShowInNavigation);
+    }
+
+    [Fact]
+    public async Task GetAll_DtoExposesShowInNavigation()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        await controller.CreateMarketIndex(new UpsertMarketIndexRequest { Name = "Vis", Code = "VIS1", SortOrder = 1, ShowInNavigation = true });
+        await controller.CreateMarketIndex(new UpsertMarketIndexRequest { Name = "Hid", Code = "HID1", SortOrder = 2, ShowInNavigation = false });
+
+        var result = await controller.GetAll();
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var items = Assert.IsAssignableFrom<IEnumerable<MarketIndexDto>>(ok.Value).ToList();
+
+        Assert.Contains(items, x => x.Code == "VIS1" && x.ShowInNavigation == true);
+        Assert.Contains(items, x => x.Code == "HID1" && x.ShowInNavigation == false);
+    }
+
+    [Fact]
+    public async Task Update_ShowInNavigation_DoesNotAffectArchiveStatus()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        var createResult = await controller.CreateMarketIndex(new UpsertMarketIndexRequest
+        {
+            Name = "Archive Check",
+            Code = "ARCHCK",
+            SortOrder = 1,
+            ShowInNavigation = true
+        });
+        var dto = Assert.IsType<MarketIndexDto>(Assert.IsType<ObjectResult>(createResult.Result).Value);
+
+        await controller.ArchiveMarketIndex(dto.Id);
+
+        var updateResult = await controller.UpdateMarketIndex(dto.Id, new UpsertMarketIndexRequest
+        {
+            Name = dto.Name,
+            Code = dto.Code,
+            SortOrder = dto.SortOrder,
+            ShowInNavigation = false
+        });
+
+        var updated = Assert.IsType<OkObjectResult>(updateResult.Result);
+        var updatedDto = Assert.IsType<MarketIndexDto>(updated.Value);
+        Assert.True(updatedDto.IsArchived, "Archive status must be preserved after visibility update");
+        Assert.False(updatedDto.ShowInNavigation);
+    }
+
     private static async Task<AppDbContext> CreateSqliteContextAsync()
     {
         var connection = new SqliteConnection("DataSource=:memory:");

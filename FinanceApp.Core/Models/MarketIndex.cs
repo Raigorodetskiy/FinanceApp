@@ -26,6 +26,7 @@ public class MarketIndex
     public string CountryOrRegion { get; set; } = string.Empty;
     public int SortOrder { get; set; }
     public bool IsArchived { get; set; }
+    public bool ShowInNavigation { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
