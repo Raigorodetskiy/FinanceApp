@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace FinanceApp.API.Models;
 
 public sealed class MarketIndexDto
@@ -113,6 +115,7 @@ public sealed class IndexConstituentsRefreshResponse
     public int Conflicts { get; init; }
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum IndexConstituentHistoryRefreshJobState
 {
     Queued,
@@ -166,6 +169,7 @@ public sealed class IndexConstituentHistoryRefreshItemResponse
     public string? Error { get; init; }
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum IndexConstituentsBatchQuoteRefreshJobState
 {
     Queued,

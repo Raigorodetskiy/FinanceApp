@@ -223,4 +223,45 @@ describe('runIndexConstituentsBatchQuoteRefreshJob', () => {
 
     expect(notice?.level).toBe('error');
   });
+
+  it('returns compatibility error when initial state is numeric', async () => {
+    const startJob = vi.fn(async () =>
+      makeJob({ state: 0 as unknown as IndexConstituentsBatchQuoteRefreshJobResponse['state'] }),
+    );
+    const getJobStatus = vi.fn();
+
+    const notice = await runIndexConstituentsBatchQuoteRefreshJob({
+      indexId: 1,
+      startJob,
+      getJobStatus,
+      pollIntervalMs: 1,
+      timeoutMs: 5000,
+    });
+
+    expect(notice?.level).toBe('error');
+    expect(notice?.text).toContain('некорректный статус');
+    expect(notice?.text).toContain('совместимость');
+    expect(notice?.text).not.toContain('нет изменений');
+    expect(getJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('returns compatibility error when polled state is unknown', async () => {
+    const startJob = vi.fn(async () => makeJob({ state: 'Running', total: 5 }));
+    const getJobStatus = vi.fn().mockResolvedValueOnce(
+      makeJob({ state: 'Unknown' as unknown as IndexConstituentsBatchQuoteRefreshJobResponse['state'], total: 5, processed: 1 }),
+    );
+
+    const notice = await runIndexConstituentsBatchQuoteRefreshJob({
+      indexId: 1,
+      startJob,
+      getJobStatus,
+      pollIntervalMs: 1,
+      timeoutMs: 5000,
+    });
+
+    expect(notice?.level).toBe('error');
+    expect(notice?.text).toContain('некорректный статус');
+    expect(notice?.text).toContain('Unknown');
+    expect(notice?.text).not.toContain('нет изменений');
+  });
 });

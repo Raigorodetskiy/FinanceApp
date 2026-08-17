@@ -28,6 +28,26 @@ export interface RunIndexConstituentsBatchQuoteRefreshOptions {
 const isRunningState = (state: IndexConstituentsBatchQuoteRefreshJobState): boolean =>
   state === 'Queued' || state === 'Running';
 
+const isKnownState = (state: unknown): state is IndexConstituentsBatchQuoteRefreshJobState =>
+  state === 'Queued'
+  || state === 'Running'
+  || state === 'Succeeded'
+  || state === 'RateLimited'
+  || state === 'Failed'
+  || state === 'Interrupted';
+
+function buildInvalidStateNotice(rawState: unknown): BatchQuoteJobNotice {
+  const rendered = typeof rawState === 'string'
+    ? rawState
+    : rawState == null
+      ? 'пустое значение'
+      : String(rawState);
+  return {
+    level: 'error',
+    text: `Сервер вернул некорректный статус задачи обновления цен (${rendered}). Проверьте совместимость версий frontend и backend.`,
+  };
+}
+
 export function buildBatchQuoteJobSummary(
   payload: IndexConstituentsBatchQuoteRefreshJobResponse,
 ): string {
@@ -112,6 +132,10 @@ export async function runIndexConstituentsBatchQuoteRefreshJob(
     onProgress?.(initial.processed, initial.total);
   }
 
+  if (!isKnownState(initial.state)) {
+    return buildInvalidStateNotice(initial.state);
+  }
+
   if (!isRunningState(initial.state)) {
     return buildBatchQuoteJobNotice(initial);
   }
@@ -138,6 +162,9 @@ export async function runIndexConstituentsBatchQuoteRefreshJob(
       const payload = await getJobStatus(indexId, initial.jobId);
       if (payload.total > 0) {
         onProgress?.(payload.processed, payload.total);
+      }
+      if (!isKnownState(payload.state)) {
+        return buildInvalidStateNotice(payload.state);
       }
       if (isRunningState(payload.state)) continue;
       return buildBatchQuoteJobNotice(payload);
