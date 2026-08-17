@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FinanceApp.API.Controllers;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
@@ -399,7 +400,7 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
-    public async Task RefreshConstituentHistory_CurrentCatalogOnlyMember_WorksWithoutTrackingMutation()
+    public async Task RefreshConstituentHistory_CurrentCatalogOnlyMember_ReturnsAcceptedJobWithoutTrackingMutation()
     {
         await using var context = await CreateSqliteContextAsync();
         var stock = new Stock
@@ -416,23 +417,24 @@ public class MarketIndicesControllerTests
         context.StockMarketIndices.Add(new StockMarketIndex { StockId = stock.Id, MarketIndexId = 1, EffectiveFrom = DateTime.UtcNow });
         await context.SaveChangesAsync();
 
-        var stockHistoryService = new TestStockHistoryService(
-            (s, _) => Task.FromResult(new StockHistoryRefreshResponse { StockId = s.Id, DeletedPoints = 2, ImportedPoints = 10 }));
-        var controller = CreateController(context, stockHistoryService: stockHistoryService);
+        var jobs = new TestIndexConstituentHistoryRefreshJobService();
+        var controller = CreateController(context, constituentHistoryJobService: jobs);
         var result = await controller.RefreshConstituentHistory(1, stock.Id);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var payload = Assert.IsType<StockHistoryRefreshResponse>(ok.Value);
+        var accepted = Assert.IsType<AcceptedResult>(result.Result);
+        var payload = Assert.IsType<IndexConstituentHistoryRefreshJobResponse>(accepted.Value);
         Assert.Equal(stock.Id, payload.StockId);
-        Assert.False(payload.RateLimited);
-        Assert.Equal(new[] { stock.Id }, stockHistoryService.CallOrder);
+        Assert.Equal(1, payload.MarketIndexId);
+        Assert.Equal(IndexConstituentHistoryRefreshJobState.Queued, payload.State);
+        Assert.Single(jobs.EnqueueCalls);
+        Assert.Equal((1, stock.Id), jobs.EnqueueCalls[0]);
 
         var persisted = await context.Stocks.AsNoTracking().SingleAsync(x => x.Id == stock.Id);
         Assert.Equal(StockTrackingStatus.CatalogOnly, persisted.TrackingStatus);
     }
 
     [Fact]
-    public async Task RefreshConstituentHistory_TrackedMember_Works()
+    public async Task RefreshConstituentHistory_TrackedMember_ReturnsAccepted()
     {
         await using var context = await CreateSqliteContextAsync();
         var stock = new Stock
@@ -449,13 +451,11 @@ public class MarketIndicesControllerTests
         context.StockMarketIndices.Add(new StockMarketIndex { StockId = stock.Id, MarketIndexId = 1, EffectiveFrom = DateTime.UtcNow });
         await context.SaveChangesAsync();
 
-        var controller = CreateController(
-            context,
-            stockHistoryService: new TestStockHistoryService((s, _) => Task.FromResult(new StockHistoryRefreshResponse { StockId = s.Id, DeletedPoints = 1, ImportedPoints = 5 })));
+        var controller = CreateController(context, constituentHistoryJobService: new TestIndexConstituentHistoryRefreshJobService());
         var result = await controller.RefreshConstituentHistory(1, stock.Id);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var payload = Assert.IsType<StockHistoryRefreshResponse>(ok.Value);
+        var ok = Assert.IsType<AcceptedResult>(result.Result);
+        var payload = Assert.IsType<IndexConstituentHistoryRefreshJobResponse>(ok.Value);
         Assert.Equal(stock.Id, payload.StockId);
     }
 
@@ -541,6 +541,61 @@ public class MarketIndicesControllerTests
 
         Assert.IsType<ConflictObjectResult>(archived.Result);
         Assert.IsType<BadRequestObjectResult>(invalid.Result);
+    }
+
+    [Fact]
+    public async Task RefreshConstituentHistory_DuplicateStarts_ReusesActiveJob()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 60043,
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex { StockId = 60043, MarketIndexId = 1, EffectiveFrom = now });
+        await context.SaveChangesAsync();
+
+        var jobs = new TestIndexConstituentHistoryRefreshJobService(reuseSameActiveJob: true);
+        var controller = CreateController(context, constituentHistoryJobService: jobs);
+
+        var first = await controller.RefreshConstituentHistory(1, 60043);
+        var second = await controller.RefreshConstituentHistory(1, 60043);
+
+        var firstAccepted = Assert.IsType<AcceptedResult>(first.Result);
+        var secondAccepted = Assert.IsType<AcceptedResult>(second.Result);
+        var firstPayload = Assert.IsType<IndexConstituentHistoryRefreshJobResponse>(firstAccepted.Value);
+        var secondPayload = Assert.IsType<IndexConstituentHistoryRefreshJobResponse>(secondAccepted.Value);
+        Assert.Equal(firstPayload.JobId, secondPayload.JobId);
+        Assert.False(firstPayload.ReusedActiveJob);
+        Assert.True(secondPayload.ReusedActiveJob);
+    }
+
+    [Fact]
+    public async Task GetConstituentHistoryRefreshJobStatus_MustMatchIndexStockJobAndUnknownReturns404()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var jobs = new TestIndexConstituentHistoryRefreshJobService();
+        var controller = CreateController(context, constituentHistoryJobService: jobs);
+
+        var started = jobs.Enqueue(1, 123);
+        Assert.NotNull(started.Job);
+        var job = started.Job!;
+
+        var ok = controller.GetConstituentHistoryRefreshJobStatus(1, 123, job.JobId);
+        var wrongIndex = controller.GetConstituentHistoryRefreshJobStatus(2, 123, job.JobId);
+        var wrongStock = controller.GetConstituentHistoryRefreshJobStatus(1, 124, job.JobId);
+        var unknown = controller.GetConstituentHistoryRefreshJobStatus(1, 123, "missing");
+
+        Assert.IsType<OkObjectResult>(ok.Result);
+        Assert.IsType<NotFoundObjectResult>(wrongIndex.Result);
+        Assert.IsType<NotFoundObjectResult>(wrongStock.Result);
+        Assert.IsType<NotFoundObjectResult>(unknown.Result);
     }
 
     [Fact]
@@ -646,13 +701,15 @@ public class MarketIndicesControllerTests
     private static MarketIndicesController CreateController(
         AppDbContext context,
         IIndexConstituentsProvider? provider = null,
-        IStockHistoryService? stockHistoryService = null)
+        IStockHistoryService? stockHistoryService = null,
+        IIndexConstituentHistoryRefreshJobService? constituentHistoryJobService = null)
     {
         return new MarketIndicesController(
             context,
             new NullMarketIndexHistoryService(),
             provider ?? new NullIndexConstituentsProvider(),
             stockHistoryService ?? new NullStockHistoryService(),
+            constituentHistoryJobService ?? new NullIndexConstituentHistoryRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)
         {
             ControllerContext = new ControllerContext
@@ -752,6 +809,98 @@ public class MarketIndicesControllerTests
             {
                 Interlocked.Decrement(ref _activeCalls);
             }
+        }
+    }
+
+    private sealed class NullIndexConstituentHistoryRefreshJobService : IIndexConstituentHistoryRefreshJobService
+    {
+        public IndexConstituentHistoryRefreshJobEnqueueResult Enqueue(int marketIndexId, int stockId)
+            => new()
+            {
+                Status = IndexConstituentHistoryRefreshJobEnqueueStatus.Enqueued,
+                Job = new IndexConstituentHistoryRefreshJobResponse
+                {
+                    JobId = Guid.NewGuid().ToString("N"),
+                    MarketIndexId = marketIndexId,
+                    StockId = stockId,
+                    State = IndexConstituentHistoryRefreshJobState.Queued,
+                    CreatedAtUtc = DateTime.UtcNow
+                }
+            };
+
+        public bool TryGetJob(int marketIndexId, int stockId, string jobId, out IndexConstituentHistoryRefreshJobResponse? job)
+        {
+            job = null;
+            return false;
+        }
+    }
+
+    private sealed class TestIndexConstituentHistoryRefreshJobService(bool reuseSameActiveJob = false)
+        : IIndexConstituentHistoryRefreshJobService
+    {
+        private readonly ConcurrentDictionary<string, IndexConstituentHistoryRefreshJobResponse> _jobs = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<int, string> _activeByStock = new();
+
+        public List<(int IndexId, int StockId)> EnqueueCalls { get; } = [];
+
+        public IndexConstituentHistoryRefreshJobEnqueueResult Enqueue(int marketIndexId, int stockId)
+        {
+            EnqueueCalls.Add((marketIndexId, stockId));
+
+            if (reuseSameActiveJob
+                && _activeByStock.TryGetValue(stockId, out var activeJobId)
+                && _jobs.TryGetValue(activeJobId, out var existing))
+            {
+                return new IndexConstituentHistoryRefreshJobEnqueueResult
+                {
+                    Status = IndexConstituentHistoryRefreshJobEnqueueStatus.ReusedActiveJob,
+                    Job = new IndexConstituentHistoryRefreshJobResponse
+                    {
+                        JobId = existing.JobId,
+                        MarketIndexId = existing.MarketIndexId,
+                        StockId = existing.StockId,
+                        State = existing.State,
+                        ReusedActiveJob = true,
+                        CreatedAtUtc = existing.CreatedAtUtc,
+                        StartedAtUtc = existing.StartedAtUtc,
+                        CompletedAtUtc = existing.CompletedAtUtc,
+                        ExpiresAtUtc = existing.ExpiresAtUtc,
+                        DeletedPoints = existing.DeletedPoints,
+                        ImportedPoints = existing.ImportedPoints,
+                        Error = existing.Error
+                    }
+                };
+            }
+
+            var job = new IndexConstituentHistoryRefreshJobResponse
+            {
+                JobId = Guid.NewGuid().ToString("N"),
+                MarketIndexId = marketIndexId,
+                StockId = stockId,
+                State = IndexConstituentHistoryRefreshJobState.Queued,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            _jobs[job.JobId] = job;
+            _activeByStock[stockId] = job.JobId;
+            return new IndexConstituentHistoryRefreshJobEnqueueResult
+            {
+                Status = IndexConstituentHistoryRefreshJobEnqueueStatus.Enqueued,
+                Job = job
+            };
+        }
+
+        public bool TryGetJob(int marketIndexId, int stockId, string jobId, out IndexConstituentHistoryRefreshJobResponse? job)
+        {
+            if (!_jobs.TryGetValue(jobId, out var existing)
+                || existing.MarketIndexId != marketIndexId
+                || existing.StockId != stockId)
+            {
+                job = null;
+                return false;
+            }
+
+            job = existing;
+            return true;
         }
     }
 }

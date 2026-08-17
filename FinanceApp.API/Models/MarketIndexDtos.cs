@@ -113,6 +113,33 @@ public sealed class IndexConstituentsRefreshResponse
     public int Conflicts { get; init; }
 }
 
+public enum IndexConstituentHistoryRefreshJobState
+{
+    Queued,
+    Running,
+    Succeeded,
+    RateLimited,
+    Failed,
+    Interrupted
+}
+
+public sealed class IndexConstituentHistoryRefreshJobResponse
+{
+    public string JobId { get; init; } = string.Empty;
+    public int MarketIndexId { get; init; }
+    public int StockId { get; init; }
+    public IndexConstituentHistoryRefreshJobState State { get; init; }
+    public bool ReusedActiveJob { get; init; }
+    public string? StatusUrl { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
+    public DateTime? StartedAtUtc { get; init; }
+    public DateTime? CompletedAtUtc { get; init; }
+    public DateTime? ExpiresAtUtc { get; init; }
+    public int DeletedPoints { get; init; }
+    public int ImportedPoints { get; init; }
+    public string? Error { get; init; }
+}
+
 public sealed class IndexConstituentHistoryRefreshBatchResponse
 {
     public int MarketIndexId { get; init; }

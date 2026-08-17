@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   UNSUPPORTED_REFRESH_MESSAGE_FALLBACK,
+  buildHistoryJobNotice,
   classifyRefreshError,
   classifyRefreshResult,
   formatBatchHistorySummary,
@@ -213,5 +214,25 @@ describe('formatBatchHistorySummary', () => {
     expect(summary).toContain('лимит 1');
     expect(summary).toContain('пропущено 2');
     expect(summary).toContain('остановлено');
+  });
+});
+
+describe('buildHistoryJobNotice', () => {
+  const baseJob = {
+    jobId: 'job-1',
+    marketIndexId: 1,
+    stockId: 10,
+    state: 'Succeeded' as const,
+    reusedActiveJob: false,
+    createdAtUtc: '2026-08-17T00:00:00Z',
+    deletedPoints: 0,
+    importedPoints: 0,
+  };
+
+  it('maps terminal states to user-facing messages', () => {
+    expect(buildHistoryJobNotice('AAPL', 'Succeeded', { ...baseJob, state: 'Succeeded' }).level).toBe('success');
+    expect(buildHistoryJobNotice('AAPL', 'RateLimited', { ...baseJob, state: 'RateLimited' }).level).toBe('warning');
+    expect(buildHistoryJobNotice('AAPL', 'Interrupted', { ...baseJob, state: 'Interrupted' }).level).toBe('warning');
+    expect(buildHistoryJobNotice('AAPL', 'Failed', { ...baseJob, state: 'Failed' }).level).toBe('error');
   });
 });

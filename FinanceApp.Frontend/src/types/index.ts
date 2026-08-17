@@ -599,6 +599,30 @@ export interface IndexConstituentHistoryRefreshItemResponse {
   error?: string | null;
 }
 
+export type IndexConstituentHistoryRefreshJobState =
+  | 'Queued'
+  | 'Running'
+  | 'Succeeded'
+  | 'RateLimited'
+  | 'Failed'
+  | 'Interrupted';
+
+export interface IndexConstituentHistoryRefreshJobResponse {
+  jobId: string;
+  marketIndexId: number;
+  stockId: number;
+  state: IndexConstituentHistoryRefreshJobState;
+  reusedActiveJob: boolean;
+  statusUrl?: string | null;
+  createdAtUtc: string;
+  startedAtUtc?: string | null;
+  completedAtUtc?: string | null;
+  expiresAtUtc?: string | null;
+  deletedPoints: number;
+  importedPoints: number;
+  error?: string | null;
+}
+
 export interface IndexConstituentHistoryRefreshBatchResponse {
   marketIndexId: number;
   total: number;

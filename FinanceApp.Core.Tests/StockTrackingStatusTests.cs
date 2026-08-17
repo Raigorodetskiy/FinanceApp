@@ -786,10 +786,34 @@ public class StockTrackingStatusTests
             new NullMarketIndexHistoryService(),
             provider ?? new NullIndexConstituentsProvider(),
             new NullStockHistoryService(),
+            new NullIndexConstituentHistoryRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
+    }
+
+    private sealed class NullIndexConstituentHistoryRefreshJobService : IIndexConstituentHistoryRefreshJobService
+    {
+        public IndexConstituentHistoryRefreshJobEnqueueResult Enqueue(int marketIndexId, int stockId)
+            => new()
+            {
+                Status = IndexConstituentHistoryRefreshJobEnqueueStatus.Enqueued,
+                Job = new IndexConstituentHistoryRefreshJobResponse
+                {
+                    JobId = Guid.NewGuid().ToString("N"),
+                    MarketIndexId = marketIndexId,
+                    StockId = stockId,
+                    State = IndexConstituentHistoryRefreshJobState.Queued,
+                    CreatedAtUtc = DateTime.UtcNow
+                }
+            };
+
+        public bool TryGetJob(int marketIndexId, int stockId, string jobId, out IndexConstituentHistoryRefreshJobResponse? job)
+        {
+            job = null;
+            return false;
+        }
     }
 
     private sealed class NullStockHistoryService : IStockHistoryService

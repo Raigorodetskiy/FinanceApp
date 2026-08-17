@@ -88,7 +88,8 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
   it('keeps distinct quote-refresh and history-refresh controls and labels', () => {
     expect(panelSource).toContain('aria-label={`Обновить цену ${record.ticker}`}');
     expect(panelSource).toContain('aria-label={`Обновить исторические данные ${record.ticker}`}');
-    expect(panelSource).toContain('historyRefreshingStockId === record.stockId');
+    expect(panelSource).toContain("historyState === 'Queued' || historyState === 'Running'");
+    expect(panelSource).toContain('historyJobPollingRef.current.has(constituent.stockId)');
   });
 
   it('keeps batch history button with confirmation and archived/empty loading guards', () => {
@@ -102,5 +103,13 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
   it('passes chart refresh token for expanded chart updates after refresh actions', () => {
     expect(panelSource).toContain('refreshToken={chartRefreshTokens[record._stockId] ?? 0}');
     expect(panelSource).toContain('setChartRefreshTokens');
+  });
+
+  it('keeps async history job polling lifecycle with cleanup and existing-job attachment', () => {
+    expect(panelSource).toContain('getIndexConstituentHistoryRefreshJob');
+    expect(panelSource).toContain('response.data.reusedActiveJob');
+    expect(panelSource).toContain('historyJobTimersRef.current');
+    expect(panelSource).toContain('setTimeout(() => void poll(), HISTORY_JOB_POLL_INTERVAL_MS)');
+    expect(panelSource).toContain('setHistoryRefreshStates({})');
   });
 });
