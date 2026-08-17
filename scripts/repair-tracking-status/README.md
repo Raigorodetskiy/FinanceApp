@@ -1,62 +1,68 @@
-# TrackingStatus Repair Scripts
+# TrackingStatus Repair Runbook (follow-up to PR #135)
 
-Safe production repair tooling for the `TrackingStatus` incident described in
-the hotfix PR. **Do not run these scripts automatically or embed production
-credentials anywhere.**
+Urgent production-safety follow-up for the merged TrackingStatus fix.
 
-## Background
+> Do not execute SQL automatically.
+> Keep `financeapp.service` stopped for the full repair window.
 
-Migration `20260816162000_AddStockTrackingAndMembershipHistory` created the
-`TrackingStatus` column with `DEFAULT 1`. EF Core's `HasDefaultValue(Tracked)`
-also marked the property as `ValueGeneratedOnAdd`, causing EF to omit
-`TrackingStatus` from `INSERT` statements when the application set it to
-`CatalogOnly = 0` (the CLR default for `int`). MySQL then substituted the
-column default `1`, silently overwriting every new index constituent with
-`Tracked`. All 598 stocks appeared in the main Stocks view.
+## Scope and non-scope
 
-The code fix (`ValueGeneratedNever()` + new migration
-`20260817000000_FixTrackingStatusValueGenerated`) prevents this from happening
-going forward. These scripts repair the existing production data.
+- Keeps code-level persistence fix/migration (`ValueGeneratedNever` +
+  `20260817000000_FixTrackingStatusValueGenerated`) intact.
+- Repairs only `Stocks.TrackingStatus` for strictly validated candidates.
+- Never deletes prices/history/fundamentals/memberships.
+- Does not modify index provider/snapshot logic.
 
----
+## Required operator sequence
 
-## Deployment order
+1. Stop service: `systemctl stop financeapp.service`
+2. Create and verify full production backup.
+3. Deploy merged backend and apply migration `20260817000000`.
+4. Restore baseline backup into isolated DB (`financeapp_baseline_audit`) per
+   `00-extract-baseline-stocks.md`.
+5. Export/load baseline identities correctly (Ticker, Exchange, Isin, Wkn,
+   ProviderSymbol), normalize `\N`/whitespace, validate row count > 0 and no
+   duplicate normalized identities.
+6. Run `01-audit-preview.sql` and record:
+   - candidate count
+   - deterministic candidate checksum
+   - baseline row count used for validation
+   - intended explicit `RepairRunId`
+7. Human review of candidate list, protected rows, ambiguous rows.
+8. Edit `02-apply-repair.sql` variables explicitly:
+   - `@confirm = 1`
+   - `@ack_service_stopped = 1`
+   - `@repair_run_id = '...'`
+   - `@expected_candidate_count = ...`
+   - `@expected_candidate_checksum = '...'`
+   - `@expected_baseline_count = ...`
+9. Run `02-apply-repair.sql`.
+10. Run `03-post-repair-verify.sql` with the same `@repair_run_id`.
+11. If verification fails, run `04-rollback.sql` for that exact run id (with
+    explicit expected rows).
+12. Restart service only after verification passes:
+    `systemctl start financeapp.service`.
 
-```
-1. systemctl stop financeapp.service
-2. Take a full database backup
-3. git pull / deploy the new build
-4. dotnet ef database update  (applies migration 20260817000000)
-5. Run 01-audit-preview.sql   (read-only, review counts)
-6. Perform 00-extract-baseline-stocks.md  (one-time, per-incident)
-7. Run 02-apply-repair.sql    (set @confirm = 1)
-8. Run 03-post-repair-verify.sql
-9. If verify shows problems → 04-rollback.sql
-10. systemctl start financeapp.service
-```
+## Safety guarantees in scripts
 
----
+- Hard abort via `SIGNAL SQLSTATE '45000'` (no divide-by-zero guard hacks).
+- Baseline DB/table must exist and be non-empty; malformed/duplicate baseline
+  rows are rejected.
+- Apply requires explicit confirmation, service-stop acknowledgement, migration
+  present, expected count, expected checksum, expected baseline count.
+- Candidate set is snapshotted atomically in apply and update touches only that
+  snapshot.
+- Apply verifies `ROW_COUNT == expected candidate count`; mismatch aborts and
+  transaction rolls back.
+- Audit log rows are immutable per run and unique on `(RepairRunId, StockId)`.
+- Rollback is scoped to explicit `RepairRunId`; it cannot restore other runs.
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `00-extract-baseline-stocks.md` | How to extract pre-import stock identities from the baseline backup into a staging DB. Run once before the repair. |
-| `01-audit-preview.sql` | Read-only: shows TrackingStatus distribution, user-owned stocks, and demotion candidates. |
-| `02-apply-repair.sql` | Demotes index-only Tracked stocks to CatalogOnly. Requires `@confirm = 1`. Logs changes for rollback. |
-| `03-post-repair-verify.sql` | Verifies the repair completed correctly and no user-owned stocks were affected. |
-| `04-rollback.sql` | Restores previous TrackingStatus values from the audit log. Requires `@confirm = 1`. |
-
----
-
-## Demotion criteria (conservative)
-
-A stock is demoted **only if all** of the following are true:
-
-- `TrackingStatus = 1` (currently Tracked)
-- Is an active index constituent (`EffectiveTo IS NULL`)
-- Has **no** rows in `PortfolioItems`, `Orders`, or `Transactions`
-- Is **not** present in the pre-import baseline backup allowlist
-
-Any stock that is ambiguous (e.g. promoted after import, no baseline data) is
-left as `Tracked`.
+| File | Purpose |
+|---|---|
+| `00-extract-baseline-stocks.md` | Safe baseline restore/export/load validation workflow. |
+| `01-audit-preview.sql` | Read-only preview: candidates/protected/ambiguous + count/checksum. |
+| `02-apply-repair.sql` | Guarded apply: snapshot + audit insert + update in one transaction. |
+| `03-post-repair-verify.sql` | Run verification checks scoped by `RepairRunId`. |
+| `04-rollback.sql` | Guarded rollback for one selected `RepairRunId`. |
