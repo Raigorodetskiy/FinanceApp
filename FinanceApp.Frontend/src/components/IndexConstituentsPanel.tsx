@@ -363,6 +363,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   const [batchHistorySummary, setBatchHistorySummary] = useState<string | null>(null);
   const [batchQuoteRefreshing, setBatchQuoteRefreshing] = useState(false);
   const [batchQuoteProgress, setBatchQuoteProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [batchQuoteRetryWaitText, setBatchQuoteRetryWaitText] = useState<string | null>(null);
   const [batchQuoteSummary, setBatchQuoteSummary] = useState<{ text: string; level: 'success' | 'warning' | 'error' | 'info' } | null>(null);
   const batchQuoteAbortRef = useRef<AbortController | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<{
@@ -589,6 +590,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
 
     setBatchQuoteRefreshing(true);
     setBatchQuoteProgress(null);
+    setBatchQuoteRetryWaitText(null);
     setBatchQuoteSummary(null);
     const abort = new AbortController();
     batchQuoteAbortRef.current = abort;
@@ -601,6 +603,9 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           (await getIndexConstituentsBatchQuoteRefreshJob(id, jobId)).data,
         onProgress: (processed, total) => {
           setBatchQuoteProgress({ processed, total });
+        },
+        onRetryWaitText: (text) => {
+          setBatchQuoteRetryWaitText(text);
         },
         onInfo: (text) => { void messageApi.info(text); },
         pollIntervalMs: INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
@@ -628,6 +633,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     } finally {
       setBatchQuoteRefreshing(false);
       setBatchQuoteProgress(null);
+      setBatchQuoteRetryWaitText(null);
       if (batchQuoteAbortRef.current === abort) {
         batchQuoteAbortRef.current = null;
       }
@@ -1003,6 +1009,11 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
             ? `Обновление цен: ${batchQuoteProgress.processed} из ${batchQuoteProgress.total}`
             : 'Обновить текущие цены'}
         </Button>
+        {batchQuoteRefreshing && batchQuoteRetryWaitText && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {batchQuoteRetryWaitText}
+          </Text>
+        )}
       </div>
 
       {(sourceMeta.source || sourceMeta.asOfDate) && (

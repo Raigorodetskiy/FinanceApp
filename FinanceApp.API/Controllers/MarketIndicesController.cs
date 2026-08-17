@@ -1075,6 +1075,7 @@ public class MarketIndicesController : ControllerBase
             ExpiresAtUtc = job.ExpiresAtUtc,
             Total = job.Total,
             Processed = job.Processed,
+            Remaining = job.Remaining,
             Succeeded = job.Succeeded,
             Delayed = job.Delayed,
             NoEurConversion = job.NoEurConversion,
@@ -1082,6 +1083,10 @@ public class MarketIndicesController : ControllerBase
             ProviderFailed = job.ProviderFailed,
             PersistFailed = job.PersistFailed,
             RateLimited = job.RateLimited,
+            RateLimitRetries = job.RateLimitRetries,
+            RateLimitedSkipped = job.RateLimitedSkipped,
+            IsWaitingForRetry = job.IsWaitingForRetry,
+            NextRetryAtUtc = job.NextRetryAtUtc,
             Error = job.Error,
         };
     }

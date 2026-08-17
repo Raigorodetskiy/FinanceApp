@@ -320,7 +320,7 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
     }
 
     [Fact]
-    public async Task RateLimitedProvider_StopsProcessing_CountedAndStateIsRateLimited()
+    public async Task RateLimitedProvider_ExhaustsRetriesAndContinues_NextStocksProcessed()
     {
         var processed = new List<string>();
         using var harness = await BatchQuoteHarness.CreateAsync((ticker, _, _) =>
@@ -329,7 +329,13 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
             return ticker == "RATELIM"
                 ? Task.FromResult(StockQuoteFetchResult.RateLimit("429"))
                 : Task.FromResult(FetchSuccessResult(1m));
-        });
+        },
+        options: new IndexConstituentsBatchQuoteRefreshJobOptions
+        {
+            DelayBetweenRequests = TimeSpan.Zero,
+            DelayBetweenBatches = TimeSpan.Zero,
+        },
+        delayAsync: (_, _) => Task.CompletedTask);
         // Ensure RATELIM is first by using lower stock IDs
         await harness.SeedAsync(1, 8030, "RATELIM", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
         await harness.SeedAsync(1, 8031, "AFTER", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
@@ -338,10 +344,15 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
         var enqueued = harness.JobService.Enqueue(1);
         var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
 
-        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.RateLimited, terminal.State);
-        Assert.Equal(1, terminal.RateLimited);
-        Assert.Equal(0, terminal.Succeeded);
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
+        Assert.Equal(4, terminal.RateLimited); // initial + 3 retries
+        Assert.Equal(3, terminal.RateLimitRetries);
+        Assert.Equal(1, terminal.RateLimitedSkipped);
+        Assert.Equal(1, terminal.Succeeded);
+        Assert.Equal(2, terminal.Processed);
+        Assert.Equal(0, terminal.Remaining);
         Assert.NotNull(terminal.Error);
+        Assert.Contains("AFTER", processed);
     }
 
     [Fact]
@@ -405,6 +416,239 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
         var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
         Assert.Equal(2, terminal.Processed);
         Assert.Equal(2, terminal.Total);
+    }
+
+    [Fact]
+    public async Task Processing_UsesRequestAndBatchPacingDelays()
+    {
+        var delays = new List<TimeSpan>();
+        using var harness = await BatchQuoteHarness.CreateAsync(
+            (_, _, _) => Task.FromResult(FetchSuccessResult(1m)),
+            options: new IndexConstituentsBatchQuoteRefreshJobOptions
+            {
+                BatchSize = 2,
+                DelayBetweenRequests = TimeSpan.FromMilliseconds(10),
+                DelayBetweenBatches = TimeSpan.FromMilliseconds(20),
+            },
+            delayAsync: (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            });
+        await harness.SeedAsync(1, 8100, "A", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.SeedAsync(1, 8101, "B", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.SeedAsync(1, 8102, "C", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var enqueued = harness.JobService.Enqueue(1);
+        var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
+
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
+        Assert.Equal(3, terminal.Succeeded);
+        Assert.Equal(2, delays.Count);
+        Assert.Equal(TimeSpan.FromMilliseconds(10), delays[0]);
+        Assert.Equal(TimeSpan.FromMilliseconds(20), delays[1]);
+    }
+
+    [Fact]
+    public async Task FirstRateLimitThenSuccess_RetriesSameStock_AndContinuesRemaining()
+    {
+        var attemptsByTicker = new Dictionary<string, int>(StringComparer.Ordinal);
+        using var harness = await BatchQuoteHarness.CreateAsync((ticker, _, _) =>
+        {
+            attemptsByTicker[ticker] = attemptsByTicker.TryGetValue(ticker, out var current) ? current + 1 : 1;
+            if (ticker == "RATELIM" && attemptsByTicker[ticker] == 1)
+            {
+                return Task.FromResult(StockQuoteFetchResult.RateLimit("429", TimeSpan.FromSeconds(1)));
+            }
+
+            return Task.FromResult(FetchSuccessResult(1m));
+        }, delayAsync: (_, _) => Task.CompletedTask);
+        await harness.SeedAsync(1, 8110, "RATELIM", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.SeedAsync(1, 8111, "NEXT", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var enqueued = harness.JobService.Enqueue(1);
+        var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
+
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
+        Assert.Equal(2, terminal.Succeeded);
+        Assert.Equal(1, terminal.RateLimited);
+        Assert.Equal(1, terminal.RateLimitRetries);
+        Assert.Equal(0, terminal.RateLimitedSkipped);
+        Assert.Equal(2, attemptsByTicker["RATELIM"]);
+        Assert.Equal(1, attemptsByTicker["NEXT"]);
+    }
+
+    [Fact]
+    public async Task ExponentialBackoff_UsesConfiguredCap_WhenNoRetryAfter()
+    {
+        var delays = new List<TimeSpan>();
+        var attempts = 0;
+        using var harness = await BatchQuoteHarness.CreateAsync((_, _, _) =>
+        {
+            attempts++;
+            return Task.FromResult(StockQuoteFetchResult.RateLimit("429"));
+        },
+        options: new IndexConstituentsBatchQuoteRefreshJobOptions
+        {
+            MaxRateLimitRetries = 3,
+            InitialRateLimitBackoff = TimeSpan.FromSeconds(2),
+            MaxRateLimitBackoff = TimeSpan.FromSeconds(5),
+            DelayBetweenRequests = TimeSpan.Zero,
+            DelayBetweenBatches = TimeSpan.Zero,
+        },
+        delayAsync: (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        });
+        await harness.SeedAsync(1, 8120, "ONLY", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var enqueued = harness.JobService.Enqueue(1);
+        var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
+
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
+        Assert.Equal(4, attempts);
+        Assert.Equal(new[] { TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(5) }, delays);
+        Assert.Equal(1, terminal.RateLimitedSkipped);
+    }
+
+    [Fact]
+    public async Task DuplicateEnqueue_ReusesActiveJob_WhileWaitingForRetry()
+    {
+        var waitGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        using var harness = await BatchQuoteHarness.CreateAsync((_, _, _) =>
+        {
+            attempts++;
+            return Task.FromResult(attempts == 1
+                ? StockQuoteFetchResult.RateLimit("429", TimeSpan.FromSeconds(2))
+                : FetchSuccessResult(1m));
+        },
+        delayAsync: async (_, ct) =>
+        {
+            waitGate.TrySetResult();
+            await releaseGate.Task.WaitAsync(ct);
+        });
+        await harness.SeedAsync(1, 8130, "WAIT", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var first = harness.JobService.Enqueue(1);
+        await waitGate.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var second = harness.JobService.Enqueue(1);
+        releaseGate.TrySetResult();
+
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobEnqueueStatus.Enqueued, first.Status);
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobEnqueueStatus.ReusedActiveJob, second.Status);
+        Assert.Equal(first.Job!.JobId, second.Job!.JobId);
+        var terminal = await harness.WaitForTerminalStateAsync(1, first.Job!.JobId);
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
+    }
+
+    [Fact]
+    public async Task ProviderRetryAfter_TakesPrecedence_AndIsClampedToConfiguredMaximum()
+    {
+        var delays = new List<TimeSpan>();
+        var attempts = 0;
+        using var harness = await BatchQuoteHarness.CreateAsync((_, _, _) =>
+            {
+                attempts++;
+                if (attempts == 1)
+                {
+                    return Task.FromResult(StockQuoteFetchResult.RateLimit("429", TimeSpan.FromSeconds(3)));
+                }
+
+                if (attempts == 2)
+                {
+                    return Task.FromResult(StockQuoteFetchResult.RateLimit("429", TimeSpan.FromMinutes(30)));
+                }
+
+                return Task.FromResult(FetchSuccessResult(1m));
+            },
+            options: new IndexConstituentsBatchQuoteRefreshJobOptions
+            {
+                InitialRateLimitBackoff = TimeSpan.FromSeconds(15),
+                MaxRateLimitBackoff = TimeSpan.FromSeconds(60),
+                MaxAcceptedRetryAfter = TimeSpan.FromSeconds(8),
+            },
+            delayAsync: (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            });
+        await harness.SeedAsync(1, 8135, "RA", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var enqueued = harness.JobService.Enqueue(1);
+        var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
+
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
+        Assert.Equal(new[] { TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(8) }, delays);
+    }
+
+    [Fact]
+    public async Task Cancellation_DuringRetryDelay_BecomesInterruptedPromptly()
+    {
+        var enteredDelay = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var harness = await BatchQuoteHarness.CreateAsync((_, _, _) =>
+                Task.FromResult(StockQuoteFetchResult.RateLimit("429", TimeSpan.FromSeconds(3))),
+            delayAsync: async (_, ct) =>
+            {
+                enteredDelay.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            });
+        await harness.SeedAsync(1, 8140, "INT", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var enqueued = harness.JobService.Enqueue(1);
+        await enteredDelay.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        await harness.JobService.StopAsync(CancellationToken.None);
+        var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
+
+        Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Interrupted, terminal.State);
+    }
+
+    [Fact]
+    public async Task WaitingFields_AppearDuringRetry_AndClearAfterCompletion()
+    {
+        var enteredDelay = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDelay = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        using var harness = await BatchQuoteHarness.CreateAsync((_, _, _) =>
+            {
+                attempts++;
+                return Task.FromResult(attempts == 1
+                    ? StockQuoteFetchResult.RateLimit("429", TimeSpan.FromSeconds(2))
+                    : FetchSuccessResult(1m));
+            },
+            delayAsync: async (_, ct) =>
+            {
+                enteredDelay.TrySetResult();
+                await releaseDelay.Task.WaitAsync(ct);
+            });
+        await harness.SeedAsync(1, 8150, "WAITING", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+        await harness.JobService.StartAsync(CancellationToken.None);
+
+        var enqueued = harness.JobService.Enqueue(1);
+        await enteredDelay.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        harness.JobService.TryGetJob(1, enqueued.Job!.JobId, out var waiting);
+        Assert.NotNull(waiting);
+        Assert.True(waiting!.IsWaitingForRetry);
+        Assert.NotNull(waiting.NextRetryAtUtc);
+        Assert.Equal(0, waiting.Processed);
+        Assert.Equal(1, waiting.Remaining);
+
+        releaseDelay.TrySetResult();
+        var terminal = await harness.WaitForTerminalStateAsync(1, enqueued.Job!.JobId);
+        Assert.False(terminal.IsWaitingForRetry);
+        Assert.Null(terminal.NextRetryAtUtc);
+        Assert.Equal(1, terminal.Processed);
+        Assert.Equal(0, terminal.Remaining);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -500,7 +744,8 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
 
         public static async Task<BatchQuoteHarness> CreateAsync(
             Func<string, string, CancellationToken, Task<StockQuoteFetchResult>> fetchHandler,
-            IndexConstituentsBatchQuoteRefreshJobOptions? options = null)
+            IndexConstituentsBatchQuoteRefreshJobOptions? options = null,
+            Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
         {
             var dbName = $"batch-quote-tests-{Guid.NewGuid():N}";
             var services = new ServiceCollection();
@@ -514,7 +759,8 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
                 provider.GetRequiredService<IServiceScopeFactory>(),
                 TimeProvider.System,
                 Options.Create(options ?? new IndexConstituentsBatchQuoteRefreshJobOptions()),
-                NullLogger<IndexConstituentsBatchQuoteRefreshJobService>.Instance);
+                NullLogger<IndexConstituentsBatchQuoteRefreshJobService>.Instance,
+                delayAsync);
 
             var harness = new BatchQuoteHarness(provider, jobService);
 
@@ -526,7 +772,7 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
 
         public static Task<BatchQuoteHarness> CreateAsync(
             Func<string, CancellationToken, Task<StockQuoteFetchResult>> fetchHandler)
-            => CreateAsync((ticker, _, ct) => fetchHandler(ticker, ct), null);
+            => CreateAsync((ticker, _, ct) => fetchHandler(ticker, ct), null, null);
 
         public async Task SeedIndexOnlyAsync(int indexId)
         {

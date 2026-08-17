@@ -206,6 +206,7 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobResponse
     public DateTime? ExpiresAtUtc { get; init; }
     public int Total { get; init; }
     public int Processed { get; init; }
+    public int Remaining { get; init; }
     public int Succeeded { get; init; }
     public int Delayed { get; init; }
     public int NoEurConversion { get; init; }
@@ -213,5 +214,9 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobResponse
     public int ProviderFailed { get; init; }
     public int PersistFailed { get; init; }
     public int RateLimited { get; init; }
+    public int RateLimitRetries { get; init; }
+    public int RateLimitedSkipped { get; init; }
+    public bool IsWaitingForRetry { get; init; }
+    public DateTime? NextRetryAtUtc { get; init; }
     public string? Error { get; init; }
 }

@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using FinanceApp.API.Models;
+using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,13 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobOptions
     public int RegistryCapacity { get; init; } = 128;
     public TimeSpan CompletedJobTtl { get; init; } = TimeSpan.FromMinutes(30);
     public int MaxErrorMessageLength { get; init; } = 240;
+    public int BatchSize { get; init; } = 5;
+    public TimeSpan DelayBetweenRequests { get; init; } = TimeSpan.FromMilliseconds(250);
+    public TimeSpan DelayBetweenBatches { get; init; } = TimeSpan.FromSeconds(1);
+    public int MaxRateLimitRetries { get; init; } = 3;
+    public TimeSpan InitialRateLimitBackoff { get; init; } = TimeSpan.FromSeconds(15);
+    public TimeSpan MaxRateLimitBackoff { get; init; } = TimeSpan.FromSeconds(60);
+    public TimeSpan MaxAcceptedRetryAfter { get; init; } = TimeSpan.FromMinutes(5);
 }
 
 public interface IIndexConstituentsBatchQuoteRefreshJobService
@@ -35,16 +43,19 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
     private readonly TimeProvider _timeProvider;
     private readonly IndexConstituentsBatchQuoteRefreshJobOptions _options;
     private readonly ILogger<IndexConstituentsBatchQuoteRefreshJobService> _logger;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
 
     public IndexConstituentsBatchQuoteRefreshJobService(
         IServiceScopeFactory scopeFactory,
         TimeProvider timeProvider,
         IOptions<IndexConstituentsBatchQuoteRefreshJobOptions> options,
-        ILogger<IndexConstituentsBatchQuoteRefreshJobService> logger)
+        ILogger<IndexConstituentsBatchQuoteRefreshJobService> logger,
+        Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
     {
         _scopeFactory = scopeFactory;
         _timeProvider = timeProvider;
         _logger = logger;
+        _delayAsync = delayAsync ?? ((delay, cancellationToken) => Task.Delay(delay, cancellationToken));
 
         var raw = options.Value;
         _options = new IndexConstituentsBatchQuoteRefreshJobOptions
@@ -53,6 +64,23 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
             RegistryCapacity = raw.RegistryCapacity > 0 ? raw.RegistryCapacity : 128,
             CompletedJobTtl = raw.CompletedJobTtl > TimeSpan.Zero ? raw.CompletedJobTtl : TimeSpan.FromMinutes(30),
             MaxErrorMessageLength = raw.MaxErrorMessageLength > 0 ? raw.MaxErrorMessageLength : 240,
+            BatchSize = raw.BatchSize > 0 ? raw.BatchSize : 5,
+            DelayBetweenRequests = raw.DelayBetweenRequests > TimeSpan.Zero
+                ? raw.DelayBetweenRequests
+                : TimeSpan.FromMilliseconds(250),
+            DelayBetweenBatches = raw.DelayBetweenBatches > TimeSpan.Zero
+                ? raw.DelayBetweenBatches
+                : TimeSpan.FromSeconds(1),
+            MaxRateLimitRetries = raw.MaxRateLimitRetries >= 0 ? raw.MaxRateLimitRetries : 3,
+            InitialRateLimitBackoff = raw.InitialRateLimitBackoff > TimeSpan.Zero
+                ? raw.InitialRateLimitBackoff
+                : TimeSpan.FromSeconds(15),
+            MaxRateLimitBackoff = raw.MaxRateLimitBackoff > TimeSpan.Zero
+                ? raw.MaxRateLimitBackoff
+                : TimeSpan.FromSeconds(60),
+            MaxAcceptedRetryAfter = raw.MaxAcceptedRetryAfter > TimeSpan.Zero
+                ? raw.MaxAcceptedRetryAfter
+                : TimeSpan.FromMinutes(5),
         };
 
         _queue = Channel.CreateBounded<string>(new BoundedChannelOptions(_options.QueueCapacity)
@@ -179,7 +207,6 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         {
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var quoteFetchService = scope.ServiceProvider.GetRequiredService<IStockQuoteFetchService>();
 
             var marketIndex = await context.MarketIndices
                 .AsNoTracking()
@@ -215,145 +242,46 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
 
             var counters = new Counters();
 
-            for (var i = 0; i < stocks.Count; i++)
+            var processed = 0;
+            var batchSize = _options.BatchSize;
+            for (var chunkStart = 0; chunkStart < stocks.Count; chunkStart += batchSize)
             {
-                stoppingToken.ThrowIfCancellationRequested();
-
-                var stock = stocks[i];
-                if (string.IsNullOrWhiteSpace(stock.Ticker))
+                var chunkEndExclusive = Math.Min(chunkStart + batchSize, stocks.Count);
+                for (var index = chunkStart; index < chunkEndExclusive; index++)
                 {
-                    counters.ProviderFailed++;
-                    UpdateProgress(jobId, i + 1, counters);
-                    continue;
-                }
-
-                StockQuoteFetchResult fetchResult;
-                try
-                {
-                    fetchResult = await quoteFetchService.FetchAsync(
-                        stock.Ticker,
-                        stock.Exchange ?? string.Empty,
-                        stock.FinanzenNetSlug,
+                    stoppingToken.ThrowIfCancellationRequested();
+                    var stock = stocks[index];
+                    await ProcessSingleStockWithRetriesAsync(
+                        jobId,
+                        marketIndexId,
+                        stock,
+                        counters,
                         stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Batch quote fetch exception: jobId={JobId} stockId={StockId} ticker={Ticker}",
-                        jobId, stock.Id, stock.Ticker);
-                    counters.ProviderFailed++;
-                    UpdateProgress(jobId, i + 1, counters);
-                    continue;
-                }
 
-                if (fetchResult.IsRateLimited)
-                {
-                    counters.RateLimited++;
-                    UpdateProgress(jobId, i + 1, counters);
-                    _logger.LogWarning(
-                        "Batch quote refresh rate-limited at stock {StockId}/{Ticker}: jobId={JobId} indexId={IndexId} processed={Processed}/{Total}",
-                        stock.Id, stock.Ticker, jobId, marketIndexId, i + 1, total);
-                    MarkCompleted(jobId, IndexConstituentsBatchQuoteRefreshJobState.RateLimited,
-                        processed: i + 1, total: total, counters: counters, error: RateLimitMessage);
-                    return;
-                }
+                    processed++;
+                    UpdateProgress(jobId, processed, counters);
 
-                if (!fetchResult.IsSuccess || fetchResult.Quote is null)
-                {
-                    _logger.LogDebug(
-                        "Batch quote fetch failed: jobId={JobId} stockId={StockId} ticker={Ticker} status={Status}",
-                        jobId, stock.Id, stock.Ticker, fetchResult.StatusCode);
-                    counters.ProviderFailed++;
-                    UpdateProgress(jobId, i + 1, counters);
-                    continue;
-                }
-
-                var quote = fetchResult.Quote;
-
-                if (quote.IsStale || !string.IsNullOrEmpty(quote.DelayWarning))
-                {
-                    counters.Delayed++;
-                    UpdateProgress(jobId, i + 1, counters);
-                    continue;
-                }
-
-                if (quote.CurrentPriceEur is null)
-                {
-                    counters.NoEurConversion++;
-                    UpdateProgress(jobId, i + 1, counters);
-                    continue;
-                }
-
-                // Build persistence patch
-                var incomingPrice = Math.Round(quote.CurrentPriceEur.Value, 2);
-                var incomingChange = quote.ChangeEur.HasValue ? Math.Round(quote.ChangeEur.Value, 4) : (decimal?)null;
-                var incomingPercent = Math.Round(quote.PercentChange, 4);
-                var incomingAt = quote.PriceTimestampUtc;
-
-                try
-                {
-                    using var persistScope = _scopeFactory.CreateScope();
-                    var persistContext = persistScope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    var existing = await persistContext.Stocks.FindAsync([stock.Id], stoppingToken);
-                    if (existing is null)
+                    if (index < chunkEndExclusive - 1)
                     {
-                        counters.PersistFailed++;
-                        UpdateProgress(jobId, i + 1, counters);
-                        continue;
+                        await DelayIfNeededAsync(_options.DelayBetweenRequests, stoppingToken);
                     }
-
-                    // Stale-rejection: incoming timestamp must not be older than what's stored
-                    if (incomingAt.HasValue &&
-                        existing.CurrentPriceAt.HasValue &&
-                        incomingAt.Value < existing.CurrentPriceAt.Value)
-                    {
-                        _logger.LogDebug(
-                            "Batch quote: stale timestamp rejected for stockId={StockId} ticker={Ticker} incoming={Incoming} stored={Stored}",
-                            stock.Id, stock.Ticker, incomingAt.Value, existing.CurrentPriceAt.Value);
-                        counters.StaleRejected++;
-                        UpdateProgress(jobId, i + 1, counters);
-                        continue;
-                    }
-
-                    existing.CurrentPrice = incomingPrice;
-                    existing.CurrentPriceChange = incomingChange;
-                    existing.CurrentPriceChangePercent = incomingPercent;
-                    existing.CurrentPriceAt = incomingAt;
-                    existing.UpdatedAt = _timeProvider.GetUtcNow().UtcDateTime;
-
-                    await persistContext.SaveChangesAsync(stoppingToken);
-                    counters.Succeeded++;
-
-                    _logger.LogDebug(
-                        "Batch quote: persisted stockId={StockId} ticker={Ticker} priceEur={Price}",
-                        stock.Id, stock.Ticker, incomingPrice);
                 }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+
+                if (chunkEndExclusive < stocks.Count)
                 {
-                    throw;
+                    await DelayIfNeededAsync(_options.DelayBetweenBatches, stoppingToken);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Batch quote persist failed: jobId={JobId} stockId={StockId} ticker={Ticker}",
-                        jobId, stock.Id, stock.Ticker);
-                    counters.PersistFailed++;
-                }
-
-                UpdateProgress(jobId, i + 1, counters);
             }
 
             MarkCompleted(jobId, IndexConstituentsBatchQuoteRefreshJobState.Succeeded,
-                processed: total, total: total, counters: counters);
+                processed: processed, total: total, counters: counters,
+                error: counters.RateLimitedSkipped > 0 ? RateLimitMessage : null);
 
             _logger.LogInformation(
-                "Batch quote refresh completed: jobId={JobId} indexId={IndexId} total={Total} succeeded={Succeeded} delayed={Delayed} noEur={NoEur} staleRejected={StaleRejected} providerFailed={ProviderFailed} persistFailed={PersistFailed} rateLimited={RateLimited}",
+                "Batch quote refresh completed: jobId={JobId} indexId={IndexId} total={Total} succeeded={Succeeded} delayed={Delayed} noEur={NoEur} staleRejected={StaleRejected} providerFailed={ProviderFailed} persistFailed={PersistFailed} rateLimited={RateLimited} rateLimitRetries={RateLimitRetries} rateLimitedSkipped={RateLimitedSkipped}",
                 jobId, marketIndexId, total, counters.Succeeded, counters.Delayed, counters.NoEurConversion,
-                counters.StaleRejected, counters.ProviderFailed, counters.PersistFailed, counters.RateLimited);
+                counters.StaleRejected, counters.ProviderFailed, counters.PersistFailed, counters.RateLimited,
+                counters.RateLimitRetries, counters.RateLimitedSkipped);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -367,6 +295,203 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
             MarkCompleted(jobId, IndexConstituentsBatchQuoteRefreshJobState.Failed,
                 error: GenericFailureMessage);
         }
+    }
+
+    private async Task ProcessSingleStockWithRetriesAsync(
+        string jobId,
+        int marketIndexId,
+        Stock stock,
+        Counters counters,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stock.Ticker))
+        {
+            counters.ProviderFailed++;
+            return;
+        }
+
+        var retryAttempt = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StockQuoteFetchResult fetchResult;
+            try
+            {
+                fetchResult = await ProcessSingleStockFetchAsync(stock, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Batch quote fetch exception: jobId={JobId} stockId={StockId} ticker={Ticker}",
+                    jobId, stock.Id, stock.Ticker);
+                counters.ProviderFailed++;
+                return;
+            }
+
+            if (!fetchResult.IsRateLimited)
+            {
+                await ApplyFetchResultAsync(jobId, stock, fetchResult, counters, cancellationToken);
+                return;
+            }
+
+            counters.RateLimited++;
+            if (retryAttempt >= _options.MaxRateLimitRetries)
+            {
+                counters.RateLimitedSkipped++;
+                _logger.LogWarning(
+                    "Batch quote rate limit retries exhausted: jobId={JobId} indexId={IndexId} stockId={StockId} ticker={Ticker} retries={Retries}",
+                    jobId, marketIndexId, stock.Id, stock.Ticker, retryAttempt);
+                return;
+            }
+
+            retryAttempt++;
+            counters.RateLimitRetries++;
+            var retryDelay = SelectRetryDelay(fetchResult.RetryAfterDelay, retryAttempt);
+            var nextRetryAtUtc = _timeProvider.GetUtcNow().Add(retryDelay).UtcDateTime;
+            SetWaitingForRetry(jobId, true, nextRetryAtUtc);
+
+            _logger.LogWarning(
+                "Batch quote rate limited: jobId={JobId} indexId={IndexId} stockId={StockId} ticker={Ticker} retryAttempt={RetryAttempt}/{MaxRetries} retryAfterMs={DelayMs} providerRetryAfterMs={ProviderRetryAfterMs} nextRetryAtUtc={NextRetryAtUtc}",
+                jobId,
+                marketIndexId,
+                stock.Id,
+                stock.Ticker,
+                retryAttempt,
+                _options.MaxRateLimitRetries,
+                (int)retryDelay.TotalMilliseconds,
+                fetchResult.RetryAfterDelay.HasValue ? (int)fetchResult.RetryAfterDelay.Value.TotalMilliseconds : 0,
+                nextRetryAtUtc);
+
+            try
+            {
+                await DelayIfNeededAsync(retryDelay, cancellationToken);
+            }
+            finally
+            {
+                SetWaitingForRetry(jobId, false, null);
+            }
+        }
+    }
+
+    private async Task<StockQuoteFetchResult> ProcessSingleStockFetchAsync(Stock stock, CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var quoteFetchService = scope.ServiceProvider.GetRequiredService<IStockQuoteFetchService>();
+        return await quoteFetchService.FetchAsync(
+            stock.Ticker,
+            stock.Exchange ?? string.Empty,
+            stock.FinanzenNetSlug,
+            cancellationToken);
+    }
+
+    private async Task ApplyFetchResultAsync(
+        string jobId,
+        Stock stock,
+        StockQuoteFetchResult fetchResult,
+        Counters counters,
+        CancellationToken cancellationToken)
+    {
+        if (!fetchResult.IsSuccess || fetchResult.Quote is null)
+        {
+            _logger.LogDebug(
+                "Batch quote fetch failed: jobId={JobId} stockId={StockId} ticker={Ticker} status={Status}",
+                jobId, stock.Id, stock.Ticker, fetchResult.StatusCode);
+            counters.ProviderFailed++;
+            return;
+        }
+
+        var quote = fetchResult.Quote;
+
+        if (quote.IsStale || !string.IsNullOrEmpty(quote.DelayWarning))
+        {
+            counters.Delayed++;
+            return;
+        }
+
+        if (quote.CurrentPriceEur is null)
+        {
+            counters.NoEurConversion++;
+            return;
+        }
+
+        var incomingPrice = Math.Round(quote.CurrentPriceEur.Value, 2);
+        var incomingChange = quote.ChangeEur.HasValue ? Math.Round(quote.ChangeEur.Value, 4) : (decimal?)null;
+        var incomingPercent = Math.Round(quote.PercentChange, 4);
+        var incomingAt = quote.PriceTimestampUtc;
+
+        try
+        {
+            using var persistScope = _scopeFactory.CreateScope();
+            var persistContext = persistScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var existing = await persistContext.Stocks.FindAsync([stock.Id], cancellationToken);
+            if (existing is null)
+            {
+                counters.PersistFailed++;
+                return;
+            }
+
+            if (incomingAt.HasValue &&
+                existing.CurrentPriceAt.HasValue &&
+                incomingAt.Value < existing.CurrentPriceAt.Value)
+            {
+                _logger.LogDebug(
+                    "Batch quote: stale timestamp rejected for stockId={StockId} ticker={Ticker} incoming={Incoming} stored={Stored}",
+                    stock.Id, stock.Ticker, incomingAt.Value, existing.CurrentPriceAt.Value);
+                counters.StaleRejected++;
+                return;
+            }
+
+            existing.CurrentPrice = incomingPrice;
+            existing.CurrentPriceChange = incomingChange;
+            existing.CurrentPriceChangePercent = incomingPercent;
+            existing.CurrentPriceAt = incomingAt;
+            existing.UpdatedAt = _timeProvider.GetUtcNow().UtcDateTime;
+
+            await persistContext.SaveChangesAsync(cancellationToken);
+            counters.Succeeded++;
+
+            _logger.LogDebug(
+                "Batch quote: persisted stockId={StockId} ticker={Ticker} priceEur={Price}",
+                stock.Id, stock.Ticker, incomingPrice);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Batch quote persist failed: jobId={JobId} stockId={StockId} ticker={Ticker}",
+                jobId, stock.Id, stock.Ticker);
+            counters.PersistFailed++;
+        }
+    }
+
+    private TimeSpan SelectRetryDelay(TimeSpan? providerRetryAfterDelay, int retryAttempt)
+    {
+        if (providerRetryAfterDelay is { } providerDelay && providerDelay > TimeSpan.Zero)
+        {
+            return providerDelay > _options.MaxAcceptedRetryAfter ? _options.MaxAcceptedRetryAfter : providerDelay;
+        }
+
+        var initialMs = _options.InitialRateLimitBackoff.TotalMilliseconds;
+        var maxMs = Math.Max(initialMs, _options.MaxRateLimitBackoff.TotalMilliseconds);
+        var delayMs = Math.Min(initialMs * Math.Pow(2, retryAttempt - 1), maxMs);
+        return TimeSpan.FromMilliseconds(delayMs);
+    }
+
+    private async Task DelayIfNeededAsync(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        if (delay <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        await _delayAsync(delay, cancellationToken);
     }
 
     private bool TryMarkRunning(string jobId)
@@ -404,6 +529,18 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         }
     }
 
+    private void SetWaitingForRetry(string jobId, bool isWaitingForRetry, DateTime? nextRetryAtUtc)
+    {
+        lock (_sync)
+        {
+            if (_jobs.TryGetValue(jobId, out var entry))
+            {
+                entry.IsWaitingForRetry = isWaitingForRetry;
+                entry.NextRetryAtUtc = nextRetryAtUtc;
+            }
+        }
+    }
+
     private void MarkCompleted(
         string jobId,
         IndexConstituentsBatchQuoteRefreshJobState state,
@@ -422,6 +559,8 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
             if (total > 0) entry.Total = total;
             if (counters != null) ApplyCounters(entry, counters);
             entry.Error = ToSafeError(error);
+            entry.IsWaitingForRetry = false;
+            entry.NextRetryAtUtc = null;
             entry.CompletedAtUtc = now;
             entry.ExpiresAtUtc = now.Add(_options.CompletedJobTtl);
 
@@ -444,6 +583,8 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         entry.ProviderFailed = counters.ProviderFailed;
         entry.PersistFailed = counters.PersistFailed;
         entry.RateLimited = counters.RateLimited;
+        entry.RateLimitRetries = counters.RateLimitRetries;
+        entry.RateLimitedSkipped = counters.RateLimitedSkipped;
     }
 
     private void InterruptActiveJobs(string error)
@@ -457,6 +598,8 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
             {
                 entry.State = IndexConstituentsBatchQuoteRefreshJobState.Interrupted;
                 entry.Error = ToSafeError(error);
+                entry.IsWaitingForRetry = false;
+                entry.NextRetryAtUtc = null;
                 entry.CompletedAtUtc = now;
                 entry.ExpiresAtUtc = now.Add(_options.CompletedJobTtl);
             }
@@ -522,6 +665,7 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
             ExpiresAtUtc = entry.ExpiresAtUtc,
             Total = entry.Total,
             Processed = entry.Processed,
+            Remaining = Math.Max(0, entry.Total - entry.Processed),
             Succeeded = entry.Succeeded,
             Delayed = entry.Delayed,
             NoEurConversion = entry.NoEurConversion,
@@ -529,6 +673,10 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
             ProviderFailed = entry.ProviderFailed,
             PersistFailed = entry.PersistFailed,
             RateLimited = entry.RateLimited,
+            RateLimitRetries = entry.RateLimitRetries,
+            RateLimitedSkipped = entry.RateLimitedSkipped,
+            IsWaitingForRetry = entry.IsWaitingForRetry,
+            NextRetryAtUtc = entry.NextRetryAtUtc,
             Error = entry.Error,
         };
 
@@ -550,6 +698,10 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         public int ProviderFailed { get; set; }
         public int PersistFailed { get; set; }
         public int RateLimited { get; set; }
+        public int RateLimitRetries { get; set; }
+        public int RateLimitedSkipped { get; set; }
+        public bool IsWaitingForRetry { get; set; }
+        public DateTime? NextRetryAtUtc { get; set; }
         public string? Error { get; set; }
     }
 
@@ -562,5 +714,7 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         public int ProviderFailed { get; set; }
         public int PersistFailed { get; set; }
         public int RateLimited { get; set; }
+        public int RateLimitRetries { get; set; }
+        public int RateLimitedSkipped { get; set; }
     }
 }
