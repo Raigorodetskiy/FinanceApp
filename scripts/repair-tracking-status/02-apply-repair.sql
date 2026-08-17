@@ -132,9 +132,13 @@ BEGIN
     SELECT COUNT(*) INTO v_baseline_malformed_count
     FROM financeapp_repair_audit.baseline_stocks b
     WHERE NULLIF(TRIM(NULLIF(b.Isin, '\\N')), '') IS NULL
-      AND (
-           (NULLIF(TRIM(NULLIF(b.ProviderSymbol, '\\N')), '') IS NULL OR NULLIF(TRIM(NULLIF(b.Exchange, '\\N')), '') IS NULL)
-       AND (NULLIF(TRIM(NULLIF(b.Ticker, '\\N')), '') IS NULL OR NULLIF(TRIM(NULLIF(b.Exchange, '\\N')), '') IS NULL)
+      AND NOT (
+            NULLIF(TRIM(NULLIF(b.ProviderSymbol, '\\N')), '') IS NOT NULL
+        AND NULLIF(TRIM(NULLIF(b.Exchange, '\\N')), '') IS NOT NULL
+      )
+      AND NOT (
+            NULLIF(TRIM(NULLIF(b.Ticker, '\\N')), '') IS NOT NULL
+        AND NULLIF(TRIM(NULLIF(b.Exchange, '\\N')), '') IS NOT NULL
       );
 
     IF v_baseline_malformed_count > 0 THEN
@@ -401,7 +405,7 @@ BEGIN
         c.StockId,
         c.Ticker,
         c.Exchange,
-        1 AS PreviousStatus,
+        c.TrackingStatus AS PreviousStatus,
         0 AS NewStatus,
         c.CandidateReason,
         UPPER(v_observed_checksum)

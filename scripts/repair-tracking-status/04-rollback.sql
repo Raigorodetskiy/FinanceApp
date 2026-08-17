@@ -59,7 +59,7 @@ BEGIN
 
     IF v_pending_rows = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'BLOCKED: run has no active rows to rollback (already rolled back or empty).';
+            SET MESSAGE_TEXT = 'BLOCKED: run has no active rows to roll back (already rolled back or empty).';
     END IF;
 
     IF v_pending_rows <> @expected_rows_to_restore THEN

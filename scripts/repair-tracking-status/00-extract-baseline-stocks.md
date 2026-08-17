@@ -124,3 +124,5 @@ rm -f /tmp/financeapp_baseline_stocks.tsv
 - Do not commit credentials.
 - Do not restore backup over production.
 - Baseline backup from this incident: `/root/financeapp-immediately-before-broker-apply-20260811-131947.sql.gz`.
+- Assumption: literal text value `\N` is not used as a real identifier value in
+  source data; load step treats `\N` as SQL `NULL`.
