@@ -168,6 +168,11 @@ builder.Services.AddScoped<ISp500IndexConstituentsProvider, Sp500ConstituentsPro
 builder.Services.AddScoped<IDaxIndexConstituentsProvider, DaxConstituentsProvider>();
 builder.Services.AddScoped<IUnsupportedIndexConstituentsProvider, YahooIndexConstituentsProvider>();
 builder.Services.AddScoped<IIndexConstituentsProvider, IndexConstituentsProviderRouter>();
+builder.Services.Configure<IndexConstituentHistoryRefreshJobOptions>(options => { });
+builder.Services.AddSingleton<IndexConstituentHistoryRefreshJobService>();
+builder.Services.AddSingleton<IIndexConstituentHistoryRefreshJobService>(sp =>
+    sp.GetRequiredService<IndexConstituentHistoryRefreshJobService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<IndexConstituentHistoryRefreshJobService>());
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();

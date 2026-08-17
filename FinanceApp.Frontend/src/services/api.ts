@@ -43,6 +43,7 @@ import type {
   UpdateMarketIndexRequest,
   IndexConstituentsResponse,
   IndexConstituentsRefreshResponse,
+  IndexConstituentHistoryRefreshJobResponse,
   IndexConstituentHistoryRefreshBatchResponse,
 } from '../types';
 
@@ -221,7 +222,12 @@ export const refreshIndexConstituents = (id: number) =>
   api.post<IndexConstituentsRefreshResponse>(`/market-indices/${id}/constituents/refresh`);
 
 export const refreshIndexConstituentHistory = (indexId: number, stockId: number) =>
-  api.post<StockHistoryRefreshResponse>(`/market-indices/${indexId}/constituents/${stockId}/history/refresh`);
+  api.post<IndexConstituentHistoryRefreshJobResponse>(`/market-indices/${indexId}/constituents/${stockId}/history/refresh`);
+
+export const getIndexConstituentHistoryRefreshJob = (indexId: number, stockId: number, jobId: string) =>
+  api.get<IndexConstituentHistoryRefreshJobResponse>(
+    `/market-indices/${indexId}/constituents/${stockId}/history/refresh-jobs/${jobId}`,
+  );
 
 export const refreshIndexConstituentsHistory = (indexId: number) =>
   api.post<IndexConstituentHistoryRefreshBatchResponse>(`/market-indices/${indexId}/constituents/history/refresh`);

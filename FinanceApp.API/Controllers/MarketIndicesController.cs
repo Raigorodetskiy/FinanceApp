@@ -23,6 +23,7 @@ public class MarketIndicesController : ControllerBase
     private readonly IMarketIndexHistoryService _historyService;
     private readonly IIndexConstituentsProvider _constituentsProvider;
     private readonly IStockHistoryService _stockHistoryService;
+    private readonly IIndexConstituentHistoryRefreshJobService _constituentHistoryRefreshJobs;
     private readonly ILogger<MarketIndicesController> _logger;
 
     public MarketIndicesController(
@@ -30,12 +31,14 @@ public class MarketIndicesController : ControllerBase
         IMarketIndexHistoryService historyService,
         IIndexConstituentsProvider constituentsProvider,
         IStockHistoryService stockHistoryService,
+        IIndexConstituentHistoryRefreshJobService constituentHistoryRefreshJobs,
         ILogger<MarketIndicesController> logger)
     {
         _context = context;
         _historyService = historyService;
         _constituentsProvider = constituentsProvider;
         _stockHistoryService = stockHistoryService;
+        _constituentHistoryRefreshJobs = constituentHistoryRefreshJobs;
         _logger = logger;
     }
 
@@ -667,7 +670,7 @@ public class MarketIndicesController : ControllerBase
     }
 
     [HttpPost("{indexId:int}/constituents/{stockId:int}/history/refresh")]
-    public async Task<ActionResult<StockHistoryRefreshResponse>> RefreshConstituentHistory(
+    public async Task<ActionResult<IndexConstituentHistoryRefreshJobResponse>> RefreshConstituentHistory(
         int indexId,
         int stockId,
         CancellationToken cancellationToken = default)
@@ -703,27 +706,33 @@ public class MarketIndicesController : ControllerBase
             return BadRequest(validationError);
         }
 
-        try
+        var enqueueResult = _constituentHistoryRefreshJobs.Enqueue(indexId, stockId);
+        if (enqueueResult.Status == IndexConstituentHistoryRefreshJobEnqueueStatus.QueueFull)
         {
-            var result = await _stockHistoryService.RefreshHistoryAsync(stock, cancellationToken);
-            _logger.LogInformation(
-                "Index constituent history refreshed: indexId={IndexId}, stockId={StockId}, deleted={DeletedPoints}, imported={ImportedPoints}, rateLimited={RateLimited}",
-                indexId,
-                stockId,
-                result.DeletedPoints,
-                result.ImportedPoints,
-                result.RateLimited);
-            return Ok(result);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Очередь обновления исторических данных перегружена. Повторите попытку позже.");
         }
-        catch (InvalidOperationException ex)
+
+        if (enqueueResult.Job is null)
         {
-            return BadRequest(ex.Message);
+            return StatusCode(StatusCodes.Status500InternalServerError, "Не удалось создать задачу обновления исторических данных.");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+
+        var response = AttachStatusUrl(enqueueResult.Job);
+        return Accepted(response.StatusUrl, response);
+    }
+
+    [HttpGet("{indexId:int}/constituents/{stockId:int}/history/refresh-jobs/{jobId}")]
+    public ActionResult<IndexConstituentHistoryRefreshJobResponse> GetConstituentHistoryRefreshJobStatus(
+        int indexId,
+        int stockId,
+        string jobId)
+    {
+        if (!_constituentHistoryRefreshJobs.TryGetJob(indexId, stockId, jobId, out var job) || job is null)
         {
-            _logger.LogWarning(ex, "Index constituent history refresh failed: indexId={IndexId}, stockId={StockId}", indexId, stockId);
-            return StatusCode(StatusCodes.Status502BadGateway, "Не удалось обновить исторические данные акции. Попробуйте позже.");
+            return NotFound("Задача обновления исторических данных не найдена или уже истекла. Запустите обновление повторно.");
         }
+
+        return Ok(AttachStatusUrl(job));
     }
 
     [HttpPost("{indexId:int}/constituents/history/refresh")]
@@ -937,6 +946,33 @@ public class MarketIndicesController : ControllerBase
 
     private static string? GetNonEmptyTrimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private IndexConstituentHistoryRefreshJobResponse AttachStatusUrl(IndexConstituentHistoryRefreshJobResponse job)
+    {
+        var fallbackStatusUrl = $"/api/market-indices/{job.MarketIndexId}/constituents/{job.StockId}/history/refresh-jobs/{job.JobId}";
+        var statusUrl = Url is null
+            ? fallbackStatusUrl
+            : Url.ActionLink(
+                nameof(GetConstituentHistoryRefreshJobStatus),
+                values: new { indexId = job.MarketIndexId, stockId = job.StockId, jobId = job.JobId }) ?? fallbackStatusUrl;
+
+        return new()
+        {
+            JobId = job.JobId,
+            MarketIndexId = job.MarketIndexId,
+            StockId = job.StockId,
+            State = job.State,
+            ReusedActiveJob = job.ReusedActiveJob,
+            StatusUrl = statusUrl,
+            CreatedAtUtc = job.CreatedAtUtc,
+            StartedAtUtc = job.StartedAtUtc,
+            CompletedAtUtc = job.CompletedAtUtc,
+            ExpiresAtUtc = job.ExpiresAtUtc,
+            DeletedPoints = job.DeletedPoints,
+            ImportedPoints = job.ImportedPoints,
+            Error = job.Error
+        };
+    }
 
     private static IndexConstituentsRefreshResponse CreateRefreshResponse(int marketIndexId, IndexConstituentsResult providerResult)
         => new()
