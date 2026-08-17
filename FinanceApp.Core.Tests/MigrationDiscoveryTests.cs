@@ -41,7 +41,12 @@ public class MigrationDiscoveryTests
 
         var trackingStatus = stockEntity!.FindProperty(nameof(Stock.TrackingStatus));
         Assert.NotNull(trackingStatus);
-        Assert.Equal(StockTrackingStatus.Tracked, trackingStatus.GetDefaultValue());
+        // ValueGeneratedNever: EF always includes TrackingStatus in INSERT statements,
+        // regardless of the value. This prevents the bug where CatalogOnly = 0 (the CLR
+        // default for int) was omitted from INSERT and MySQL substituted DEFAULT 1.
+        Assert.Equal(ValueGenerated.Never, trackingStatus.ValueGenerated);
+        // No explicit HasDefaultValue configured; GetDefaultValue returns the CLR default (0 = CatalogOnly).
+        Assert.Equal(StockTrackingStatus.CatalogOnly, (StockTrackingStatus?)trackingStatus.GetDefaultValue());
 
         var providerSymbol = stockEntity.FindProperty(nameof(Stock.ProviderSymbol));
         Assert.NotNull(providerSymbol);

@@ -484,11 +484,14 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
             entity.HasIndex(x => x.IndustryId);
-            // TrackingStatus: stored as int, DB default 1 (Tracked) so that raw legacy inserts
-            // without an explicit status remain visible. Application code sets CatalogOnly explicitly.
+            // TrackingStatus: stored as int, always written by the application (ValueGeneratedNever)
+            // so EF never omits the column from INSERT even when the value is CatalogOnly = 0
+            // (the CLR default for int). HasDefaultValue would mark the property as
+            // ValueGeneratedOnAdd, causing EF to skip it in INSERT when value == 0 and letting
+            // MySQL substitute its column DEFAULT (1 = Tracked) — the production bug fixed here.
             entity.Property(x => x.TrackingStatus)
                 .HasConversion<int>()
-                .HasDefaultValue(StockTrackingStatus.Tracked);
+                .ValueGeneratedNever();
             entity.HasIndex(x => x.TrackingStatus)
                 .HasDatabaseName("IX_Stocks_TrackingStatus");
             // ProviderSymbol index for deduplication lookups

@@ -633,6 +633,68 @@ public class StockTrackingStatusTests
         Assert.Equal(asOfDate, getBody.AsOfDate);
     }
 
+    // ── Relational regression: INSERT sentinel bug (MySQL DB default = 1) ─────
+    //
+    // This test uses SQLite (not InMemory) to validate the EF insert semantics that
+    // caused the production incident: when TrackingStatus was configured with
+    // HasDefaultValue(Tracked), EF omitted the column from INSERT when the value was
+    // CatalogOnly = 0 (the CLR/int sentinel), letting the DB DEFAULT (1) win.
+    // ValueGeneratedNever() must be present for this test to pass.
+
+    [Fact]
+    public async Task SqliteRelational_ConstituentInsert_PersistsCatalogOnlyNotTracked()
+    {
+        // Use a SQLite in-memory database so EF generates real SQL with column DEFAULT
+        // semantics. InMemory provider does not evaluate HasDefaultValue and would always
+        // pass this test even with the buggy configuration.
+        await using var context = await CountingAppDbContext.CreateSqliteAsync();
+
+        var constituent = new Stock
+        {
+            Ticker = "TEST",
+            Name = "Test Corp",
+            CommonName = "Test Corp",
+            Exchange = StockExchanges.Nyse,
+            ProviderSymbol = "TEST",
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(constituent);
+        await context.SaveChangesAsync();
+
+        var constituentId = constituent.Id;
+
+        // Re-read with AsNoTracking to bypass the first-level identity cache,
+        // ensuring we see exactly what was written to the SQLite database.
+        var reread = await context.Stocks.AsNoTracking().SingleAsync(s => s.Id == constituentId);
+
+        Assert.Equal(StockTrackingStatus.CatalogOnly, reread.TrackingStatus);
+        Assert.Equal(0, (int)reread.TrackingStatus);
+    }
+
+    [Fact]
+    public async Task SqliteRelational_StandardCreate_PersistsTracked()
+    {
+        await using var context = await CountingAppDbContext.CreateSqliteAsync();
+
+        var stock = new Stock
+        {
+            Ticker = "MSFT",
+            Name = "Microsoft",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var reread = await context.Stocks.AsNoTracking().SingleAsync(s => s.Id == stock.Id);
+
+        Assert.Equal(StockTrackingStatus.Tracked, reread.TrackingStatus);
+        Assert.Equal(1, (int)reread.TrackingStatus);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static AppDbContext CreateContext()
@@ -731,7 +793,7 @@ public class StockTrackingStatusTests
     {
         private readonly SqliteConnection _connection;
 
-        private CountingAppDbContext(DbContextOptions<AppDbContext> options, SqliteConnection connection)
+        private CountingAppDbContext(DbContextOptions<AppDbContext> options, SqliteConnection connection, bool ownsConnection = true)
             : base(options)
         {
             _connection = connection;
