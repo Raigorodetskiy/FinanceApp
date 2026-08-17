@@ -360,6 +360,9 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
   const quoteRefreshInFlightRef = useRef(new Set<number>());
+  const persistIndexQuote = useCallback(async (stockId: number, patch: UpdateStockQuoteRequest) => (
+    await updateStockQuote(stockId, patch)
+  ).data, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -437,57 +440,58 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     }
   };
 
-  const handleFetchLivePrice = async (constituent: IndexConstituentDto) => {
+  const handleFetchLivePrice = useCallback(async (constituent: IndexConstituentDto) => {
     if (!constituent.ticker?.trim()) return;
     if (!beginConstituentQuoteRefresh(quoteRefreshInFlightRef.current, constituent.stockId)) return;
     setLivePrices((prev) => ({
       ...prev,
       [constituent.stockId]: preserveEntry(prev[constituent.stockId], true),
     }));
+    let quote: StockQuoteResponse;
     try {
-      const priceRes = await getStockPrice(
+      quote = (await getStockPrice(
         constituent.ticker,
         constituent.exchange,
         constituent.finanzenNetSlug,
-      );
-      const quote = priceRes.data;
+      )).data;
       setLivePrices((prev) => ({
         ...prev,
         [constituent.stockId]: { quote, loading: false },
       }));
-      try {
-        const { persisted, warningMessage } = await persistFreshConstituentQuote({
-          constituent,
-          quote,
-          persistQuote: async (stockId, patch) => (
-            await updateStockQuote(stockId, patch satisfies UpdateStockQuoteRequest)
-          ).data,
-        });
-
-        if (persisted != null) {
-          setConstituents((prev) =>
-            prev.map((item) =>
-              item.stockId === constituent.stockId
-                ? applyPersistedQuoteSnapshot(item, persisted)
-                : item,
-            ),
-          );
-        } else if (warningMessage) {
-          void messageApi.warning(warningMessage);
-        }
-      } catch {
-        void messageApi.error(`${QUOTE_PERSIST_FAILURE_MESSAGE} для ${constituent.ticker}`);
-      }
     } catch {
       setLivePrices((prev) => ({
         ...prev,
         [constituent.stockId]: preserveEntry(prev[constituent.stockId], false),
       }));
       void messageApi.error(`Ошибка получения цены для ${constituent.ticker}`);
+      finishConstituentQuoteRefresh(quoteRefreshInFlightRef.current, constituent.stockId);
+      return;
+    }
+
+    try {
+      const { persisted, warningMessage } = await persistFreshConstituentQuote({
+        constituent,
+        quote,
+        persistQuote: persistIndexQuote,
+      });
+
+      if (persisted != null) {
+        setConstituents((prev) =>
+          prev.map((item) =>
+            item.stockId === constituent.stockId
+              ? applyPersistedQuoteSnapshot(item, persisted)
+              : item,
+          ),
+        );
+      } else if (warningMessage) {
+        void messageApi.warning(warningMessage);
+      }
+    } catch {
+      void messageApi.error(`${QUOTE_PERSIST_FAILURE_MESSAGE} для ${constituent.ticker}`);
     } finally {
       finishConstituentQuoteRefresh(quoteRefreshInFlightRef.current, constituent.stockId);
     }
-  };
+  }, [messageApi, persistIndexQuote]);
 
   useEffect(() => {
     setHistoryRefreshStates({});

@@ -417,12 +417,10 @@ const PortfolioDetailPage: React.FC = () => {
           const patch = buildQuotePatch(quote);
           if (!patch) return { stockId: stock.id, patch: null, delayed: false };
 
-          const persisted = (await updateStockQuote(stock.id, {
-            currentPrice: patch.currentPrice,
-            currentPriceChange: patch.currentPriceChange ?? null,
-            currentPriceChangePercent: patch.currentPriceChangePercent ?? null,
-            currentPriceAt: patch.currentPriceAt ?? null,
-          } satisfies UpdateStockQuoteRequest)).data;
+          const persisted = (await updateStockQuote(
+            stock.id,
+            patch satisfies UpdateStockQuoteRequest,
+          )).data;
 
           return { stockId: stock.id, patch: persisted, delayed: false };
         })
