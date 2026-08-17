@@ -221,6 +221,9 @@ export const getIndexConstituents = (id: number, includeFormer = false) =>
 export const refreshIndexConstituents = (id: number) =>
   api.post<IndexConstituentsRefreshResponse>(`/market-indices/${id}/constituents/refresh`);
 
+export const getIndexConstituentHistory = (indexId: number, stockId: number, range: StockHistoryRange) =>
+  api.get<StockHistoryResponse>(`/market-indices/${indexId}/constituents/${stockId}/history`, { params: { range } });
+
 export const refreshIndexConstituentHistory = (indexId: number, stockId: number) =>
   api.post<IndexConstituentHistoryRefreshJobResponse>(`/market-indices/${indexId}/constituents/${stockId}/history/refresh`);
 

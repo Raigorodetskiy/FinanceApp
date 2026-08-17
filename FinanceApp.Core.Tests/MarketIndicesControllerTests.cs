@@ -400,6 +400,165 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
+    public async Task GetConstituentHistory_CurrentCatalogOnlyMember_ReturnsHistoryWithoutTrackingMutation()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        var stock = new Stock
+        {
+            Id = 5901,
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        };
+        context.Stocks.Add(stock);
+        context.StockMarketIndices.Add(new StockMarketIndex { StockId = stock.Id, MarketIndexId = 1, EffectiveFrom = now });
+        await context.SaveChangesAsync();
+
+        var service = new TestStockHistoryReadService();
+        var controller = CreateController(context, stockHistoryService: service);
+        var result = await controller.GetConstituentHistory(1, stock.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<StockHistoryResponse>(ok.Value);
+        Assert.Equal("1y", payload.Range);
+        Assert.Single(service.GetHistoryCalls);
+        Assert.Equal((stock.Id, "1y"), service.GetHistoryCalls[0]);
+
+        var persisted = await context.Stocks.AsNoTracking().SingleAsync(x => x.Id == stock.Id);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, persisted.TrackingStatus);
+    }
+
+    [Fact]
+    public async Task GetConstituentHistory_CurrentTrackedMember_ReturnsHistory()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 5902,
+            Ticker = "MSFT",
+            Name = "Microsoft",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex { StockId = 5902, MarketIndexId = 1, EffectiveFrom = now });
+        await context.SaveChangesAsync();
+
+        var service = new TestStockHistoryReadService();
+        var controller = CreateController(context, stockHistoryService: service);
+        var result = await controller.GetConstituentHistory(1, 5902, "24h");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<StockHistoryResponse>(ok.Value);
+        Assert.Equal("24h", payload.Range);
+        Assert.Equal((5902, "24h"), Assert.Single(service.GetHistoryCalls));
+    }
+
+    [Fact]
+    public async Task GetConstituentHistory_MissingIndexMissingOrFormerMember_ReturnsNotFound()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 5903,
+            Ticker = "SAP",
+            Name = "SAP",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            StockId = 5903,
+            MarketIndexId = 1,
+            EffectiveFrom = now.AddDays(-5),
+            EffectiveTo = now.AddDays(-1)
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, stockHistoryService: new TestStockHistoryReadService());
+        var missingIndex = await controller.GetConstituentHistory(999999, 5903, "1y");
+        var formerMember = await controller.GetConstituentHistory(1, 5903, "1y");
+        var missingStock = await controller.GetConstituentHistory(1, 999998, "1y");
+
+        Assert.IsType<NotFoundObjectResult>(missingIndex.Result);
+        Assert.IsType<NotFoundObjectResult>(formerMember.Result);
+        Assert.IsType<NotFoundObjectResult>(missingStock.Result);
+    }
+
+    [Fact]
+    public async Task GetConstituentHistory_InvalidRangeOrInvalidStockData_ReturnsBadRequest()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 5904,
+            Ticker = "   ",
+            Name = "Bad",
+            CommonName = "Bad",
+            Exchange = "???",
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex { StockId = 5904, MarketIndexId = 1, EffectiveFrom = now });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, stockHistoryService: new TestStockHistoryReadService());
+        var invalidRange = await controller.GetConstituentHistory(1, 5904, "bad-range");
+        var invalidStock = await controller.GetConstituentHistory(1, 5904, "1y");
+
+        Assert.IsType<BadRequestObjectResult>(invalidRange.Result);
+        Assert.IsType<BadRequestObjectResult>(invalidStock.Result);
+    }
+
+    [Fact]
+    public async Task GetConstituentHistory_ArchivedIndex_AllowsReadForCurrentMember()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5905,
+            Name = "Archived 5905",
+            NormalizedName = "ARCHIVED 5905",
+            Code = "AR5905",
+            NormalizedCode = "AR5905",
+            IsArchived = true,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.Add(new Stock
+        {
+            Id = 59051,
+            Ticker = "IBM",
+            Name = "IBM",
+            CommonName = "IBM",
+            Exchange = StockExchanges.Nyse,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex { StockId = 59051, MarketIndexId = 5905, EffectiveFrom = now });
+        await context.SaveChangesAsync();
+
+        var service = new TestStockHistoryReadService();
+        var controller = CreateController(context, stockHistoryService: service);
+        var result = await controller.GetConstituentHistory(5905, 59051, "1m");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.IsType<StockHistoryResponse>(ok.Value);
+        Assert.Equal((59051, "1m"), Assert.Single(service.GetHistoryCalls));
+    }
+
+    [Fact]
     public async Task RefreshConstituentHistory_CurrentCatalogOnlyMember_ReturnsAcceptedJobWithoutTrackingMutation()
     {
         await using var context = await CreateSqliteContextAsync();
@@ -810,6 +969,32 @@ public class MarketIndicesControllerTests
                 Interlocked.Decrement(ref _activeCalls);
             }
         }
+    }
+
+    private sealed class TestStockHistoryReadService : IStockHistoryService
+    {
+        private readonly List<(int StockId, string Range)> _getHistoryCalls = [];
+
+        public IReadOnlyList<(int StockId, string Range)> GetHistoryCalls => _getHistoryCalls;
+
+        public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default)
+        {
+            _getHistoryCalls.Add((stock.Id, range));
+            return Task.FromResult(new StockHistoryResponse
+            {
+                Range = range,
+                Interval = "1d"
+            });
+        }
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
+            => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
     }
 
     private sealed class NullIndexConstituentHistoryRefreshJobService : IIndexConstituentHistoryRefreshJobService

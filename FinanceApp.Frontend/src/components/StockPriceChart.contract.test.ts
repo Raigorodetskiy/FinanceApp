@@ -1,0 +1,29 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const source = readFileSync(join(__dirname, 'StockPriceChart.tsx'), 'utf8');
+
+describe('StockPriceChart history strategy contracts', () => {
+  it('keeps generic tracked-stock history loader/refresh behavior as default', () => {
+    expect(source).toContain('getStockHistory(stockId, historyRange)');
+    expect(source).toContain('const refreshRes = await refreshStockHistory(stockId);');
+  });
+
+  it('supports index constituent context via explicit adapter props', () => {
+    expect(source).toContain('historyLoader?:');
+    expect(source).toContain('historyRefreshJobAdapter?:');
+    expect(source).toContain('runIndexConstituentHistoryRefreshJob');
+    expect(source).toContain('getIndexConstituentHistory(indexId, stockId, historyRange)');
+    expect(source).toContain('if (notice.refreshChart) {');
+    expect(source).toContain('await fetchHistory();');
+  });
+
+  it('prevents duplicate starts while refresh is in progress', () => {
+    expect(source).toContain('if (historyRefreshing) {');
+    expect(source).toContain('setHistoryRefreshing(true);');
+    expect(source).toContain('setHistoryRefreshing(false);');
+  });
+});

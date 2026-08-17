@@ -378,6 +378,47 @@ public class MarketIndicesController : ControllerBase
         });
     }
 
+    [HttpGet("{indexId:int}/constituents/{stockId:int}/history")]
+    public async Task<ActionResult<StockHistoryResponse>> GetConstituentHistory(
+        int indexId,
+        int stockId,
+        [FromQuery] string range = "5y",
+        CancellationToken cancellationToken = default)
+    {
+        var marketIndex = await _context.MarketIndices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == indexId, cancellationToken);
+        if (marketIndex is null)
+        {
+            return NotFound("Индекс не найден.");
+        }
+
+        var membership = await _context.StockMarketIndices
+            .AsNoTracking()
+            .Include(x => x.Stock)
+            .FirstOrDefaultAsync(
+                x => x.MarketIndexId == indexId && x.StockId == stockId && x.EffectiveTo == null,
+                cancellationToken);
+
+        if (membership?.Stock is null)
+        {
+            return NotFound("Акция не входит в текущий состав выбранного индекса.");
+        }
+
+        var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
+        if (!IsSupportedStockHistoryRange(normalizedRange))
+        {
+            return BadRequest("Invalid range. Allowed values: 5y, 3y, 1y, 6m, 3m, 1m, 1w, 24h, today");
+        }
+
+        if (!TryValidateTickerAndExchange(membership.Stock, out var validationError))
+        {
+            return BadRequest(validationError);
+        }
+
+        return Ok(await _stockHistoryService.GetHistoryAsync(membership.Stock, normalizedRange, cancellationToken));
+    }
+
     [HttpPost("{id:int}/constituents/refresh")]
     public async Task<ActionResult<IndexConstituentsRefreshResponse>> RefreshConstituents(
         int id,
@@ -943,6 +984,9 @@ public class MarketIndicesController : ControllerBase
         validationError = null;
         return true;
     }
+
+    private static bool IsSupportedStockHistoryRange(string normalizedRange)
+        => normalizedRange is "5y" or "3y" or "1y" or "6m" or "3m" or "1m" or "1w" or "24h" or "today";
 
     private static string? GetNonEmptyTrimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
