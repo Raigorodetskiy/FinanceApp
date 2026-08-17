@@ -793,7 +793,7 @@ public class StockTrackingStatusTests
     {
         private readonly SqliteConnection _connection;
 
-        private CountingAppDbContext(DbContextOptions<AppDbContext> options, SqliteConnection connection, bool ownsConnection = true)
+        private CountingAppDbContext(DbContextOptions<AppDbContext> options, SqliteConnection connection)
             : base(options)
         {
             _connection = connection;

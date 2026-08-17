@@ -24,9 +24,9 @@ SELECT
     COUNT(DISTINCT o.Id)   AS OrderCount,
     COUNT(DISTINCT t.Id)   AS TransactionCount
 FROM Stocks s
-JOIN PortfolioItems pi ON pi.StockId = s.Id
-LEFT JOIN Orders     o  ON o.StockId  = s.Id
-LEFT JOIN Transactions t ON t.StockId = s.Id
+LEFT JOIN PortfolioItems pi ON pi.StockId = s.Id
+LEFT JOIN Orders         o  ON o.StockId  = s.Id
+LEFT JOIN Transactions   t  ON t.StockId  = s.Id
 WHERE s.TrackingStatus = 0
 GROUP BY s.Id, s.Ticker, s.Exchange, s.TrackingStatus
 HAVING PortfolioItemCount > 0 OR OrderCount > 0 OR TransactionCount > 0;
