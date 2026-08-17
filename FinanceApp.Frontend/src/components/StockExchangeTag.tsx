@@ -4,11 +4,13 @@ import type { StockExchange } from '../types';
 
 export const EXCHANGE_ABBREVIATION: Record<StockExchange, string> = {
   NYSE: 'NYSE',
+  NASDAQ: 'NASDAQ',
   Frankfurt: 'FRA',
 };
 
 export const EXCHANGE_FULL_NAME: Record<StockExchange, string> = {
   NYSE: 'NYSE',
+  NASDAQ: 'NASDAQ',
   Frankfurt: 'Frankfurt',
 };
 

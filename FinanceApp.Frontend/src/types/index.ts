@@ -1,4 +1,4 @@
-export type StockExchange = 'NYSE' | 'Frankfurt';
+export type StockExchange = 'NYSE' | 'NASDAQ' | 'Frankfurt';
 
 export interface User {
   id: number;
@@ -540,8 +540,15 @@ export interface IndexConstituentDto {
   ticker: string;
   providerSymbol?: string | null;
   name: string;
-  exchange: string;
+  commonName?: string | null;
+  exchange: StockExchange;
   isin?: string | null;
+  wkn?: string | null;
+  finanzenNetSlug?: string | null;
+  currentPrice?: number | null;
+  currentPriceChange?: number | null;
+  currentPriceChangePercent?: number | null;
+  currentPriceAt?: string | null;
   /** "CatalogOnly" or "Tracked" */
   trackingStatus: string;
   source?: string | null;
