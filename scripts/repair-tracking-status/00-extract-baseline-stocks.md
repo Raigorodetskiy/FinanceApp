@@ -137,7 +137,7 @@ FROM Stocks
 ORDER BY Id;
 " > "$BASELINE_TSV"
 
-extracted_row_count=$(wc -l < "$BASELINE_TSV")
+extracted_row_count=$(awk 'END { print NR }' "$BASELINE_TSV")
 if [ "$restored_stock_row_count" -ne "$extracted_row_count" ]; then
   echo "ABORT: restored Stocks row count (${restored_stock_row_count}) != exported TSV row count (${extracted_row_count})." >&2
   exit 1
