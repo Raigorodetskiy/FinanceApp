@@ -320,8 +320,18 @@ public class StocksController : ControllerBase
         return NoContent();
     }
 
+    private static UpdateStockQuoteResponse BuildQuoteResponse(int stockId, Stock stock, bool applied) => new()
+    {
+        StockId = stockId,
+        CurrentPrice = stock.CurrentPrice,
+        CurrentPriceChange = stock.CurrentPriceChange,
+        CurrentPriceChangePercent = stock.CurrentPriceChangePercent,
+        CurrentPriceAt = stock.CurrentPriceAt,
+        Applied = applied,
+    };
+
     [HttpPatch("{id}/quote")]
-    public async Task<IActionResult> UpdateQuote(int id, UpdateStockQuoteRequest request)
+    public async Task<ActionResult<UpdateStockQuoteResponse>> UpdateQuote(int id, UpdateStockQuoteRequest request)
     {
         var existing = await _context.Stocks.FindAsync(id);
         if (existing == null) return NotFound();
@@ -335,7 +345,7 @@ public class StocksController : ControllerBase
                 id,
                 existing.CurrentPriceAt.Value,
                 request.CurrentPriceAt.Value);
-            return NoContent();
+            return Ok(BuildQuoteResponse(id, existing, applied: false));
         }
 
         existing.CurrentPrice = request.CurrentPrice;
@@ -346,7 +356,7 @@ public class StocksController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        return NoContent();
+        return Ok(BuildQuoteResponse(id, existing, applied: true));
     }
 
     [HttpDelete("{id}")]

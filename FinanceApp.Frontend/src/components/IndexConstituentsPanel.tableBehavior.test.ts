@@ -92,10 +92,17 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
 
   it('passes index-scoped history loader and async job adapter to expanded chart', () => {
     expect(panelSource).toContain('indexId={indexId}');
+    expect(panelSource).toContain('liveQuote={live?.quote ?? null}');
+    expect(panelSource).toContain('storedPriceEur={stock?.currentPrice ?? null}');
+    expect(panelSource).toContain('storedPriceChangeEur={stock?.currentPriceChange ?? null}');
     expect(panelSource).toContain('historyLoader={loadConstituentHistory}');
     expect(panelSource).toContain('historyRefreshJobAdapter={constituentHistoryRefreshJobAdapter}');
     expect(panelSource).toContain('refreshIndexConstituentHistory');
     expect(panelSource).toContain('getIndexConstituentHistoryRefreshJob');
+  });
+
+  it('renders saved time from the persisted constituent snapshot instead of the transient live quote timestamp', () => {
+    expect(panelSource).toContain('const ts = record.currentPriceAt ?? null;');
   });
 
   it('keeps batch history button with confirmation and archived/empty loading guards', () => {
@@ -116,5 +123,10 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
     expect(panelSource).toContain('handleChartHistoryRefreshStateChange');
     expect(panelSource).toContain("Object.values(historyRefreshStates).some((state) => state === 'Queued' || state === 'Running')");
     expect(panelSource).toContain('setHistoryRefreshStates({})');
+  });
+
+  it('shows distinct persistence-failure text without pretending the provider fetch failed', () => {
+    expect(panelSource).toContain('QUOTE_PERSIST_FAILURE_MESSAGE');
+    expect(panelSource).toContain('Цена получена, но не удалось сохранить её');
   });
 });

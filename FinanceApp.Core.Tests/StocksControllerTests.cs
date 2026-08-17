@@ -174,7 +174,14 @@ public class StocksControllerTests
             CurrentPriceAt = providerTs,
         });
 
-        Assert.IsType<NoContentResult>(result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.Equal(existing.Id, response.StockId);
+        Assert.Equal(195.40m, response.CurrentPrice);
+        Assert.Equal(3.15m, response.CurrentPriceChange);
+        Assert.Equal(1.30m, response.CurrentPriceChangePercent);
+        Assert.Equal(providerTs, response.CurrentPriceAt);
 
         var persisted = await context.Stocks.SingleAsync();
         Assert.Equal(195.40m, persisted.CurrentPrice);
@@ -475,7 +482,14 @@ public class StocksControllerTests
             CurrentPriceAt = providerTs,
         });
 
-        Assert.IsType<NoContentResult>(result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.Equal(existing.Id, response.StockId);
+        Assert.Equal(195.50m, response.CurrentPrice);
+        Assert.Equal(3.25m, response.CurrentPriceChange);
+        Assert.Equal(1.69m, response.CurrentPriceChangePercent);
+        Assert.Equal(providerTs, response.CurrentPriceAt);
 
         var persisted = await context.Stocks.SingleAsync();
         Assert.Equal(195.50m, persisted.CurrentPrice);
@@ -504,7 +518,7 @@ public class StocksControllerTests
             CurrentPrice = 100m,
         });
 
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<NotFoundResult>(result.Result);
     }
 
     [Fact]
@@ -537,7 +551,13 @@ public class StocksControllerTests
             CurrentPriceAt = null,
         });
 
-        Assert.IsType<NoContentResult>(result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.Equal(410m, response.CurrentPrice);
+        Assert.Null(response.CurrentPriceChange);
+        Assert.Null(response.CurrentPriceChangePercent);
+        Assert.Null(response.CurrentPriceAt);
 
         var persisted = await context.Stocks.SingleAsync();
         Assert.Equal(410m, persisted.CurrentPrice);
@@ -583,7 +603,9 @@ public class StocksControllerTests
             CurrentPriceChangePercent = 2.0m,
             CurrentPriceAt = new DateTime(2026, 8, 1, 14, 30, 0, DateTimeKind.Utc),
         });
-        Assert.IsType<NoContentResult>(quoteResult);
+        var quoteOk = Assert.IsType<OkObjectResult>(quoteResult.Result);
+        var quoteResponse = Assert.IsType<UpdateStockQuoteResponse>(quoteOk.Value);
+        Assert.True(quoteResponse.Applied);
 
         var persisted = await context.Stocks.SingleAsync();
         // Price was updated by the quote
@@ -624,13 +646,56 @@ public class StocksControllerTests
             CurrentPriceAt = new DateTime(2026, 8, 1, 14, 0, 0, DateTimeKind.Utc),
         });
 
-        Assert.IsType<NoContentResult>(result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.False(response.Applied);
+        Assert.Equal(210m, response.CurrentPrice);
+        Assert.Equal(3m, response.CurrentPriceChange);
+        Assert.Equal(1.45m, response.CurrentPriceChangePercent);
+        Assert.Equal(new DateTime(2026, 8, 1, 15, 0, 0, DateTimeKind.Utc), response.CurrentPriceAt);
 
         var persisted = await context.Stocks.SingleAsync();
         Assert.Equal(210m, persisted.CurrentPrice);
         Assert.Equal(3m, persisted.CurrentPriceChange);
         Assert.Equal(1.45m, persisted.CurrentPriceChangePercent);
         Assert.Equal(new DateTime(2026, 8, 1, 15, 0, 0, DateTimeKind.Utc), persisted.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_CatalogOnlyStock_PersistsSnapshotWithoutChangingTrackingStatus()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 105,
+            Ticker = "SAP",
+            Name = "SAP SE",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 250m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = new DateTime(2026, 8, 1, 10, 0, 0, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 251.23m,
+            CurrentPriceChange = 1.23m,
+            CurrentPriceChangePercent = 0.49m,
+            CurrentPriceAt = new DateTime(2026, 8, 1, 12, 30, 0, DateTimeKind.Utc),
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.Equal(existing.Id, response.StockId);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(251.23m, persisted.CurrentPrice);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, persisted.TrackingStatus);
     }
 
     // ─── New metadata endpoint tests ───────────────────────────────────────────

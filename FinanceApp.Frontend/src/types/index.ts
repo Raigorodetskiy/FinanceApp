@@ -534,6 +534,15 @@ export interface UpdateOrderRequest {
   stopMarket?: number;
 }
 
+export interface UpdateStockQuoteResponse {
+  stockId: number;
+  currentPrice: number;
+  currentPriceChange: number | null;
+  currentPriceChangePercent: number | null;
+  currentPriceAt: string | null;
+  applied: boolean;
+}
+
 // ── Index constituents ──────────────────────────────────────────────────────
 
 export interface IndexConstituentDto {

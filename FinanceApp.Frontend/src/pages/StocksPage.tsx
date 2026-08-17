@@ -56,6 +56,7 @@ import type {
 import { groupStocks } from '../utils/stockGrouping';
 import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 import { isQuoteDelayed } from '../utils/quote';
+import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 
 dayjs.extend(utc);
@@ -365,35 +366,12 @@ const StocksPage: React.FC = () => {
   }, []);
 
   const persistConvertedPrice = useCallback(async (stock: Stock, quote: StockQuoteResponse) => {
-    if (quote.currentPriceEur == null) {
+    const patch = buildQuotePatch(quote);
+    if (patch == null) {
       return null;
     }
 
-    const roundedCurrentPrice = Math.round(quote.currentPriceEur * 100) / 100;
-
-    // Persist absolute change in the same normalized/application currency (EUR).
-    // changeEur is already normalized by the backend conversion service.
-    const currentPriceChange = quote.changeEur != null
-      ? Math.round(quote.changeEur * 10000) / 10000
-      : null;
-    const currentPriceChangePercent = quote.percentChange != null
-      ? Math.round(quote.percentChange * 10000) / 10000
-      : null;
-
-    // Use the provider's price timestamp when available; otherwise keep the existing stored time.
-    const providerTs = quote.priceTimestampUtc;
-    const tsRaw = providerTs ? Date.parse(providerTs) : NaN;
-    const currentPriceAt = isFinite(tsRaw) ? providerTs! : null;
-    const updatedAt = isFinite(tsRaw) ? providerTs! : stock.updatedAt;
-
-    await updateStockQuote(stock.id, {
-      currentPrice: roundedCurrentPrice,
-      currentPriceChange,
-      currentPriceChangePercent,
-      currentPriceAt,
-    } satisfies UpdateStockQuoteRequest);
-
-    return { roundedCurrentPrice, updatedAt, currentPriceChange, currentPriceChangePercent, currentPriceAt };
+    return (await updateStockQuote(stock.id, patch satisfies UpdateStockQuoteRequest)).data;
   }, []);
 
   const handleRefreshPrices = useCallback(async (silent = false) => {
@@ -585,14 +563,7 @@ const StocksPage: React.FC = () => {
         setStocks((prev) =>
           prev.map((s) =>
             s.id === stock.id
-              ? {
-                  ...s,
-                  currentPrice: persisted.roundedCurrentPrice,
-                  updatedAt: persisted.updatedAt,
-                  currentPriceChange: persisted.currentPriceChange,
-                  currentPriceChangePercent: persisted.currentPriceChangePercent,
-                  currentPriceAt: persisted.currentPriceAt,
-                }
+              ? applyPersistedQuoteSnapshot(s, persisted)
               : s
           )
         );
