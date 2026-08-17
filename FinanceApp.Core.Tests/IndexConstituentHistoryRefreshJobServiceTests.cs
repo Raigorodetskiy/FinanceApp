@@ -185,6 +185,7 @@ public class IndexConstituentHistoryRefreshJobServiceTests
             new NullIndexConstituentsProvider(),
             new NullStockHistoryService(),
             jobs,
+            new NullIndexConstituentsBatchQuoteRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -393,5 +394,17 @@ public class IndexConstituentHistoryRefreshJobServiceTests
 
         public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
             => Task.FromResult(IndexConstituentsResult.Unsupported(ProviderName));
+    }
+
+    private sealed class NullIndexConstituentsBatchQuoteRefreshJobService : IIndexConstituentsBatchQuoteRefreshJobService
+    {
+        public IndexConstituentsBatchQuoteRefreshJobEnqueueResult Enqueue(int marketIndexId)
+            => new() { Status = IndexConstituentsBatchQuoteRefreshJobEnqueueStatus.QueueFull };
+
+        public bool TryGetJob(int marketIndexId, string jobId, out IndexConstituentsBatchQuoteRefreshJobResponse? job)
+        {
+            job = null;
+            return false;
+        }
     }
 }
