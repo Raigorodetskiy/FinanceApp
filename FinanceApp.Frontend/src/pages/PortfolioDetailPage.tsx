@@ -716,12 +716,11 @@ const PortfolioDetailPage: React.FC = () => {
     })),
     [stocks],
   );
-  const previewStocksValue = balance?.stocksValue ?? 0;
   const txRemainder = useMemo(() => computeTransactionRemainder(transactions), [transactions]);
   const txTypeTotals = useMemo(() => computeTransactionTypeTotals(transactions), [transactions]);
   const txTotalPortfolioValue = useMemo(
-    () => computeTransactionPortfolioTotal(previewStocksValue, txRemainder),
-    [previewStocksValue, txRemainder],
+    () => computeTransactionPortfolioTotal(summary.totalValue, txRemainder),
+    [summary.totalValue, txRemainder],
   );
 
 
@@ -1206,7 +1205,7 @@ const PortfolioDetailPage: React.FC = () => {
                         <div style={{ flex: '1 1 0', minWidth: 120 }}>
                           <Card style={{ height: '100%' }}>
                             <Text type="secondary">Стоимость акций</Text>
-                            <Title level={4} style={{ margin: 0 }}>{formatCurrency(balance.stocksValue)}</Title>
+                            <Title level={4} style={{ margin: 0 }}>{formatCurrency(summary.totalValue)}</Title>
                           </Card>
                         </div>
                         <div style={{ flex: '1 1 0', minWidth: 120 }}>
