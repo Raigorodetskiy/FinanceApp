@@ -18,6 +18,7 @@ import {
   ReloadOutlined,
   CaretRightFilled,
   FundOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
@@ -26,7 +27,9 @@ import utc from 'dayjs/plugin/utc';
 import {
   getIndexConstituents,
   getStockPrice,
+  refreshIndexConstituentHistory,
   refreshIndexConstituents,
+  refreshIndexConstituentsHistory,
   trackStock,
 } from '../services/api';
 import StockExchangeTag from './StockExchangeTag';
@@ -36,6 +39,7 @@ import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 import { isQuoteDelayed } from '../utils/quote';
 import type {
   IndexConstituentDto,
+  IndexConstituentHistoryRefreshBatchResponse,
   IndexConstituentsRefreshResponse,
   StockQuoteResponse,
 } from '../types';
@@ -162,6 +166,13 @@ export function classifyRefreshError(err: unknown, fallback: string): RefreshRes
   return { kind: 'error', message: getErrMsg(err, fallback), shouldReload: false };
 }
 
+export function formatBatchHistorySummary(response: IndexConstituentHistoryRefreshBatchResponse): string {
+  const suffix = response.stoppedDueToRateLimit
+    ? ' Обновление остановлено из-за лимита/паузы поставщика.'
+    : '';
+  return `История акций: успешно ${response.succeeded}, ошибок ${response.failed}, лимит ${response.rateLimited}, пропущено ${response.skippedRateLimited} из ${response.total}.${suffix}`;
+}
+
 type LivePriceEntry = {
   quote: StockQuoteResponse | null;
   loading: boolean;
@@ -272,8 +283,12 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   });
   const [search, setSearch] = useState('');
   const [trackingId, setTrackingId] = useState<number | null>(null);
+  const [historyRefreshingStockId, setHistoryRefreshingStockId] = useState<number | null>(null);
+  const [batchHistoryRefreshing, setBatchHistoryRefreshing] = useState(false);
+  const [chartRefreshTokens, setChartRefreshTokens] = useState<Record<number, number>>({});
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
+  const [batchHistorySummary, setBatchHistorySummary] = useState<string | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<{
     id: number;
     ticker: string;
@@ -382,6 +397,63 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     }
   };
 
+  const handleRefreshConstituentHistory = async (constituent: IndexConstituentDto) => {
+    if (historyRefreshingStockId === constituent.stockId || batchHistoryRefreshing) {
+      return;
+    }
+
+    setHistoryRefreshingStockId(constituent.stockId);
+    try {
+      const response = await refreshIndexConstituentHistory(indexId, constituent.stockId);
+      if (response.data.rateLimited) {
+        void messageApi.warning(`Поставщик ограничил запросы для ${constituent.ticker}. Попробуйте позже.`);
+      } else {
+        void messageApi.success(`Исторические данные обновлены для ${constituent.ticker}`);
+        setChartRefreshTokens((prev) => ({
+          ...prev,
+          [constituent.stockId]: (prev[constituent.stockId] ?? 0) + 1,
+        }));
+      }
+    } catch (err) {
+      void messageApi.error(getErrMsg(err, `Ошибка обновления исторических данных для ${constituent.ticker}`));
+    } finally {
+      setHistoryRefreshingStockId(null);
+    }
+  };
+
+  const handleBatchRefreshHistory = async () => {
+    if (batchHistoryRefreshing || constituents.length === 0) {
+      return;
+    }
+
+    setBatchHistoryRefreshing(true);
+    setBatchHistorySummary(null);
+    try {
+      const response = await refreshIndexConstituentsHistory(indexId);
+      const summary = formatBatchHistorySummary(response.data);
+      setBatchHistorySummary(summary);
+
+      if (response.data.failed > 0 || response.data.rateLimited > 0 || response.data.skippedRateLimited > 0) {
+        void messageApi.warning(summary);
+      } else {
+        void messageApi.success(summary);
+      }
+
+      if (expandedStockId != null) {
+        setChartRefreshTokens((prev) => ({
+          ...prev,
+          [expandedStockId]: (prev[expandedStockId] ?? 0) + 1,
+        }));
+      }
+    } catch (err) {
+      const text = getErrMsg(err, 'Ошибка пакетного обновления исторических данных');
+      setBatchHistorySummary(text);
+      void messageApi.error(text);
+    } finally {
+      setBatchHistoryRefreshing(false);
+    }
+  };
+
   const filteredConstituents = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return constituents;
@@ -421,6 +493,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
                 liveQuote={live?.quote ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
                 storedPriceChangeEur={stock?.currentPriceChange ?? null}
+                refreshToken={chartRefreshTokens[record._stockId] ?? 0}
               />
             ),
             props: { colSpan: INDEX_CONSTITUENTS_TOTAL_COLS },
@@ -607,6 +680,8 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const trackingLoading = trackingId === record.stockId;
         const trackButtonState = getTrackButtonState(record.trackingStatus, trackingLoading);
+        const historyLoading = historyRefreshingStockId === record.stockId;
+        const historyDisabled = batchHistoryRefreshing || historyLoading || !record.ticker?.trim();
 
         const addButton = (
           <Button
@@ -625,10 +700,20 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
               icon={<ReloadOutlined />}
               size="small"
               loading={livePrices[record.stockId]?.loading}
-              disabled={!record.ticker?.trim()}
+              disabled={!record.ticker?.trim() || batchHistoryRefreshing}
               onClick={() => void handleFetchLivePrice(record)}
               aria-label={`Обновить цену ${record.ticker}`}
             />
+            <Tooltip title={`Обновить исторические данные ${record.ticker}`}>
+              <Button
+                icon={<BarChartOutlined />}
+                size="small"
+                loading={historyLoading}
+                disabled={historyDisabled}
+                onClick={() => void handleRefreshConstituentHistory(record)}
+                aria-label={`Обновить исторические данные ${record.ticker}`}
+              />
+            </Tooltip>
             <Tooltip title={FUNDAMENTALS_ARIA_LABEL}>
               <Button
                 icon={<FundOutlined />}
@@ -656,6 +741,15 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     <div style={{ padding: '8px 0' }}>
       {contextHolder}
 
+      {batchHistorySummary && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={batchHistorySummary}
+        />
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <Input
           placeholder="Поиск по тикеру, названию, WKN, ISIN…"
@@ -671,11 +765,32 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
             size="small"
             icon={<ReloadOutlined />}
             loading={refreshing}
+            disabled={batchHistoryRefreshing}
             onClick={() => void handleRefresh()}
           >
             Обновить состав
           </Button>
         )}
+        <Button
+          size="small"
+          icon={<BarChartOutlined />}
+          loading={batchHistoryRefreshing}
+          disabled={
+            isArchived
+            || constituents.length === 0
+            || refreshing
+            || batchHistoryRefreshing
+            || historyRefreshingStockId != null
+          }
+          onClick={() => {
+            if (!window.confirm('Обновить историю всех акций текущего состава? Запросы выполняются последовательно и могут занять время.')) {
+              return;
+            }
+            void handleBatchRefreshHistory();
+          }}
+        >
+          Обновить историю акций
+        </Button>
       </div>
 
       {(sourceMeta.source || sourceMeta.asOfDate) && (

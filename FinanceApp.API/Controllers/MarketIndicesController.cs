@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FinanceApp.API.Models;
 using FinanceApp.API.Services;
 using FinanceApp.Core.Models;
@@ -15,19 +16,27 @@ namespace FinanceApp.API.Controllers;
 public class MarketIndicesController : ControllerBase
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> RefreshLocks = new();
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> BatchHistoryRefreshLocks = new();
+    private const int MaxBatchResultDetails = 200;
 
     private readonly AppDbContext _context;
     private readonly IMarketIndexHistoryService _historyService;
     private readonly IIndexConstituentsProvider _constituentsProvider;
+    private readonly IStockHistoryService _stockHistoryService;
+    private readonly ILogger<MarketIndicesController> _logger;
 
     public MarketIndicesController(
         AppDbContext context,
         IMarketIndexHistoryService historyService,
-        IIndexConstituentsProvider constituentsProvider)
+        IIndexConstituentsProvider constituentsProvider,
+        IStockHistoryService stockHistoryService,
+        ILogger<MarketIndicesController> logger)
     {
         _context = context;
         _historyService = historyService;
         _constituentsProvider = constituentsProvider;
+        _stockHistoryService = stockHistoryService;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -655,6 +664,275 @@ public class MarketIndicesController : ControllerBase
         {
             refreshLock.Release();
         }
+    }
+
+    [HttpPost("{indexId:int}/constituents/{stockId:int}/history/refresh")]
+    public async Task<ActionResult<StockHistoryRefreshResponse>> RefreshConstituentHistory(
+        int indexId,
+        int stockId,
+        CancellationToken cancellationToken = default)
+    {
+        var marketIndex = await _context.MarketIndices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == indexId, cancellationToken);
+        if (marketIndex is null)
+        {
+            return NotFound("Индекс не найден.");
+        }
+
+        if (marketIndex.IsArchived)
+        {
+            return Conflict("Нельзя обновлять историю акций для архивного индекса.");
+        }
+
+        var membership = await _context.StockMarketIndices
+            .AsNoTracking()
+            .Include(x => x.Stock)
+            .FirstOrDefaultAsync(
+                x => x.MarketIndexId == indexId && x.StockId == stockId && x.EffectiveTo == null,
+                cancellationToken);
+
+        if (membership?.Stock is null)
+        {
+            return NotFound("Акция не входит в текущий состав выбранного индекса.");
+        }
+
+        var stock = membership.Stock;
+        if (!TryValidateTickerAndExchange(stock, out var validationError))
+        {
+            return BadRequest(validationError);
+        }
+
+        try
+        {
+            var result = await _stockHistoryService.RefreshHistoryAsync(stock, cancellationToken);
+            _logger.LogInformation(
+                "Index constituent history refreshed: indexId={IndexId}, stockId={StockId}, deleted={DeletedPoints}, imported={ImportedPoints}, rateLimited={RateLimited}",
+                indexId,
+                stockId,
+                result.DeletedPoints,
+                result.ImportedPoints,
+                result.RateLimited);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Index constituent history refresh failed: indexId={IndexId}, stockId={StockId}", indexId, stockId);
+            return StatusCode(StatusCodes.Status502BadGateway, "Не удалось обновить исторические данные акции. Попробуйте позже.");
+        }
+    }
+
+    [HttpPost("{indexId:int}/constituents/history/refresh")]
+    public async Task<ActionResult<IndexConstituentHistoryRefreshBatchResponse>> RefreshConstituentsHistory(
+        int indexId,
+        CancellationToken cancellationToken = default)
+    {
+        var marketIndex = await _context.MarketIndices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == indexId, cancellationToken);
+        if (marketIndex is null)
+        {
+            return NotFound("Индекс не найден.");
+        }
+
+        if (marketIndex.IsArchived)
+        {
+            return Conflict("Нельзя обновлять историю акций для архивного индекса.");
+        }
+
+        var batchLock = BatchHistoryRefreshLocks.GetOrAdd(indexId, static _ => new SemaphoreSlim(1, 1));
+        if (!await batchLock.WaitAsync(0, cancellationToken))
+        {
+            return Conflict("Обновление исторических данных для этого индекса уже выполняется.");
+        }
+
+        try
+        {
+            var membershipRows = await _context.StockMarketIndices
+                .AsNoTracking()
+                .Include(x => x.Stock)
+                .Where(x => x.MarketIndexId == indexId && x.EffectiveTo == null)
+                .OrderBy(x => x.StockId)
+                .ThenBy(x => x.Stock.Ticker)
+                .ToListAsync(cancellationToken);
+            var currentConstituents = membershipRows
+                .GroupBy(x => x.StockId)
+                .Select(x => x.First().Stock)
+                .ToList();
+
+            var items = new List<IndexConstituentHistoryRefreshItemResponse>();
+            var attempted = 0;
+            var succeeded = 0;
+            var failed = 0;
+            var rateLimited = 0;
+            var skippedRateLimited = 0;
+            var detailsTruncated = false;
+            var stopDueToRateLimit = false;
+
+            for (var i = 0; i < currentConstituents.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var stock = currentConstituents[i];
+
+                if (stopDueToRateLimit)
+                {
+                    skippedRateLimited++;
+                    AppendResult(new IndexConstituentHistoryRefreshItemResponse
+                    {
+                        StockId = stock.Id,
+                        Ticker = stock.Ticker,
+                        Exchange = stock.Exchange,
+                        Status = "SkippedRateLimited",
+                        Error = "Пропущено из-за общего лимита/паузы у поставщика."
+                    });
+                    continue;
+                }
+
+                attempted++;
+
+                if (!TryValidateTickerAndExchange(stock, out var validationError))
+                {
+                    failed++;
+                    AppendResult(new IndexConstituentHistoryRefreshItemResponse
+                    {
+                        StockId = stock.Id,
+                        Ticker = stock.Ticker,
+                        Exchange = stock.Exchange,
+                        Status = "Failed",
+                        Error = validationError
+                    });
+                    continue;
+                }
+
+                try
+                {
+                    var refreshResult = await _stockHistoryService.RefreshHistoryAsync(stock, cancellationToken);
+                    if (refreshResult.RateLimited)
+                    {
+                        rateLimited++;
+                        stopDueToRateLimit = true;
+                        AppendResult(new IndexConstituentHistoryRefreshItemResponse
+                        {
+                            StockId = stock.Id,
+                            Ticker = stock.Ticker,
+                            Exchange = stock.Exchange,
+                            Status = "RateLimited",
+                            DeletedPoints = refreshResult.DeletedPoints,
+                            ImportedPoints = refreshResult.ImportedPoints,
+                            Error = "Поставщик временно ограничил запросы."
+                        });
+                        continue;
+                    }
+
+                    succeeded++;
+                    AppendResult(new IndexConstituentHistoryRefreshItemResponse
+                    {
+                        StockId = stock.Id,
+                        Ticker = stock.Ticker,
+                        Exchange = stock.Exchange,
+                        Status = "Succeeded",
+                        DeletedPoints = refreshResult.DeletedPoints,
+                        ImportedPoints = refreshResult.ImportedPoints
+                    });
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    failed++;
+                    AppendResult(new IndexConstituentHistoryRefreshItemResponse
+                    {
+                        StockId = stock.Id,
+                        Ticker = stock.Ticker,
+                        Exchange = stock.Exchange,
+                        Status = "Failed",
+                        Error = ex.Message
+                    });
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    AppendResult(new IndexConstituentHistoryRefreshItemResponse
+                    {
+                        StockId = stock.Id,
+                        Ticker = stock.Ticker,
+                        Exchange = stock.Exchange,
+                        Status = "Failed",
+                        Error = "Не удалось обновить исторические данные."
+                    });
+                    _logger.LogWarning(ex, "Batch constituent history refresh failed: indexId={IndexId}, stockId={StockId}", indexId, stock.Id);
+                }
+            }
+
+            _logger.LogInformation(
+                "Batch constituent history refresh completed: indexId={IndexId}, total={Total}, attempted={Attempted}, succeeded={Succeeded}, failed={Failed}, rateLimited={RateLimited}, skippedRateLimited={SkippedRateLimited}, stoppedDueToRateLimit={StoppedDueToRateLimit}",
+                indexId,
+                currentConstituents.Count,
+                attempted,
+                succeeded,
+                failed,
+                rateLimited,
+                skippedRateLimited,
+                stopDueToRateLimit);
+
+            return Ok(new IndexConstituentHistoryRefreshBatchResponse
+            {
+                MarketIndexId = indexId,
+                Total = currentConstituents.Count,
+                Attempted = attempted,
+                Succeeded = succeeded,
+                Failed = failed,
+                RateLimited = rateLimited,
+                SkippedRateLimited = skippedRateLimited,
+                StoppedDueToRateLimit = stopDueToRateLimit,
+                DetailsTruncated = detailsTruncated,
+                Results = items
+            });
+
+            void AppendResult(IndexConstituentHistoryRefreshItemResponse result)
+            {
+                if (items.Count < MaxBatchResultDetails)
+                {
+                    items.Add(result);
+                    return;
+                }
+
+                detailsTruncated = true;
+            }
+        }
+        finally
+        {
+            batchLock.Release();
+            if (batchLock.CurrentCount == 1)
+            {
+                BatchHistoryRefreshLocks.TryRemove(new KeyValuePair<int, SemaphoreSlim>(indexId, batchLock));
+            }
+        }
+    }
+
+    private static bool TryValidateTickerAndExchange(Stock stock, out string? validationError)
+    {
+        if (string.IsNullOrWhiteSpace(stock.Ticker))
+        {
+            validationError = "У акции должен быть указан тикер для обновления исторических данных.";
+            return false;
+        }
+
+        if (!StockExchanges.TryNormalize(stock.Exchange, out var normalizedExchange))
+        {
+            validationError = "У акции указана некорректная биржа для обновления исторических данных.";
+            return false;
+        }
+
+        stock.Exchange = normalizedExchange;
+        validationError = null;
+        return true;
     }
 
     private static string? GetNonEmptyTrimmed(string? value)

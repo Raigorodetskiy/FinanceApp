@@ -89,7 +89,8 @@ public class StockHistoryService : IStockHistoryService
                 {
                     StockId = stock.Id,
                     DeletedPoints = 0,
-                    ImportedPoints = 0
+                    ImportedPoints = 0,
+                    RateLimited = true
                 };
             }
 
@@ -102,7 +103,8 @@ public class StockHistoryService : IStockHistoryService
             {
                 StockId = stock.Id,
                 DeletedPoints = deletedPoints,
-                ImportedPoints = importedPoints
+                ImportedPoints = importedPoints,
+                RateLimited = false
             };
         }
         finally

@@ -72,6 +72,7 @@ export interface StockPriceChartProps {
   liveQuote?: StockQuoteResponse | null;
   storedPriceEur?: number | null;
   storedPriceChangeEur?: number | null;
+  refreshToken?: number;
 }
 
 const formatSigned = (value: number, suffix = '') =>
@@ -105,6 +106,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   liveQuote,
   storedPriceEur,
   storedPriceChangeEur,
+  refreshToken,
 }) => {
   const [historyRange, setHistoryRange] = useState<StockHistoryRange>('1y');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -128,7 +130,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
 
   useEffect(() => {
     fetchHistory();
-  }, [fetchHistory]);
+  }, [fetchHistory, refreshToken]);
 
   const handleRefreshHistory = useCallback(async () => {
     if (historyRefreshing) {

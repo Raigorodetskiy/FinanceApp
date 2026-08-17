@@ -781,7 +781,12 @@ public class StockTrackingStatusTests
         AppDbContext context,
         IIndexConstituentsProvider? provider = null)
     {
-        return new MarketIndicesController(context, new NullMarketIndexHistoryService(), provider ?? new NullIndexConstituentsProvider())
+        return new MarketIndicesController(
+            context,
+            new NullMarketIndexHistoryService(),
+            provider ?? new NullIndexConstituentsProvider(),
+            new NullStockHistoryService(),
+            NullLogger<MarketIndicesController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

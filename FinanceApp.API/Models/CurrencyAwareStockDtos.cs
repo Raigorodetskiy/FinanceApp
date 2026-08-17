@@ -110,6 +110,7 @@ public sealed class StockHistoryRefreshResponse
     public int StockId { get; init; }
     public int DeletedPoints { get; init; }
     public int ImportedPoints { get; init; }
+    public bool RateLimited { get; init; }
 }
 
 public sealed class StockHistoryPointResponse

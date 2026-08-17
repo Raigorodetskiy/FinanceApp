@@ -3,9 +3,13 @@ import {
   UNSUPPORTED_REFRESH_MESSAGE_FALLBACK,
   classifyRefreshError,
   classifyRefreshResult,
+  formatBatchHistorySummary,
   getErrMsg,
 } from './IndexConstituentsPanel';
-import type { IndexConstituentsRefreshResponse } from '../types';
+import type {
+  IndexConstituentHistoryRefreshBatchResponse,
+  IndexConstituentsRefreshResponse,
+} from '../types';
 
 function makeAxiosError(status: number | undefined, data: unknown): unknown {
   return {
@@ -186,5 +190,28 @@ describe('getErrMsg', () => {
     expect(getErrMsg(withRawString, 'fallback')).toBe('Текст ошибки как строка');
     expect(getErrMsg(withMessage, 'fallback')).toBe('Общее сообщение');
     expect(getErrMsg(withoutData, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('formatBatchHistorySummary', () => {
+  it('renders success/failure/rate-limit counters', () => {
+    const summary = formatBatchHistorySummary({
+      marketIndexId: 1,
+      total: 10,
+      attempted: 8,
+      succeeded: 6,
+      failed: 1,
+      rateLimited: 1,
+      skippedRateLimited: 2,
+      stoppedDueToRateLimit: true,
+      detailsTruncated: false,
+      results: [],
+    } satisfies IndexConstituentHistoryRefreshBatchResponse);
+
+    expect(summary).toContain('успешно 6');
+    expect(summary).toContain('ошибок 1');
+    expect(summary).toContain('лимит 1');
+    expect(summary).toContain('пропущено 2');
+    expect(summary).toContain('остановлено');
   });
 });
