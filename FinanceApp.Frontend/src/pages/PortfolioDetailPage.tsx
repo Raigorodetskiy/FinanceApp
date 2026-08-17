@@ -64,6 +64,7 @@ import StockFundamentalsDrawer from '../components/StockFundamentalsDrawer';
 import StockExchangeTag, { EXCHANGE_ABBREVIATION } from '../components/StockExchangeTag';
 import { useAuth } from '../contexts/AuthContext';
 import { isQuoteDelayed } from '../utils/quote';
+import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
 import {
   buildRefreshStockSet,
   resolveEffectiveQuote,
@@ -140,25 +141,7 @@ export const PORTFOLIO_PENDING_ORDER_RIGHT_ALIGNED_MONEY_KEYS = ['price', 'stopL
 export const PORTFOLIO_EXECUTED_ORDER_RIGHT_ALIGNED_MONEY_KEYS = ['price', 'total'] as const;
 export const PORTFOLIO_TRANSACTION_RIGHT_ALIGNED_MONEY_KEYS = ['amount'] as const;
 
-/**
- * Computes the quote patch fields from a {@link StockQuoteResponse}.
- * Returns `null` when the response does not carry a EUR-normalised price
- * (in which case the stock record should not be updated).
- */
-export const buildQuotePatch = (
-  quote: StockQuoteResponse,
-): Pick<Stock, 'currentPrice' | 'currentPriceChange' | 'currentPriceChangePercent' | 'currentPriceAt'> | null => {
-  if (quote.currentPriceEur == null) return null;
-  const tsRaw = quote.priceTimestampUtc ? Date.parse(quote.priceTimestampUtc) : NaN;
-  return {
-    currentPrice: Math.round(quote.currentPriceEur * 100) / 100,
-    currentPriceChange:
-      quote.changeEur != null ? Math.round(quote.changeEur * 10000) / 10000 : null,
-    currentPriceChangePercent:
-      quote.percentChange != null ? Math.round(quote.percentChange * 10000) / 10000 : null,
-    currentPriceAt: isFinite(tsRaw) ? quote.priceTimestampUtc : null,
-  };
-};
+export { buildQuotePatch } from '../utils/quotePersistence';
 
 type PositionChartRow = { _isPositionChartRow: true; _itemId: number; _stockId: number };
 type PositionTableRow = PortfolioItem | PositionChartRow;
@@ -434,14 +417,12 @@ const PortfolioDetailPage: React.FC = () => {
           const patch = buildQuotePatch(quote);
           if (!patch) return { stockId: stock.id, patch: null, delayed: false };
 
-          await updateStockQuote(stock.id, {
-            currentPrice: patch.currentPrice,
-            currentPriceChange: patch.currentPriceChange ?? null,
-            currentPriceChangePercent: patch.currentPriceChangePercent ?? null,
-            currentPriceAt: patch.currentPriceAt ?? null,
-          } satisfies UpdateStockQuoteRequest);
+          const persisted = (await updateStockQuote(
+            stock.id,
+            patch satisfies UpdateStockQuoteRequest,
+          )).data;
 
-          return { stockId: stock.id, patch, delayed: false };
+          return { stockId: stock.id, patch: persisted, delayed: false };
         })
       );
 
@@ -454,7 +435,7 @@ const PortfolioDetailPage: React.FC = () => {
       ).length;
 
       // Patch local state with refreshed quote fields
-      const patchMap = new Map<number, NonNullable<ReturnType<typeof buildQuotePatch>>>();
+      const patchMap = new Map<number, NonNullable<Awaited<ReturnType<typeof updateStockQuote>>['data']>>();
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value.patch) {
           patchMap.set(result.value.stockId, result.value.patch);
@@ -464,7 +445,7 @@ const PortfolioDetailPage: React.FC = () => {
       const applyPatch = (stock: Stock): Stock => {
         const patch = patchMap.get(stock.id);
         if (!patch) return stock;
-        return { ...stock, ...patch };
+        return applyPersistedQuoteSnapshot(stock, patch);
       };
 
       setStocks((prev) => prev.map(applyPatch));

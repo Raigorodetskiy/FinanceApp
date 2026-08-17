@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -33,12 +33,14 @@ import {
   refreshIndexConstituents,
   refreshIndexConstituentsHistory,
   trackStock,
+  updateStockQuote,
 } from '../services/api';
 import StockExchangeTag from './StockExchangeTag';
 import StockFundamentalsDrawer from './StockFundamentalsDrawer';
 import StockPriceChart from './StockPriceChart';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 import { isQuoteDelayed } from '../utils/quote';
+import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
 import type {
   IndexConstituentDto,
   IndexConstituentHistoryRefreshBatchResponse,
@@ -46,6 +48,8 @@ import type {
   IndexConstituentsRefreshResponse,
   StockHistoryRange,
   StockQuoteResponse,
+  UpdateStockQuoteRequest,
+  UpdateStockQuoteResponse,
 } from '../types';
 import { INDEX_HISTORY_JOB_POLL_INTERVAL_MS, INDEX_HISTORY_JOB_POLL_TIMEOUT_MS } from './indexConstituentHistoryRefresh';
 
@@ -222,6 +226,8 @@ const ADD_CATALOG_ARIA_LABEL = 'Добавить в список акций';
 const FUNDAMENTALS_ARIA_LABEL = 'Фундаментальные данные';
 
 export const INDEX_CONSTITUENTS_TOTAL_COLS = 8;
+export const QUOTE_PERSIST_FAILURE_MESSAGE = 'Цена получена, но не удалось сохранить её';
+export const QUOTE_NO_EUR_MESSAGE = 'Цена получена, но конвертация в EUR недоступна';
 
 export const getConstituentTableRowKey = (record: TableRow): string =>
   isChartRow(record) ? `chart-${record._stockId}` : String(record.stockId);
@@ -248,6 +254,59 @@ export const getTrackButtonState = (trackingStatus: string, trackingLoading: boo
     loading: trackingLoading,
     ariaLabel: isTracked ? ADD_TRACKED_ARIA_LABEL : ADD_CATALOG_ARIA_LABEL,
     tooltip: isTracked ? TRACKED_TOOLTIP : 'Добавить в список акций',
+  };
+};
+
+export const beginConstituentQuoteRefresh = (inFlight: Set<number>, stockId: number): boolean => {
+  if (inFlight.has(stockId)) {
+    return false;
+  }
+
+  inFlight.add(stockId);
+  return true;
+};
+
+export const finishConstituentQuoteRefresh = (inFlight: Set<number>, stockId: number): void => {
+  inFlight.delete(stockId);
+};
+
+export const getNoEurQuoteMessage = (
+  ticker: string,
+  quote: StockQuoteResponse,
+): string => {
+  const warning = quote.conversionWarning?.trim();
+  return warning && warning.length > 0
+    ? warning
+    : `${QUOTE_NO_EUR_MESSAGE} для ${ticker}`;
+};
+
+export const persistFreshConstituentQuote = async ({
+  constituent,
+  quote,
+  persistQuote,
+}: {
+  constituent: Pick<IndexConstituentDto, 'stockId' | 'ticker'>;
+  quote: StockQuoteResponse;
+  persistQuote: (stockId: number, patch: UpdateStockQuoteRequest) => Promise<UpdateStockQuoteResponse>;
+}): Promise<{
+  persisted: UpdateStockQuoteResponse | null;
+  warningMessage: string | null;
+}> => {
+  if (isQuoteDelayed(quote)) {
+    return { persisted: null, warningMessage: null };
+  }
+
+  const patch = buildQuotePatch(quote);
+  if (patch == null) {
+    return {
+      persisted: null,
+      warningMessage: getNoEurQuoteMessage(constituent.ticker, quote),
+    };
+  }
+
+  return {
+    persisted: await persistQuote(constituent.stockId, patch),
+    warningMessage: null,
   };
 };
 
@@ -300,6 +359,10 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     name: string;
   } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
+  const quoteRefreshInFlightRef = useRef(new Set<number>());
+  const persistIndexQuote = useCallback(async (stockId: number, patch: UpdateStockQuoteRequest) => (
+    await updateStockQuote(stockId, patch)
+  ).data, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -377,21 +440,23 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     }
   };
 
-  const handleFetchLivePrice = async (constituent: IndexConstituentDto) => {
+  const handleFetchLivePrice = useCallback(async (constituent: IndexConstituentDto) => {
     if (!constituent.ticker?.trim()) return;
+    if (!beginConstituentQuoteRefresh(quoteRefreshInFlightRef.current, constituent.stockId)) return;
     setLivePrices((prev) => ({
       ...prev,
       [constituent.stockId]: preserveEntry(prev[constituent.stockId], true),
     }));
+    let quote: StockQuoteResponse;
     try {
-      const priceRes = await getStockPrice(
+      quote = (await getStockPrice(
         constituent.ticker,
         constituent.exchange,
         constituent.finanzenNetSlug,
-      );
+      )).data;
       setLivePrices((prev) => ({
         ...prev,
-        [constituent.stockId]: { quote: priceRes.data, loading: false },
+        [constituent.stockId]: { quote, loading: false },
       }));
     } catch {
       setLivePrices((prev) => ({
@@ -399,8 +464,34 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         [constituent.stockId]: preserveEntry(prev[constituent.stockId], false),
       }));
       void messageApi.error(`Ошибка получения цены для ${constituent.ticker}`);
+      finishConstituentQuoteRefresh(quoteRefreshInFlightRef.current, constituent.stockId);
+      return;
     }
-  };
+
+    try {
+      const { persisted, warningMessage } = await persistFreshConstituentQuote({
+        constituent,
+        quote,
+        persistQuote: persistIndexQuote,
+      });
+
+      if (persisted != null) {
+        setConstituents((prev) =>
+          prev.map((item) =>
+            item.stockId === constituent.stockId
+              ? applyPersistedQuoteSnapshot(item, persisted)
+              : item,
+          ),
+        );
+      } else if (warningMessage) {
+        void messageApi.warning(warningMessage);
+      }
+    } catch {
+      void messageApi.error(`${QUOTE_PERSIST_FAILURE_MESSAGE} для ${constituent.ticker}`);
+    } finally {
+      finishConstituentQuoteRefresh(quoteRefreshInFlightRef.current, constituent.stockId);
+    }
+  }, [messageApi, persistIndexQuote]);
 
   useEffect(() => {
     setHistoryRefreshStates({});
@@ -656,6 +747,10 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         const status = getMarketStatus(live);
         const delayed = isQuoteDelayed(quote);
         const delayTooltip = (delayed && quote?.delayWarning) ? quote.delayWarning : undefined;
+        const noEurTooltip =
+          !delayed && quote != null && quote.currentPriceEur == null
+            ? quote.conversionWarning ?? QUOTE_NO_EUR_MESSAGE
+            : undefined;
         return (
           <span title={getApiPriceTooltip(quote)} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {getApiPriceText(live)}
@@ -671,6 +766,17 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
               </Tooltip>
             ) : (
               <>
+                {noEurTooltip && (
+                  <Tooltip title={noEurTooltip}>
+                    <Tag
+                      color="gold"
+                      style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}
+                      aria-label={noEurTooltip}
+                    >
+                      Нет EUR
+                    </Tag>
+                  </Tooltip>
+                )}
                 {status === 'open' && (
                   <Tag color="green" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
                 )}
@@ -690,7 +796,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       className: 'stock-api-area-compact-col',
       render: (_: unknown, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const ts = livePrices[record.stockId]?.quote?.priceTimestampUtc ?? record.currentPriceAt ?? null;
+        const ts = record.currentPriceAt ?? null;
         if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
         return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;
       },
