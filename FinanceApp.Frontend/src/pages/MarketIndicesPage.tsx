@@ -170,7 +170,7 @@ const MarketIndicesPage: React.FC = () => {
         description: values.description,
         countryOrRegion: values.countryOrRegion,
         sortOrder: values.sortOrder ?? 0,
-        showInNavigation: values.showInNavigation as boolean ?? true,
+        showInNavigation: (values.showInNavigation as boolean | undefined) ?? true,
       };
 
       if (editingMarketIndex) {
