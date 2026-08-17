@@ -63,6 +63,14 @@ const App: React.FC = () => {
               }
             />
             <Route
+              path="/market-indices/:id"
+              element={
+                <PrivateRoute>
+                  <MarketIndicesPage />
+                </PrivateRoute>
+              }
+            />
+            <Route
               path="/financial-metrics"
               element={
                 <PrivateRoute>

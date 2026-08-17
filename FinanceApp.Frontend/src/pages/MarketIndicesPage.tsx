@@ -18,6 +18,7 @@ import {
 import { AreaChartOutlined, CaretDownOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, InboxOutlined, OrderedListOutlined, PlusOutlined, RollbackOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
+import { useParams } from 'react-router-dom';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import MarketIndexPriceChart from '../components/MarketIndexPriceChart';
 import IndexConstituentsPanel from '../components/IndexConstituentsPanel';
@@ -32,11 +33,12 @@ import {
   updateMarketIndex,
 } from '../services/api';
 import type { MarketIndex, Portfolio } from '../types';
+import { marketIndexSidebarKey } from '../components/AppSidebar';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const archiveTag = <Tag color="default">Архив</Tag>;
-export const MARKET_INDICES_SELECTED_KEY = 'market-indices';
+export const MARKET_INDICES_SELECTED_KEY = 'market-indices-manage';
 
 function getErrMsg(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
@@ -79,6 +81,9 @@ export async function loadMarketIndicesPagePortfolios(loadPortfolios: typeof get
 
 const MarketIndicesPage: React.FC = () => {
   const { user, logout } = useAuth();
+  const { id: routeId } = useParams<{ id?: string }>();
+  const activeIndexId = routeId != null ? Number(routeId) : null;
+
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +95,7 @@ const MarketIndicesPage: React.FC = () => {
   const [editingMarketIndex, setEditingMarketIndex] = useState<MarketIndex | null>(null);
   const [expandedIndexId, setExpandedIndexId] = useState<number | null>(null);
   const [expandedTab, setExpandedTab] = useState<'chart' | 'constituents'>('chart');
+  const [indexTab, setIndexTab] = useState<'chart' | 'constituents'>('chart');
   const [form] = Form.useForm();
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -308,17 +314,32 @@ const MarketIndicesPage: React.FC = () => {
     },
   ];
 
+  const activeIndex = useMemo(
+    () => (activeIndexId != null ? marketIndices.find((idx) => idx.id === activeIndexId) ?? null : null),
+    [activeIndexId, marketIndices],
+  );
+
+  const selectedKeys = useMemo(() => {
+    if (activeIndexId != null) return [marketIndexSidebarKey(activeIndexId)];
+    return [MARKET_INDICES_SELECTED_KEY];
+  }, [activeIndexId]);
+
   return (
     <>
       {contextHolder}
       <AuthenticatedShell
         portfolios={portfolios}
-        selectedKeys={[MARKET_INDICES_SELECTED_KEY]}
+        selectedKeys={selectedKeys}
         onLogout={logout}
         userName={user?.username}
         activePortfolioId={undefined}
-        headerLeft={<Title level={4} style={{ margin: 0 }}>Мировые индексы</Title>}
-        headerRight={(
+        marketIndices={marketIndices}
+        headerLeft={
+          <Title level={4} style={{ margin: 0 }}>
+            {activeIndex != null ? `${activeIndex.code} — ${activeIndex.name}` : 'Мировые индексы'}
+          </Title>
+        }
+        headerRight={activeIndex == null ? (
           <Space>
             <Button onClick={() => setIncludeArchived((value) => !value)} type={includeArchived ? 'default' : 'dashed'}>
               {includeArchived ? 'Скрыть архивные' : 'Показать архивные'}
@@ -327,72 +348,134 @@ const MarketIndicesPage: React.FC = () => {
               Добавить индекс
             </Button>
           </Space>
+        ) : (
+          <Space>
+            <Tooltip title="Редактировать">
+              <Button icon={<EditOutlined />} onClick={() => openEditModal(activeIndex)} />
+            </Tooltip>
+            {activeIndex.isArchived ? (
+              <Tooltip title="Восстановить">
+                <Button icon={<RollbackOutlined />} onClick={() => void handleRestore(activeIndex)} />
+              </Tooltip>
+            ) : (
+              <Tooltip title="Архивировать">
+                <Button icon={<InboxOutlined />} onClick={() => void handleArchive(activeIndex)} />
+              </Tooltip>
+            )}
+            <Popconfirm
+              title="Удалить индекс?"
+              onConfirm={() => void handleDelete(activeIndex)}
+              okText="Да"
+              cancelText="Нет"
+            >
+              <Button icon={<DeleteOutlined />} danger />
+            </Popconfirm>
+          </Space>
         )}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Input.Search
-            placeholder="Поиск по коду, названию, стране/региону или описанию..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            allowClear
-            style={{ maxWidth: 520 }}
-          />
-
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 48 }}>
-              <Spin size="large" />
-            </div>
-          ) : error ? (
-            <Text type="danger">{error}</Text>
-          ) : filteredMarketIndices.length === 0 ? (
-            <Text type="secondary">Нет данных</Text>
-          ) : (
-            <Table<MarketIndex>
-              rowKey="id"
-              columns={columns}
-              dataSource={filteredMarketIndices}
-              pagination={false}
-              expandable={{
-                expandedRowKeys: expandedIndexId != null ? [expandedIndexId] : [],
-                expandIcon: () => null,
-                expandedRowRender: (record) => (
-                  <Tabs
-                    activeKey={expandedTab}
-                    onChange={(key) => setExpandedTab(key as 'chart' | 'constituents')}
-                    size="small"
-                    style={{ marginTop: -4 }}
-                    items={[
-                      {
-                        key: 'chart',
-                        label: <><AreaChartOutlined /> График</>,
-                        children: (
-                          <MarketIndexPriceChart
-                            panelId={`index-chart-panel-${record.id}`}
-                            indexId={record.id}
-                            code={record.code}
-                            name={record.name}
-                            providerSymbol={record.providerSymbol}
-                            isArchived={record.isArchived}
-                          />
-                        ),
-                      },
-                      {
-                        key: 'constituents',
-                        label: <><OrderedListOutlined /> Состав</>,
-                        children: (
-                          <IndexConstituentsPanel
-                            indexId={record.id}
-                            isArchived={record.isArchived}
-                          />
-                        ),
-                      },
-                    ]}
-                  />
-                ),
-              }}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 48 }}>
+            <Spin size="large" />
+          </div>
+        ) : error ? (
+          <Text type="danger">{error}</Text>
+        ) : activeIndex != null ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {activeIndex.isArchived && archiveTag}
+            <Tabs
+              activeKey={indexTab}
+              onChange={(key) => setIndexTab(key as 'chart' | 'constituents')}
+              size="small"
+              items={[
+                {
+                  key: 'chart',
+                  label: <><AreaChartOutlined /> График</>,
+                  children: (
+                    <MarketIndexPriceChart
+                      panelId={`index-chart-panel-${activeIndex.id}`}
+                      indexId={activeIndex.id}
+                      code={activeIndex.code}
+                      name={activeIndex.name}
+                      providerSymbol={activeIndex.providerSymbol}
+                      isArchived={activeIndex.isArchived}
+                    />
+                  ),
+                },
+                {
+                  key: 'constituents',
+                  label: <><OrderedListOutlined /> Состав</>,
+                  children: (
+                    <IndexConstituentsPanel
+                      indexId={activeIndex.id}
+                      isArchived={activeIndex.isArchived}
+                    />
+                  ),
+                },
+              ]}
             />
-          )}
-        </div>
+          </div>
+        ) : activeIndexId != null ? (
+          <Text type="secondary">Индекс не найден</Text>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Input.Search
+              placeholder="Поиск по коду, названию, стране/региону или описанию..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              allowClear
+              style={{ maxWidth: 520 }}
+            />
+
+            {filteredMarketIndices.length === 0 ? (
+              <Text type="secondary">Нет данных</Text>
+            ) : (
+              <Table<MarketIndex>
+                rowKey="id"
+                columns={columns}
+                dataSource={filteredMarketIndices}
+                pagination={false}
+                expandable={{
+                  expandedRowKeys: expandedIndexId != null ? [expandedIndexId] : [],
+                  expandIcon: () => null,
+                  expandedRowRender: (record) => (
+                    <Tabs
+                      activeKey={expandedTab}
+                      onChange={(key) => setExpandedTab(key as 'chart' | 'constituents')}
+                      size="small"
+                      style={{ marginTop: -4 }}
+                      items={[
+                        {
+                          key: 'chart',
+                          label: <><AreaChartOutlined /> График</>,
+                          children: (
+                            <MarketIndexPriceChart
+                              panelId={`index-chart-panel-${record.id}`}
+                              indexId={record.id}
+                              code={record.code}
+                              name={record.name}
+                              providerSymbol={record.providerSymbol}
+                              isArchived={record.isArchived}
+                            />
+                          ),
+                        },
+                        {
+                          key: 'constituents',
+                          label: <><OrderedListOutlined /> Состав</>,
+                          children: (
+                            <IndexConstituentsPanel
+                              indexId={record.id}
+                              isArchived={record.isArchived}
+                            />
+                          ),
+                        },
+                      ]}
+                    />
+                  ),
+                }}
+              />
+            )}
+          </div>
+        )}
       </AuthenticatedShell>
 
       <Modal
