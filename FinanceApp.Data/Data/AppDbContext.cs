@@ -21,6 +21,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"USA",
                 SortOrder = 10,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -36,6 +37,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"USA",
                 SortOrder = 20,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -51,6 +53,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"USA",
                 SortOrder = 30,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -66,6 +69,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"USA",
                 SortOrder = 40,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -81,6 +85,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"USA",
                 SortOrder = 50,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -96,6 +101,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"UK",
                 SortOrder = 60,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -111,6 +117,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Germany",
                 SortOrder = 70,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -126,6 +133,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"France",
                 SortOrder = 80,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -141,6 +149,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Eurozone",
                 SortOrder = 90,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -156,6 +165,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Europe",
                 SortOrder = 100,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -171,6 +181,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Switzerland",
                 SortOrder = 110,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -186,6 +197,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Spain",
                 SortOrder = 120,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -201,6 +213,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Italy",
                 SortOrder = 130,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -216,6 +229,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Japan",
                 SortOrder = 140,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -231,6 +245,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Japan",
                 SortOrder = 150,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -246,6 +261,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Hong Kong",
                 SortOrder = 160,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -261,6 +277,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"China",
                 SortOrder = 170,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -276,6 +293,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"China",
                 SortOrder = 180,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -291,6 +309,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Australia",
                 SortOrder = 190,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -306,6 +325,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Canada",
                 SortOrder = 200,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -321,6 +341,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"India",
                 SortOrder = 210,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -336,6 +357,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"India",
                 SortOrder = 220,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -351,6 +373,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"South Korea",
                 SortOrder = 230,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -366,6 +389,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Brazil",
                 SortOrder = 240,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -381,6 +405,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Developed Markets",
                 SortOrder = 250,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -396,6 +421,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Emerging Markets",
                 SortOrder = 260,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             },
@@ -411,6 +437,7 @@ public class AppDbContext : DbContext
                 CountryOrRegion = @"Global",
                 SortOrder = 270,
                 IsArchived = false,
+                ShowInNavigation = true,
                 CreatedAt = MarketIndicesSeedTimestampUtc,
                 UpdatedAt = MarketIndicesSeedTimestampUtc
             }

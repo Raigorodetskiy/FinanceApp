@@ -95,6 +95,7 @@ public class MarketIndicesController : ControllerBase
             Description = request.Description?.Trim() ?? string.Empty,
             CountryOrRegion = request.CountryOrRegion?.Trim() ?? string.Empty,
             SortOrder = request.SortOrder,
+            ShowInNavigation = request.ShowInNavigation ?? true,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -156,6 +157,10 @@ public class MarketIndicesController : ControllerBase
         marketIndex.Description = request.Description?.Trim() ?? string.Empty;
         marketIndex.CountryOrRegion = request.CountryOrRegion?.Trim() ?? string.Empty;
         marketIndex.SortOrder = request.SortOrder;
+        if (request.ShowInNavigation.HasValue)
+        {
+            marketIndex.ShowInNavigation = request.ShowInNavigation.Value;
+        }
         marketIndex.UpdatedAt = DateTime.UtcNow;
 
         // When ProviderSymbol changes, invalidate old history to prevent mixing data from different symbols
@@ -1159,6 +1164,7 @@ public class MarketIndicesController : ControllerBase
             CountryOrRegion = marketIndex.CountryOrRegion,
             SortOrder = marketIndex.SortOrder,
             IsArchived = marketIndex.IsArchived,
+            ShowInNavigation = marketIndex.ShowInNavigation,
             CreatedAt = marketIndex.CreatedAt,
             UpdatedAt = marketIndex.UpdatedAt
         };

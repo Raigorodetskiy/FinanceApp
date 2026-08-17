@@ -74,6 +74,7 @@ export interface MarketIndex {
   countryOrRegion: string;
   sortOrder: number;
   isArchived: boolean;
+  showInNavigation: boolean;
 }
 
 export interface Stock {
@@ -473,6 +474,7 @@ export interface CreateMarketIndexRequest {
   description?: string;
   countryOrRegion?: string;
   sortOrder?: number;
+  showInNavigation?: boolean;
 }
 
 export interface UpdateMarketIndexRequest {
@@ -482,6 +484,7 @@ export interface UpdateMarketIndexRequest {
   description?: string;
   countryOrRegion?: string;
   sortOrder?: number;
+  showInNavigation?: boolean;
 }
 
 export interface CreateSectorRequest {

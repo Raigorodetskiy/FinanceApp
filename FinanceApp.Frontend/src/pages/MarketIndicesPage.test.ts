@@ -10,6 +10,7 @@ const sampleIndex: MarketIndex = {
   countryOrRegion: 'USA',
   sortOrder: 10,
   isArchived: false,
+  showInNavigation: true,
 };
 
 describe('MarketIndicesPage helpers', () => {

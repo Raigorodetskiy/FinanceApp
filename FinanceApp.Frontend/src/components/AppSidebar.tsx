@@ -364,18 +364,21 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       });
 
     const marketIndexChildren: NonNullable<MenuProps['items']> = marketIndices
-      .filter((idx) => !idx.isArchived)
-      .map((idx) => ({
-        key: marketIndexSidebarKey(idx.id),
-        className: 'sidebar-leaf-item',
-        icon: <GlobalOutlined />,
-        label: (
-          <Tooltip title={idx.name} placement="right">
-            <span className="sidebar-node-label">{idx.code}</span>
-          </Tooltip>
-        ),
-        onClick: () => { navigate(marketIndexRoute(idx.id)); setMobileOpen(false); },
-      }));
+      .filter((idx) => !idx.isArchived && idx.showInNavigation !== false)
+      .map((idx) => {
+        const tooltip = idx.name === idx.code ? idx.name : `${idx.name} (${idx.code})`;
+        return {
+          key: marketIndexSidebarKey(idx.id),
+          className: 'sidebar-leaf-item',
+          icon: <GlobalOutlined />,
+          label: (
+            <Tooltip title={tooltip} placement="right">
+              <span className="sidebar-node-label">{idx.name}</span>
+            </Tooltip>
+          ),
+          onClick: () => { navigate(marketIndexRoute(idx.id)); setMobileOpen(false); },
+        };
+      });
 
     return [
       {
