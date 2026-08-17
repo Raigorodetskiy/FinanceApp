@@ -633,6 +633,70 @@ public class StockTrackingStatusTests
         Assert.Equal(asOfDate, getBody.AsOfDate);
     }
 
+    [Fact]
+    public async Task GetConstituents_MapsStockFieldsRequiredForChartFundamentalsAndPriceColumns()
+    {
+        await using var context = CreateContext();
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5,
+            Name = "Test Index",
+            NormalizedName = "TEST INDEX",
+            Code = "TST",
+            NormalizedCode = "TST",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+
+        var stock = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nasdaq,
+            Wkn = "865985",
+            Isin = "US0378331005",
+            FinanzenNetSlug = "apple-aktie",
+            CurrentPrice = 194.32m,
+            CurrentPriceChange = 1.23m,
+            CurrentPriceChangePercent = 0.64m,
+            CurrentPriceAt = new DateTime(2026, 8, 16, 14, 30, 0, DateTimeKind.Utc),
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            MarketIndexId = 5,
+            StockId = stock.Id,
+            Source = "snapshot",
+            EffectiveFrom = DateTime.UtcNow,
+            ImportedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateMarketIndicesController(context);
+        var getResult = await controller.GetConstituents(5);
+        var ok = Assert.IsType<OkObjectResult>(getResult.Result);
+        var body = Assert.IsType<IndexConstituentsResponse>(ok.Value);
+        var dto = Assert.Single(body.Constituents);
+
+        Assert.Equal("AAPL", dto.Ticker);
+        Assert.Equal("Apple Inc.", dto.Name);
+        Assert.Equal("Apple", dto.CommonName);
+        Assert.Equal(StockExchanges.Nasdaq, dto.Exchange);
+        Assert.Equal("US0378331005", dto.Isin);
+        Assert.Equal("865985", dto.Wkn);
+        Assert.Equal("apple-aktie", dto.FinanzenNetSlug);
+        Assert.Equal(194.32m, dto.CurrentPrice);
+        Assert.Equal(1.23m, dto.CurrentPriceChange);
+        Assert.Equal(0.64m, dto.CurrentPriceChangePercent);
+        Assert.Equal(new DateTime(2026, 8, 16, 14, 30, 0, DateTimeKind.Utc), dto.CurrentPriceAt);
+        Assert.Equal("CatalogOnly", dto.TrackingStatus);
+    }
+
     // ── Relational regression: INSERT sentinel bug (MySQL DB default = 1) ─────
     //
     // This test uses SQLite (not InMemory) to validate the EF insert semantics that

@@ -70,10 +70,12 @@ const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
 const DEFAULT_STOCK_EXCHANGE: StockExchange = 'NYSE';
 const exchangeLabelByValue: Record<StockExchange, string> = {
   NYSE: 'NYSE',
+  NASDAQ: 'NASDAQ',
   Frankfurt: 'Frankfurt',
 };
 const exchangeOptions: { label: string; value: StockExchange }[] = [
   { label: exchangeLabelByValue.NYSE, value: 'NYSE' },
+  { label: exchangeLabelByValue.NASDAQ, value: 'NASDAQ' },
   { label: exchangeLabelByValue.Frankfurt, value: 'Frankfurt' },
 ];
 export const STOCK_DELETE_TOOLTIP = 'Удалить';

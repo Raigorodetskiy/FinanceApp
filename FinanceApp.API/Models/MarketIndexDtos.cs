@@ -61,8 +61,15 @@ public sealed class IndexConstituentDto
     public string Ticker { get; init; } = string.Empty;
     public string? ProviderSymbol { get; init; }
     public string Name { get; init; } = string.Empty;
+    public string? CommonName { get; init; }
     public string Exchange { get; init; } = string.Empty;
     public string? Isin { get; init; }
+    public string? Wkn { get; init; }
+    public string? FinanzenNetSlug { get; init; }
+    public decimal? CurrentPrice { get; init; }
+    public decimal? CurrentPriceChange { get; init; }
+    public decimal? CurrentPriceChangePercent { get; init; }
+    public DateTime? CurrentPriceAt { get; init; }
     /// <summary>"CatalogOnly" or "Tracked"</summary>
     public string TrackingStatus { get; init; } = string.Empty;
     public string? Source { get; init; }
