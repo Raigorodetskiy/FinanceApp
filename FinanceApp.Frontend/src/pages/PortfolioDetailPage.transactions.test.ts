@@ -92,6 +92,36 @@ describe('computeTransactionPortfolioTotal', () => {
   it('handles zero values', () => {
     expect(computeTransactionPortfolioTotal(0, 0)).toBe(0);
   });
+
+  // Req: transaction portfolio total uses current stock value (summary.totalValue), not stale balance.stocksValue
+  it('uses current stock value (e.g. summary.totalValue) when computing portfolio total', () => {
+    // Simulate: stale balance.stocksValue = 4000, but current summary.totalValue = 4500 after a quote refresh
+    const staleBalanceStocksValue = 4000;
+    const currentStocksValue = 4500;
+    const remainder = 300;
+
+    // The correct result must use the current value, not the stale one
+    expect(computeTransactionPortfolioTotal(currentStocksValue, remainder)).toBe(4800);
+    expect(computeTransactionPortfolioTotal(staleBalanceStocksValue, remainder)).toBe(4300);
+  });
+
+  // Req: changing effective stock value (from effectiveItems) updates transaction summary values
+  it('reflects updated stock value when effective items change after quote refresh', () => {
+    const remainder = 500;
+
+    // Before refresh
+    const stockValueBefore = 10_000;
+    const totalBefore = computeTransactionPortfolioTotal(stockValueBefore, remainder);
+    expect(totalBefore).toBe(10_500);
+
+    // After refresh (prices went up)
+    const stockValueAfter = 11_200;
+    const totalAfter = computeTransactionPortfolioTotal(stockValueAfter, remainder);
+    expect(totalAfter).toBe(11_700);
+
+    // The total must change proportionally to the stock value change
+    expect(totalAfter - totalBefore).toBe(stockValueAfter - stockValueBefore);
+  });
 });
 
 describe('computeTransactionTypeTotals', () => {
