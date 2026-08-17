@@ -19,6 +19,7 @@ import {
   CaretRightFilled,
   FundOutlined,
   BarChartOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import axios from 'axios';
@@ -32,6 +33,8 @@ import {
   refreshIndexConstituentHistory,
   refreshIndexConstituents,
   refreshIndexConstituentsHistory,
+  startIndexConstituentsBatchQuoteRefresh,
+  getIndexConstituentsBatchQuoteRefreshJob,
   trackStock,
   updateStockQuote,
 } from '../services/api';
@@ -52,6 +55,11 @@ import type {
   UpdateStockQuoteResponse,
 } from '../types';
 import { INDEX_HISTORY_JOB_POLL_INTERVAL_MS, INDEX_HISTORY_JOB_POLL_TIMEOUT_MS } from './indexConstituentHistoryRefresh';
+import {
+  INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
+  INDEX_BATCH_QUOTE_JOB_POLL_TIMEOUT_MS,
+  runIndexConstituentsBatchQuoteRefreshJob,
+} from './indexConstituentsBatchQuoteRefresh';
 
 const { Text } = Typography;
 dayjs.extend(utc);
@@ -353,6 +361,10 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [batchHistorySummary, setBatchHistorySummary] = useState<string | null>(null);
+  const [batchQuoteRefreshing, setBatchQuoteRefreshing] = useState(false);
+  const [batchQuoteProgress, setBatchQuoteProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [batchQuoteSummary, setBatchQuoteSummary] = useState<{ text: string; level: 'success' | 'warning' | 'error' | 'info' } | null>(null);
+  const batchQuoteAbortRef = useRef<AbortController | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<{
     id: number;
     ticker: string;
@@ -562,6 +574,63 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       void messageApi.error(text);
     } finally {
       setBatchHistoryRefreshing(false);
+    }
+  };
+
+  // Abort batch quote refresh on unmount or index change
+  useEffect(() => {
+    return () => {
+      batchQuoteAbortRef.current?.abort();
+    };
+  }, [indexId]);
+
+  const handleBatchRefreshQuotes = async () => {
+    if (batchQuoteRefreshing || constituents.length === 0) return;
+
+    setBatchQuoteRefreshing(true);
+    setBatchQuoteProgress(null);
+    setBatchQuoteSummary(null);
+    const abort = new AbortController();
+    batchQuoteAbortRef.current = abort;
+
+    try {
+      const notice = await runIndexConstituentsBatchQuoteRefreshJob({
+        indexId,
+        startJob: async (id) => (await startIndexConstituentsBatchQuoteRefresh(id)).data,
+        getJobStatus: async (id, jobId) =>
+          (await getIndexConstituentsBatchQuoteRefreshJob(id, jobId)).data,
+        onProgress: (processed, total) => {
+          setBatchQuoteProgress({ processed, total });
+        },
+        onInfo: (text) => { void messageApi.info(text); },
+        pollIntervalMs: INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
+        timeoutMs: INDEX_BATCH_QUOTE_JOB_POLL_TIMEOUT_MS,
+        signal: abort.signal,
+      });
+
+      if (notice == null) {
+        // Aborted — no summary
+        return;
+      }
+
+      const summaryText = notice.text;
+      setBatchQuoteSummary({ text: summaryText, level: notice.level });
+      if (notice.level === 'success') void messageApi.success(summaryText);
+      else if (notice.level === 'warning') void messageApi.warning(summaryText);
+      else void messageApi.error(summaryText);
+
+      // Reload constituents so table and expanded chart reflect authoritative DB state
+      await loadData();
+    } catch (err) {
+      const text = getErrMsg(err, 'Ошибка пакетного обновления цен');
+      setBatchQuoteSummary({ text, level: 'error' });
+      void messageApi.error(text);
+    } finally {
+      setBatchQuoteRefreshing(false);
+      setBatchQuoteProgress(null);
+      if (batchQuoteAbortRef.current === abort) {
+        batchQuoteAbortRef.current = null;
+      }
     }
   };
 
@@ -868,6 +937,15 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         />
       )}
 
+      {batchQuoteSummary && !batchQuoteRefreshing && (
+        <Alert
+          type={batchQuoteSummary.level}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={batchQuoteSummary.text}
+        />
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <Input
           placeholder="Поиск по тикеру, названию, WKN, ISIN…"
@@ -908,6 +986,22 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           }}
         >
           Обновить историю акций
+        </Button>
+        <Button
+          size="small"
+          icon={<SyncOutlined />}
+          loading={batchQuoteRefreshing}
+          disabled={
+            isArchived
+            || constituents.length === 0
+            || batchQuoteRefreshing
+          }
+          aria-label="Обновить текущие цены всех компонентов индекса"
+          onClick={() => { void handleBatchRefreshQuotes(); }}
+        >
+          {batchQuoteRefreshing && batchQuoteProgress != null
+            ? `Обновление цен: ${batchQuoteProgress.processed} из ${batchQuoteProgress.total}`
+            : 'Обновить текущие цены'}
         </Button>
       </div>
 

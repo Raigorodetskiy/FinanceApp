@@ -644,3 +644,33 @@ export interface IndexConstituentHistoryRefreshBatchResponse {
   detailsTruncated: boolean;
   results: IndexConstituentHistoryRefreshItemResponse[];
 }
+
+export type IndexConstituentsBatchQuoteRefreshJobState =
+  | 'Queued'
+  | 'Running'
+  | 'Succeeded'
+  | 'RateLimited'
+  | 'Failed'
+  | 'Interrupted';
+
+export interface IndexConstituentsBatchQuoteRefreshJobResponse {
+  jobId: string;
+  marketIndexId: number;
+  state: IndexConstituentsBatchQuoteRefreshJobState;
+  reusedActiveJob: boolean;
+  statusUrl?: string | null;
+  createdAtUtc: string;
+  startedAtUtc?: string | null;
+  completedAtUtc?: string | null;
+  expiresAtUtc?: string | null;
+  total: number;
+  processed: number;
+  succeeded: number;
+  delayed: number;
+  noEurConversion: number;
+  staleRejected: number;
+  providerFailed: number;
+  persistFailed: number;
+  rateLimited: number;
+  error?: string | null;
+}

@@ -165,3 +165,49 @@ public sealed class IndexConstituentHistoryRefreshItemResponse
     public int ImportedPoints { get; init; }
     public string? Error { get; init; }
 }
+
+public enum IndexConstituentsBatchQuoteRefreshJobState
+{
+    Queued,
+    Running,
+    Succeeded,
+    RateLimited,
+    Failed,
+    Interrupted
+}
+
+public enum IndexConstituentsBatchQuoteRefreshJobEnqueueStatus
+{
+    Enqueued,
+    ReusedActiveJob,
+    QueueFull
+}
+
+public sealed class IndexConstituentsBatchQuoteRefreshJobEnqueueResult
+{
+    public required IndexConstituentsBatchQuoteRefreshJobEnqueueStatus Status { get; init; }
+    public IndexConstituentsBatchQuoteRefreshJobResponse? Job { get; init; }
+}
+
+public sealed class IndexConstituentsBatchQuoteRefreshJobResponse
+{
+    public string JobId { get; init; } = string.Empty;
+    public int MarketIndexId { get; init; }
+    public IndexConstituentsBatchQuoteRefreshJobState State { get; init; }
+    public bool ReusedActiveJob { get; init; }
+    public string? StatusUrl { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
+    public DateTime? StartedAtUtc { get; init; }
+    public DateTime? CompletedAtUtc { get; init; }
+    public DateTime? ExpiresAtUtc { get; init; }
+    public int Total { get; init; }
+    public int Processed { get; init; }
+    public int Succeeded { get; init; }
+    public int Delayed { get; init; }
+    public int NoEurConversion { get; init; }
+    public int StaleRejected { get; init; }
+    public int ProviderFailed { get; init; }
+    public int PersistFailed { get; init; }
+    public int RateLimited { get; init; }
+    public string? Error { get; init; }
+}

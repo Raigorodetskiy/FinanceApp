@@ -24,6 +24,7 @@ public class MarketIndicesController : ControllerBase
     private readonly IIndexConstituentsProvider _constituentsProvider;
     private readonly IStockHistoryService _stockHistoryService;
     private readonly IIndexConstituentHistoryRefreshJobService _constituentHistoryRefreshJobs;
+    private readonly IIndexConstituentsBatchQuoteRefreshJobService _constituentsBatchQuoteRefreshJobs;
     private readonly ILogger<MarketIndicesController> _logger;
 
     public MarketIndicesController(
@@ -32,6 +33,7 @@ public class MarketIndicesController : ControllerBase
         IIndexConstituentsProvider constituentsProvider,
         IStockHistoryService stockHistoryService,
         IIndexConstituentHistoryRefreshJobService constituentHistoryRefreshJobs,
+        IIndexConstituentsBatchQuoteRefreshJobService constituentsBatchQuoteRefreshJobs,
         ILogger<MarketIndicesController> logger)
     {
         _context = context;
@@ -39,6 +41,7 @@ public class MarketIndicesController : ControllerBase
         _constituentsProvider = constituentsProvider;
         _stockHistoryService = stockHistoryService;
         _constituentHistoryRefreshJobs = constituentHistoryRefreshJobs;
+        _constituentsBatchQuoteRefreshJobs = constituentsBatchQuoteRefreshJobs;
         _logger = logger;
     }
 
@@ -990,6 +993,98 @@ public class MarketIndicesController : ControllerBase
 
     private static string? GetNonEmptyTrimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    [HttpPost("{indexId:int}/constituents/quotes/refresh")]
+    public async Task<ActionResult<IndexConstituentsBatchQuoteRefreshJobResponse>> StartConstituentsBatchQuoteRefresh(
+        int indexId,
+        CancellationToken cancellationToken = default)
+    {
+        var marketIndex = await _context.MarketIndices
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == indexId, cancellationToken);
+
+        if (marketIndex is null)
+        {
+            return NotFound("Индекс не найден.");
+        }
+
+        if (marketIndex.IsArchived)
+        {
+            return UnprocessableEntity("Нельзя обновлять цены для архивного индекса.");
+        }
+
+        var hasConstituents = await _context.StockMarketIndices
+            .AnyAsync(x => x.MarketIndexId == indexId && x.EffectiveTo == null, cancellationToken);
+
+        if (!hasConstituents)
+        {
+            return UnprocessableEntity("У индекса нет текущих компонентов для обновления цен.");
+        }
+
+        var enqueueResult = _constituentsBatchQuoteRefreshJobs.Enqueue(indexId);
+
+        if (enqueueResult.Status == IndexConstituentsBatchQuoteRefreshJobEnqueueStatus.QueueFull)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Очередь задач заполнена. Попробуйте позже.");
+        }
+
+        if (enqueueResult.Job is null)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, "Не удалось создать задачу.");
+        }
+
+        var job = AttachBatchQuoteStatusUrl(enqueueResult.Job);
+
+        return Accepted(job.StatusUrl, job);
+    }
+
+    [HttpGet("{indexId:int}/constituents/quotes/refresh-jobs/{jobId}")]
+    [ActionName(nameof(GetConstituentsBatchQuoteRefreshJobStatus))]
+    public ActionResult<IndexConstituentsBatchQuoteRefreshJobResponse> GetConstituentsBatchQuoteRefreshJobStatus(
+        int indexId,
+        string jobId)
+    {
+        if (!_constituentsBatchQuoteRefreshJobs.TryGetJob(indexId, jobId, out var job) || job is null)
+        {
+            return NotFound("Задача не найдена или её срок действия истёк.");
+        }
+
+        return Ok(job);
+    }
+
+    private IndexConstituentsBatchQuoteRefreshJobResponse AttachBatchQuoteStatusUrl(
+        IndexConstituentsBatchQuoteRefreshJobResponse job)
+    {
+        var fallback = $"/api/market-indices/{job.MarketIndexId}/constituents/quotes/refresh-jobs/{job.JobId}";
+        var statusUrl = Url is null
+            ? fallback
+            : Url.ActionLink(
+                nameof(GetConstituentsBatchQuoteRefreshJobStatus),
+                values: new { indexId = job.MarketIndexId, jobId = job.JobId }) ?? fallback;
+
+        return new IndexConstituentsBatchQuoteRefreshJobResponse
+        {
+            JobId = job.JobId,
+            MarketIndexId = job.MarketIndexId,
+            State = job.State,
+            ReusedActiveJob = job.ReusedActiveJob,
+            StatusUrl = statusUrl,
+            CreatedAtUtc = job.CreatedAtUtc,
+            StartedAtUtc = job.StartedAtUtc,
+            CompletedAtUtc = job.CompletedAtUtc,
+            ExpiresAtUtc = job.ExpiresAtUtc,
+            Total = job.Total,
+            Processed = job.Processed,
+            Succeeded = job.Succeeded,
+            Delayed = job.Delayed,
+            NoEurConversion = job.NoEurConversion,
+            StaleRejected = job.StaleRejected,
+            ProviderFailed = job.ProviderFailed,
+            PersistFailed = job.PersistFailed,
+            RateLimited = job.RateLimited,
+            Error = job.Error,
+        };
+    }
 
     private IndexConstituentHistoryRefreshJobResponse AttachStatusUrl(IndexConstituentHistoryRefreshJobResponse job)
     {

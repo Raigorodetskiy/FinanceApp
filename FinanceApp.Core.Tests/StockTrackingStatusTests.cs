@@ -787,6 +787,7 @@ public class StockTrackingStatusTests
             provider ?? new NullIndexConstituentsProvider(),
             new NullStockHistoryService(),
             new NullIndexConstituentHistoryRefreshJobService(),
+            new NullIndexConstituentsBatchQuoteRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -810,6 +811,18 @@ public class StockTrackingStatusTests
             };
 
         public bool TryGetJob(int marketIndexId, int stockId, string jobId, out IndexConstituentHistoryRefreshJobResponse? job)
+        {
+            job = null;
+            return false;
+        }
+    }
+
+    private sealed class NullIndexConstituentsBatchQuoteRefreshJobService : IIndexConstituentsBatchQuoteRefreshJobService
+    {
+        public IndexConstituentsBatchQuoteRefreshJobEnqueueResult Enqueue(int marketIndexId)
+            => new() { Status = IndexConstituentsBatchQuoteRefreshJobEnqueueStatus.QueueFull };
+
+        public bool TryGetJob(int marketIndexId, string jobId, out IndexConstituentsBatchQuoteRefreshJobResponse? job)
         {
             job = null;
             return false;
