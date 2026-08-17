@@ -31,7 +31,7 @@ describe('MarketIndicesPage helpers', () => {
     await expect(loadMarketIndicesPagePortfolios(loadPortfolios)).resolves.toEqual([]);
   });
 
-  it('uses market-indices as the active sidebar key', () => {
-    expect(MARKET_INDICES_SELECTED_KEY).toBe('market-indices');
+  it('uses market-indices-manage as the active sidebar key for the overview page', () => {
+    expect(MARKET_INDICES_SELECTED_KEY).toBe('market-indices-manage');
   });
 });

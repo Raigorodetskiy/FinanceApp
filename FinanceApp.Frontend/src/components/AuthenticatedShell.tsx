@@ -18,6 +18,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
   onLogout,
   defaultOpenKeys,
   activePortfolioId,
+  marketIndices,
   headerLeft,
   headerRight,
   children,
@@ -30,6 +31,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       onLogout={onLogout}
       defaultOpenKeys={defaultOpenKeys}
       activePortfolioId={activePortfolioId}
+      marketIndices={marketIndices}
     />
     <Layout className="app-workspace">
       <Header className="app-workspace-header">

@@ -18,7 +18,6 @@ describe('AppSidebar stocks-directories items contract', () => {
   it('keeps keys/routes unchanged and provides icon React elements', () => {
     expect(STOCKS_DIRECTORIES_MENU_ENTRIES).toMatchObject([
       { key: 'sectors', route: '/sectors', label: 'Секторы и отрасли' },
-      { key: 'market-indices', route: '/market-indices', label: 'Мировые индексы' },
       { key: 'financial-metrics', route: '/financial-metrics', label: 'Финансовые показатели' },
     ]);
 
@@ -31,7 +30,7 @@ describe('AppSidebar stocks-directories items contract', () => {
     const navigatedRoutes: string[] = [];
     const items = buildStocksDirectoriesMenuItems((route) => navigatedRoutes.push(route));
 
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(2);
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       const entry = STOCKS_DIRECTORIES_MENU_ENTRIES[index];
@@ -41,6 +40,6 @@ describe('AppSidebar stocks-directories items contract', () => {
       (item?.onClick as (() => void) | undefined)?.();
     }
 
-    expect(navigatedRoutes).toEqual(['/sectors', '/market-indices', '/financial-metrics']);
+    expect(navigatedRoutes).toEqual(['/sectors', '/financial-metrics']);
   });
 });
