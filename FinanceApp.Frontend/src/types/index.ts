@@ -228,6 +228,7 @@ export interface StockHistoryRefreshResponse {
   stockId: number;
   deletedPoints: number;
   importedPoints: number;
+  rateLimited?: boolean;
 }
 
 export type FundamentalsState = 'Fresh' | 'Stale' | 'Unavailable';
@@ -586,4 +587,27 @@ export interface IndexConstituentsRefreshResponse {
   unchanged: number;
   closed: number;
   conflicts?: number;
+}
+
+export interface IndexConstituentHistoryRefreshItemResponse {
+  stockId: number;
+  ticker: string;
+  exchange: string;
+  status: 'Succeeded' | 'Failed' | 'RateLimited' | 'SkippedRateLimited';
+  deletedPoints: number;
+  importedPoints: number;
+  error?: string | null;
+}
+
+export interface IndexConstituentHistoryRefreshBatchResponse {
+  marketIndexId: number;
+  total: number;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  rateLimited: number;
+  skippedRateLimited: number;
+  stoppedDueToRateLimit: boolean;
+  detailsTruncated: boolean;
+  results: IndexConstituentHistoryRefreshItemResponse[];
 }

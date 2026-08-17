@@ -112,3 +112,29 @@ public sealed class IndexConstituentsRefreshResponse
     public int Closed { get; init; }
     public int Conflicts { get; init; }
 }
+
+public sealed class IndexConstituentHistoryRefreshBatchResponse
+{
+    public int MarketIndexId { get; init; }
+    public int Total { get; init; }
+    public int Attempted { get; init; }
+    public int Succeeded { get; init; }
+    public int Failed { get; init; }
+    public int RateLimited { get; init; }
+    public int SkippedRateLimited { get; init; }
+    public bool StoppedDueToRateLimit { get; init; }
+    public bool DetailsTruncated { get; init; }
+    public IReadOnlyList<IndexConstituentHistoryRefreshItemResponse> Results { get; init; } = Array.Empty<IndexConstituentHistoryRefreshItemResponse>();
+}
+
+public sealed class IndexConstituentHistoryRefreshItemResponse
+{
+    public int StockId { get; init; }
+    public string Ticker { get; init; } = string.Empty;
+    public string Exchange { get; init; } = string.Empty;
+    /// <summary>Succeeded, Failed, RateLimited, SkippedRateLimited</summary>
+    public string Status { get; init; } = string.Empty;
+    public int DeletedPoints { get; init; }
+    public int ImportedPoints { get; init; }
+    public string? Error { get; init; }
+}

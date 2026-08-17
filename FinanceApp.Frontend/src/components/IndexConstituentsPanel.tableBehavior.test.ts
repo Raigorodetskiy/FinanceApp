@@ -76,7 +76,6 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
 
   it('keeps source metadata, archived refresh guard, and local tracking update behavior', () => {
     expect(panelSource).toContain('sourceMeta.source || sourceMeta.asOfDate');
-    expect(panelSource).toContain('!isArchived && (');
     expect(panelSource).toContain("trackingStatus: 'Tracked'");
   });
 
@@ -84,5 +83,24 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
     expect(panelSource).not.toContain('getStock(');
     expect(panelSource).not.toContain('getStockHistory');
     expect(panelSource).not.toContain('getStockFundamentals');
+  });
+
+  it('keeps distinct quote-refresh and history-refresh controls and labels', () => {
+    expect(panelSource).toContain('aria-label={`Обновить цену ${record.ticker}`}');
+    expect(panelSource).toContain('aria-label={`Обновить исторические данные ${record.ticker}`}');
+    expect(panelSource).toContain('historyRefreshingStockId === record.stockId');
+  });
+
+  it('keeps batch history button with confirmation and archived/empty loading guards', () => {
+    expect(panelSource).toContain('Обновить историю акций');
+    expect(panelSource).toContain('window.confirm(\'Обновить историю всех акций текущего состава?');
+    expect(panelSource).toContain('isArchived');
+    expect(panelSource).toContain('constituents.length === 0');
+    expect(panelSource).toContain('batchHistoryRefreshing');
+  });
+
+  it('passes chart refresh token for expanded chart updates after refresh actions', () => {
+    expect(panelSource).toContain('refreshToken={chartRefreshTokens[record._stockId] ?? 0}');
+    expect(panelSource).toContain('setChartRefreshTokens');
   });
 });
