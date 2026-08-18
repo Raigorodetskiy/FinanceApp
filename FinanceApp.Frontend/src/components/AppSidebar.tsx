@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   ApartmentOutlined,
   BookOutlined,
@@ -511,8 +511,6 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       return [];
     }
   });
-  const marketIndicesTitleToggleRequestedRef = useRef(false);
-
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -571,15 +569,24 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     });
   }, [portfoliosOpen, stocksOpen, stocksDirectoriesOpen, marketIndicesOpen, marketIndicesDescendantOpenKeys, activePortfolioId, defaultOpenKeys, selectedKeys]);
 
+  // Handle Market Indices submenu title click: directly toggle state so behavior
+  // is order-independent (Ant Design may fire onTitleClick before or after onOpenChange).
   const handleMarketIndicesTitleClick = useCallback(() => {
-    marketIndicesTitleToggleRequestedRef.current = true;
-  }, []);
+    const next = !marketIndicesOpen;
+    setMarketIndicesOpen(next);
+    if (!next) {
+      setMarketIndicesDescendantOpenKeys([]);
+    } else {
+      setStocksOpen(true);
+    }
+  }, [marketIndicesOpen]);
 
   // Handle submenu open/close changes from Ant Design.
+  // Market Indices open state is managed exclusively by handleMarketIndicesTitleClick,
+  // so onOpenChange is only used for portfolios, stocks, and stocksDirectories.
+  // The only exception is cascade: if the user explicitly closes stocks and the route
+  // does not require it, market indices is also cleared.
   const handleMenuOpenChange = useCallback((newOpenKeys: string[]) => {
-    const explicitMarketIndicesToggle = marketIndicesTitleToggleRequestedRef.current;
-    marketIndicesTitleToggleRequestedRef.current = false;
-
     const nextState = applySidebarOpenChange({
       portfoliosOpen,
       stocksOpen,
@@ -590,14 +597,18 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       defaultOpenKeys,
       selectedKeys,
       newOpenKeys,
-      explicitMarketIndicesToggle,
+      explicitMarketIndicesToggle: false,
     });
 
     setPortfoliosOpen(nextState.portfoliosOpen);
     setStocksOpen(nextState.stocksOpen);
     setStocksDirectoriesOpen(nextState.stocksDirectoriesOpen);
-    setMarketIndicesOpen(nextState.marketIndicesOpen);
-    setMarketIndicesDescendantOpenKeys(nextState.marketIndicesDescendantOpenKeys);
+    // Cascade: if stocks was explicitly closed (and route does not require it),
+    // also close market indices to keep state consistent.
+    if (!nextState.stocksOpen) {
+      setMarketIndicesOpen(false);
+      setMarketIndicesDescendantOpenKeys([]);
+    }
   }, [
     activePortfolioId,
     defaultOpenKeys,
