@@ -18,6 +18,7 @@ import {
   ReloadOutlined,
   CaretRightFilled,
   FundOutlined,
+  StarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -68,7 +69,8 @@ dayjs.extend(utc);
 
 const { Title, Text } = Typography;
 
-const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
+const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds (tracked page only)
+const CATALOG_PAGE_SIZE = 50;
 
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
@@ -118,7 +120,6 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
 const SAVED_PRICE_COL_WIDTH = 130;
-const TRACKING_STATUS_COL_WIDTH = 140;
 const INDEX_MEMBERSHIP_COL_WIDTH = 220;
 export const CHANGE_EUR_COL_WIDTH = 108;
 export const CHANGE_PCT_COL_WIDTH = 75;
@@ -163,6 +164,9 @@ const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): L
 });
 
 export const STOCKS_TABLE_TOTAL_COLS = 8;
+
+/** Catalog mode shows an extra Indices column instead of Статус. */
+const CATALOG_TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS + 1; // +Indices -Статус = net +1
 
 /** Label shown on the delayed-quote badge. */
 export const STALE_DELAY_LABEL = 'Задержано';
@@ -293,20 +297,25 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     }
 
     const query = catalogQuery.trim().toLowerCase();
-    if (query.length === 0) {
-      return stocks;
-    }
+    const base = query.length === 0
+      ? stocks
+      : stocks.filter((stock) => {
+          const indexNames = (stock.marketIndexIds ?? [])
+            .map((id) => marketIndexNameById.get(id) ?? '')
+            .join(' ')
+            .toLowerCase();
+          return stock.ticker.toLowerCase().includes(query)
+            || stock.name.toLowerCase().includes(query)
+            || stock.commonName.toLowerCase().includes(query)
+            || stock.exchange.toLowerCase().includes(query)
+            || indexNames.includes(query);
+        });
 
-    return stocks.filter((stock) => {
-      const indexNames = (stock.marketIndexIds ?? [])
-        .map((id) => marketIndexNameById.get(id) ?? '')
-        .join(' ')
-        .toLowerCase();
-      return stock.ticker.toLowerCase().includes(query)
-        || stock.name.toLowerCase().includes(query)
-        || stock.commonName.toLowerCase().includes(query)
-        || stock.exchange.toLowerCase().includes(query)
-        || indexNames.includes(query);
+    return [...base].sort((a, b) => {
+      const nameA = (a.commonName || a.name || '').trim();
+      const nameB = (b.commonName || b.name || '').trim();
+      const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      return cmp !== 0 ? cmp : a.ticker.localeCompare(b.ticker, undefined, { sensitivity: 'base' });
     });
   }, [catalogQuery, isCatalogMode, marketIndexNameById, stocks]);
   const { portfolioGroup, fraGroup, nyseGroup } = useMemo(
@@ -429,20 +438,22 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
   }, [isCatalogMode, persistConvertedPrice, refreshing]);
 
   useEffect(() => {
+    if (isCatalogMode) return;
     const autoRefreshTimer = setInterval(() => {
       handleRefreshPrices(true);
       setCountdown(AUTO_REFRESH_INTERVAL);
     }, AUTO_REFRESH_INTERVAL * 1000);
     return () => clearInterval(autoRefreshTimer);
-  }, [handleRefreshPrices]);
+  }, [handleRefreshPrices, isCatalogMode]);
 
   useEffect(() => {
+    if (isCatalogMode) return;
     setCountdown(AUTO_REFRESH_INTERVAL);
     const countdownTimer = setInterval(() => {
       setCountdown((prev) => (prev <= 1 ? AUTO_REFRESH_INTERVAL : prev - 1));
     }, 1000);
     return () => clearInterval(countdownTimer);
-  }, []);
+  }, [isCatalogMode]);
 
   const formatCountdown = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -564,7 +575,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     }
   };
 
-  const TOTAL_COLS = isCatalogMode ? STOCKS_TABLE_TOTAL_COLS + 2 : STOCKS_TABLE_TOTAL_COLS;
+  const TOTAL_COLS = isCatalogMode ? CATALOG_TOTAL_COLS : STOCKS_TABLE_TOTAL_COLS;
 
   const formatEur = (v: number) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
@@ -663,21 +674,6 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       },
     },
     ...(isCatalogMode ? [
-      {
-        title: 'Статус',
-        key: 'trackingStatus',
-        width: TRACKING_STATUS_COL_WIDTH,
-        render: (_: unknown, record: TableRow) => {
-          if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-          const stock = record as Stock;
-          const tracked = stock.trackingStatus !== TRACKING_STATUS_CATALOG_ONLY;
-          return (
-            <Tag color={tracked ? 'green' : 'default'}>
-              {tracked ? 'Отслеживается' : 'Не отслеживается'}
-            </Tag>
-          );
-        },
-      },
       {
         title: 'Индексы',
         key: 'indices',
@@ -832,31 +828,18 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           onOpenEdit: openEditModal,
           onDelete: handleDelete,
           trackingAction: isCatalogMode ? (
-            isTracked ? (
-              <Popconfirm
-                title="Удалить из отслеживаемых? Акция останется в «Список акций», индексах и портфелях."
-                onConfirm={() => handleSetTracking(stock, false)}
-                okText="Да"
-                cancelText="Нет"
-              >
+            <Tooltip title={isTracked ? 'Акция уже отслеживается' : 'Добавить в отслеживаемые'}>
+              <span>
                 <Button
-                  danger
+                  icon={<StarOutlined />}
                   size="small"
+                  aria-label={isTracked ? 'Акция уже отслеживается' : 'Добавить в отслеживаемые'}
+                  disabled={isTracked || trackingLoading}
                   loading={trackingLoading}
-                >
-                  Удалить из отслеживаемых
-                </Button>
-              </Popconfirm>
-            ) : (
-              <Button
-                type="primary"
-                size="small"
-                loading={trackingLoading}
-                onClick={() => handleSetTracking(stock, true)}
-              >
-                Добавить в отслеживаемые
-              </Button>
-            )
+                  onClick={isTracked ? undefined : () => handleSetTracking(stock, true)}
+                />
+              </span>
+            </Tooltip>
           ) : undefined,
         });
       },
@@ -901,7 +884,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           columns={columns}
           rowKey={getTableRowKey}
           tableLayout="fixed"
-          scroll={{ x: STOCKS_TABLE_SCROLL_X + (isCatalogMode ? TRACKING_STATUS_COL_WIDTH + INDEX_MEMBERSHIP_COL_WIDTH : 0) }}
+          scroll={{ x: STOCKS_TABLE_SCROLL_X }}
           pagination={false}
           rowClassName={(record: TableRow) => {
             if (isChartRow(record)) return 'chart-panel-row';
@@ -911,6 +894,17 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       </div>
     );
   };
+
+  const catalogRows = useMemo((): TableRow[] => {
+    const rows: TableRow[] = [];
+    for (const stock of filteredStocks) {
+      rows.push(stock);
+      if (expandedStockId === stock.id) {
+        rows.push({ _isChartRow: true, _stockId: stock.id });
+      }
+    }
+    return rows;
+  }, [filteredStocks, expandedStockId]);
 
   return (
     <>
@@ -927,16 +921,20 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
         )}
         headerRight={(
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Авто-обновление через {formatCountdown(countdown)}
-            </Text>
-            <Button
-              icon={<ReloadOutlined />}
-              loading={refreshing}
-              onClick={() => { handleRefreshPrices(false); setCountdown(AUTO_REFRESH_INTERVAL); }}
-            >
-              Обновить цены
-            </Button>
+            {!isCatalogMode && (
+              <>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Авто-обновление через {formatCountdown(countdown)}
+                </Text>
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={refreshing}
+                  onClick={() => { handleRefreshPrices(false); setCountdown(AUTO_REFRESH_INTERVAL); }}
+                >
+                  Обновить цены
+                </Button>
+              </>
+            )}
             {isCatalogMode && (
               <Input
                 placeholder="Поиск: тикер, название, биржа, индекс"
@@ -960,6 +958,28 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
             <Spin size="large" />
           </div>
+        ) : isCatalogMode ? (
+          filteredStocks.length === 0 ? (
+            <Text type="secondary">Нет акций по выбранным фильтрам</Text>
+          ) : (
+            <Table
+              className="stocks-table"
+              dataSource={catalogRows}
+              columns={columns}
+              rowKey={getTableRowKey}
+              tableLayout="fixed"
+              scroll={{ x: STOCKS_TABLE_SCROLL_X + INDEX_MEMBERSHIP_COL_WIDTH }}
+              pagination={{
+                pageSize: CATALOG_PAGE_SIZE,
+                showSizeChanger: false,
+                showTotal: (total) => `Всего: ${total}`,
+              }}
+              rowClassName={(record: TableRow) => {
+                if (isChartRow(record)) return 'chart-panel-row';
+                return '';
+              }}
+            />
+          )
         ) : (
           <>
             {portfolioGroup.length === 0 && fraGroup.length === 0 && nyseGroup.length === 0 ? (

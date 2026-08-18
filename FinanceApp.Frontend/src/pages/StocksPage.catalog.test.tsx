@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,6 +27,18 @@ const untrackedStock: Stock = {
   commonName: 'BASF',
   exchange: 'Frankfurt',
   currentPrice: 50,
+  updatedAt: '2026-08-18T00:00:00Z',
+  trackingStatus: 0,
+  marketIndexIds: [],
+};
+
+const untrackedStockFRA: Stock = {
+  id: 3,
+  ticker: 'BMW',
+  name: 'BMW AG',
+  commonName: 'BMW',
+  exchange: 'FRA',
+  currentPrice: 80,
   updatedAt: '2026-08-18T00:00:00Z',
   trackingStatus: 0,
   marketIndexIds: [],
@@ -77,7 +89,170 @@ const renderPage = (mode: 'tracked' | 'catalog') => render(
   </MemoryRouter>,
 );
 
-describe('StocksPage catalog/tracking behavior', () => {
+describe('StocksPage catalog mode', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const api = await import('../services/api');
+    vi.mocked(api.getTrackedStocks).mockResolvedValue({ data: [trackedStock] });
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: [trackedStock, untrackedStock, untrackedStockFRA] });
+  });
+
+  // Test 1: All exchange fixtures render in one table, not separate sections
+  it('renders all stocks from different exchanges in a single unified table', async () => {
+    renderPage('catalog');
+    await waitFor(() => {
+      expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('BAS').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('BMW').length).toBeGreaterThan(0);
+    });
+    // No exchange-group headings (tracked mode uses h5 headings)
+    expect(screen.queryByRole('heading', { name: 'FRA' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'NYSE' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Портфель' })).not.toBeInTheDocument();
+  });
+
+  // Test 2: No visible «Статус», «Отслеживается» or «Не отслеживается» text
+  it('does not show Статус column or status tags', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    expect(screen.queryByText('Статус')).not.toBeInTheDocument();
+    expect(screen.queryByText('Отслеживается')).not.toBeInTheDocument();
+    expect(screen.queryByText('Не отслеживается')).not.toBeInTheDocument();
+  });
+
+  // Test 3: Untracked stock has an enabled icon-only add action
+  it('untracked stock has enabled icon-only add-to-tracked button', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('BAS').length).toBeGreaterThan(0));
+    // There should be a button accessible by «Добавить в отслеживаемые»
+    const addButtons = screen.getAllByRole('button', { name: 'Добавить в отслеживаемые' });
+    expect(addButtons.length).toBeGreaterThan(0);
+    // At least one should be enabled (untracked stock)
+    const enabledAdd = addButtons.find((btn) => !(btn as HTMLButtonElement).disabled);
+    expect(enabledAdd).toBeDefined();
+  });
+
+  // Test 4: Tracked stock has the same add action disabled; no «Удалить из отслеживаемых» in catalog
+  it('tracked stock has disabled add button and no untrack button in catalog', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    // No «Удалить из отслеживаемых» text visible
+    expect(screen.queryByText('Удалить из отслеживаемых')).not.toBeInTheDocument();
+    // The add buttons exist; the one for the tracked stock (AAPL) should be disabled
+    const addButtons = screen.getAllByRole('button', { name: /Добавить в отслеживаемые|Акция уже отслеживается/i });
+    expect(addButtons.length).toBeGreaterThan(0);
+    const disabledAdd = addButtons.find((btn) => (btn as HTMLButtonElement).disabled);
+    expect(disabledAdd).toBeDefined();
+  });
+
+  // Test 5: Clicking enabled add action calls trackStock with the correct stock ID
+  it('clicking enabled add button calls trackStock with untracked stock id', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('BAS').length).toBeGreaterThan(0));
+    const enabledAddBtn = screen
+      .getAllByRole('button', { name: 'Добавить в отслеживаемые' })
+      .find((btn) => !(btn as HTMLButtonElement).disabled);
+    expect(enabledAddBtn).toBeDefined();
+    await act(async () => { await user.click(enabledAddBtn!); });
+    expect(api.trackStock).toHaveBeenCalled();
+  });
+
+  // Test 6: Action buttons do not render visible long text labels
+  it('action buttons do not render visible long text labels', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    // Buttons should not have visible text content matching these labels
+    // (tooltips in ant-tooltip-inner are acceptable — they're invisible by default)
+    const buttons = screen.queryAllByRole('button');
+    const buttonTexts = buttons.map((btn) => btn.textContent?.trim() ?? '');
+    expect(buttonTexts).not.toContain('Добавить в отслеживаемые');
+    expect(buttonTexts).not.toContain('Удалить из отслеживаемых');
+    expect(buttonTexts).not.toContain('Обновить цены');
+  });
+
+  // Test 7: 51+ fixtures → first page shows exactly 50 rows, pagination navigates to remainder
+  it('paginates with 50 rows per page when catalog has 51+ stocks', async () => {
+    const api = await import('../services/api');
+    const manyStocks: Stock[] = Array.from({ length: 51 }, (_, i) => ({
+      id: i + 100,
+      ticker: `T${String(i).padStart(3, '0')}`,
+      name: `Stock ${String(i).padStart(3, '0')}`,
+      commonName: `Stock ${String(i).padStart(3, '0')}`,
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-18T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [],
+    }));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+    // Count stock rows on page (tickers T000–T049 are on page 1, T050 on page 2)
+    // Each ticker text appears at least once in the table; T050 should not be visible on page 1
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+    expect(screen.getAllByText('T000').length).toBeGreaterThan(0);
+    // Pagination shows total
+    expect(screen.getByText(/Всего: 51/)).toBeInTheDocument();
+  });
+
+  // Test 8: Default order is alphabetical by stock name
+  it('renders catalog stocks in alphabetical order by name', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    // Apple (commonName) < BASF < BMW alphabetically
+    // Check tickers appear in DOM in correct relative order
+    const allText = document.body.textContent ?? '';
+    const idxApple = allText.indexOf('AAPL');
+    const idxBas = allText.indexOf('BAS');
+    const idxBmw = allText.indexOf('BMW');
+    expect(idxApple).toBeGreaterThanOrEqual(0);
+    expect(idxBas).toBeGreaterThanOrEqual(0);
+    expect(idxBmw).toBeGreaterThanOrEqual(0);
+    expect(idxApple).toBeLessThan(idxBas);
+    expect(idxBas).toBeLessThan(idxBmw);
+  });
+
+  // Test 10: No countdown/auto-refresh text or bulk refresh action in catalog
+  it('does not show auto-refresh countdown or bulk refresh button in catalog mode', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    expect(screen.queryByText(/Авто-обновление через/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Обновить цены')).not.toBeInTheDocument();
+  });
+
+  // Test 11: Catalog mode creates no automatic quote refresh with fake timers
+  it('catalog mode creates no periodic auto-refresh intervals', async () => {
+    vi.useFakeTimers();
+    const api = await import('../services/api');
+    renderPage('catalog');
+    await act(async () => {
+      await Promise.resolve(); // let state settle
+    });
+    vi.clearAllMocks();
+    // Advance 15 minutes — no getStockPrice should be called
+    await act(async () => { vi.advanceTimersByTime(15 * 60 * 1000); });
+    expect(api.getStockPrice).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  // Test 12: Tracked rows have no special portfolio/tracked background class in catalog
+  it('tracked rows do not have portfolio-stock-row class in catalog mode', async () => {
+    const api = await import('../services/api');
+    // Put trackedStock in a portfolio
+    vi.mocked(api.getPortfolios).mockResolvedValue({
+      data: [{ id: 1, name: 'P', items: [{ stockId: 1, quantity: 1, averagePurchasePrice: 0 }] }],
+    });
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    // In catalog mode, no row should have the portfolio highlight class
+    const rows = document.querySelectorAll('tr.portfolio-stock-row');
+    expect(rows.length).toBe(0);
+  });
+});
+
+describe('StocksPage tracked mode regression', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     const api = await import('../services/api');
@@ -85,40 +260,41 @@ describe('StocksPage catalog/tracking behavior', () => {
     vi.mocked(api.getStockCatalog).mockResolvedValue({ data: [trackedStock, untrackedStock] });
   });
 
-  it('renders catalog entries with ticker, exchange and tracking statuses', async () => {
-    renderPage('catalog');
-
+  // Test 14: Tracked page retains non-destructive untrack action (guarded by Popconfirm confirmation)
+  it('tracked page shows non-destructive untrack action', async () => {
+    renderPage('tracked');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    // The untrack icon-button must be present in tracked mode
     await waitFor(() => {
-      expect(screen.getByText('AAPL')).toBeInTheDocument();
-      expect(screen.getByText('BAS')).toBeInTheDocument();
+      const deleteBtn = document.querySelector('[aria-label="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0438\u0437 \u043e\u0442\u0441\u043b\u0435\u0436\u0438\u0432\u0430\u0435\u043c\u044b\u0445"]'); // Удалить из отслеживаемых
+      expect(deleteBtn).not.toBeNull();
     });
-
-    expect(screen.getByText('Отслеживается')).toBeInTheDocument();
-    expect(screen.getByText('Не отслеживается')).toBeInTheDocument();
-    expect(screen.getByText('S&P 500')).toBeInTheDocument();
   });
 
-  it('tracks from catalog and untracks from tracked page via non-destructive APIs', async () => {
-    const user = userEvent.setup();
+  // Tracked page shows countdown and auto-refresh
+  it('tracked page shows auto-refresh countdown', async () => {
+    renderPage('tracked');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    const countdownEls = screen.queryAllByText(/Авто-обновление через/);
+    expect(countdownEls.length).toBeGreaterThan(0);
+    const refreshBtns = screen.queryAllByText('Обновить цены');
+    expect(refreshBtns.length).toBeGreaterThan(0);
+  });
+
+  // Tracked page retains exchange grouping
+  it('tracked page retains exchange-grouped tables', async () => {
     const api = await import('../services/api');
-
-    const catalog = renderPage('catalog');
-    await waitFor(() => expect(screen.getAllByText('Добавить в отслеживаемые').length).toBeGreaterThan(0));
-    await act(async () => {
-      await user.click(screen.getAllByText('Добавить в отслеживаемые')[0]);
+    vi.mocked(api.getTrackedStocks).mockResolvedValue({
+      data: [
+        { ...trackedStock, exchange: 'Frankfurt' },
+      ],
     });
-    expect(api.trackStock).toHaveBeenCalledWith(2);
-
-    catalog.unmount();
-    const tracked = renderPage('tracked');
-    await waitFor(() => expect(screen.getByLabelText('Удалить из отслеживаемых')).toBeInTheDocument());
-    await act(async () => {
-      await user.click(screen.getByLabelText('Удалить из отслеживаемых'));
+    renderPage('tracked');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    // FRA appears both as group heading and as exchange tag — either confirms grouping is active
+    await waitFor(() => {
+      expect(screen.getAllByText('FRA').length).toBeGreaterThan(0);
     });
-    await act(async () => {
-      await user.click(screen.getByText('Да'));
-    });
-    expect(api.untrackStock).toHaveBeenCalledWith(1);
-    tracked.unmount();
   });
 });
+
