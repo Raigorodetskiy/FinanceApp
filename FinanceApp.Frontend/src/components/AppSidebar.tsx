@@ -63,7 +63,6 @@ export interface SidebarOpenKeysParams extends Omit<SidebarOpenState, 'marketInd
 
 export interface SidebarOpenChangeParams extends SidebarOpenKeysParams {
   newOpenKeys: string[];
-  explicitMarketIndicesToggle?: boolean;
 }
 
 export type PortfolioSection = 'positions' | 'transactions';
@@ -204,8 +203,9 @@ export function applySidebarOpenChange({
   activePortfolioId,
   defaultOpenKeys,
   newOpenKeys,
-  explicitMarketIndicesToggle = false,
 }: SidebarOpenChangeParams): SidebarOpenState {
+  // onOpenChange is only fired on submenu open/close, not on leaf item clicks.
+  // We can therefore trust the diff between current and new keys as the true user intent.
   const currentMarketIndicesDescendantKeys = filterMarketIndicesDescendantOpenKeys(marketIndicesDescendantOpenKeys);
   const nextMarketIndicesDescendantKeys = filterMarketIndicesDescendantOpenKeys(newOpenKeys);
   const currentKeys = computeSidebarOpenKeys({
@@ -259,20 +259,20 @@ export function applySidebarOpenChange({
     nextStocksDirectoriesOpen = true;
   }
 
+  // Market Indices: onOpenChange is the single authority.
+  // Because onOpenChange is never fired for leaf clicks, any diff here is a genuine
+  // submenu open or close action by the user (or a cascade from closing stocks).
   const prevHasMarketIndices = currentKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
   const nextHasMarketIndices = newOpenKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
   const routeRequiresMarketIndices = selectedKeys.some(isMarketIndicesSelectedKey);
   if (prevHasMarketIndices && !nextHasMarketIndices) {
     if (routeRequiresMarketIndices) {
+      // Route forces visibility; do not honour user close.
       nextMarketIndicesOpen = true;
-    } else if (!nextHasStocks) {
-      nextMarketIndicesOpen = false;
-      nextMarketIndicesDescendantOpenKeys = [];
-    } else if (explicitMarketIndicesToggle) {
-      nextMarketIndicesOpen = false;
-      nextMarketIndicesDescendantOpenKeys = [];
     } else {
-      nextMarketIndicesOpen = true;
+      // User explicitly closed the submenu (or stocks cascade closed it).
+      nextMarketIndicesOpen = false;
+      nextMarketIndicesDescendantOpenKeys = [];
     }
   } else if (!prevHasMarketIndices && nextHasMarketIndices) {
     nextMarketIndicesOpen = true;
@@ -298,7 +298,6 @@ export interface BuildSidebarMenuItemsParams {
   activePortfolioId?: string | number;
   marketIndices?: MarketIndex[];
   onNavigate: (route: string) => void;
-  onMarketIndicesTitleClick?: () => void;
 }
 
 export function buildSidebarMenuItems({
@@ -306,7 +305,6 @@ export function buildSidebarMenuItems({
   activePortfolioId,
   marketIndices = [],
   onNavigate,
-  onMarketIndicesTitleClick,
 }: BuildSidebarMenuItemsParams): MenuProps['items'] {
   const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
     const pid = portfolio.id;
@@ -406,7 +404,6 @@ export function buildSidebarMenuItems({
           key: MARKET_INDICES_SIDEBAR_PARENT_KEY,
           icon: <GlobalOutlined />,
           label: 'Мировые индексы',
-          onTitleClick: onMarketIndicesTitleClick,
           children: [
             {
               key: MARKET_INDICES_MANAGE_KEY,
@@ -569,23 +566,9 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     });
   }, [portfoliosOpen, stocksOpen, stocksDirectoriesOpen, marketIndicesOpen, marketIndicesDescendantOpenKeys, activePortfolioId, defaultOpenKeys, selectedKeys]);
 
-  // Handle Market Indices submenu title click: directly toggle state so behavior
-  // is order-independent (Ant Design may fire onTitleClick before or after onOpenChange).
-  const handleMarketIndicesTitleClick = useCallback(() => {
-    const next = !marketIndicesOpen;
-    setMarketIndicesOpen(next);
-    if (!next) {
-      setMarketIndicesDescendantOpenKeys([]);
-    } else {
-      setStocksOpen(true);
-    }
-  }, [marketIndicesOpen]);
-
-  // Handle submenu open/close changes from Ant Design.
-  // Market Indices open state is managed exclusively by handleMarketIndicesTitleClick,
-  // so onOpenChange is only used for portfolios, stocks, and stocksDirectories.
-  // The only exception is cascade: if the user explicitly closes stocks and the route
-  // does not require it, market indices is also cleared.
+  // Handle all submenu open/close changes from Ant Design.
+  // onOpenChange is the single authority for submenu state: it fires only on submenu
+  // open/close actions, not on leaf item clicks, so any diff is genuine user intent.
   const handleMenuOpenChange = useCallback((newOpenKeys: string[]) => {
     const nextState = applySidebarOpenChange({
       portfoliosOpen,
@@ -597,18 +580,13 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
       defaultOpenKeys,
       selectedKeys,
       newOpenKeys,
-      explicitMarketIndicesToggle: false,
     });
 
     setPortfoliosOpen(nextState.portfoliosOpen);
     setStocksOpen(nextState.stocksOpen);
     setStocksDirectoriesOpen(nextState.stocksDirectoriesOpen);
-    // Cascade: if stocks was explicitly closed (and route does not require it),
-    // also close market indices to keep state consistent.
-    if (!nextState.stocksOpen) {
-      setMarketIndicesOpen(false);
-      setMarketIndicesDescendantOpenKeys([]);
-    }
+    setMarketIndicesOpen(nextState.marketIndicesOpen);
+    setMarketIndicesDescendantOpenKeys(nextState.marketIndicesDescendantOpenKeys);
   }, [
     activePortfolioId,
     defaultOpenKeys,
@@ -630,8 +608,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     activePortfolioId,
     marketIndices,
     onNavigate: handleNavigate,
-    onMarketIndicesTitleClick: handleMarketIndicesTitleClick,
-  }), [portfolios, activePortfolioId, marketIndices, handleNavigate, handleMarketIndicesTitleClick]);
+  }), [portfolios, activePortfolioId, marketIndices, handleNavigate]);
 
   const bottomItems: NonNullable<MenuProps['items']> = [
     {

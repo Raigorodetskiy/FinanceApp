@@ -115,7 +115,6 @@ describe('AppSidebar open state', () => {
       marketIndicesDescendantOpenKeys: [],
       selectedKeys: [marketIndexSidebarKey(3)],
       newOpenKeys: ['stocks'],
-      explicitMarketIndicesToggle: true,
     });
 
     const keys = computeSidebarOpenKeys({
@@ -127,7 +126,9 @@ describe('AppSidebar open state', () => {
     expect(keys).toContain('market-indices-root');
   });
 
-  it('keeps market indices open when tracked stocks navigation emits reconciliation openKeys', () => {
+  it('closing market indices from onOpenChange while on tracked stocks route closes it (leaf navigation does not call onOpenChange)', () => {
+    // onOpenChange is NOT called on leaf clicks, so this represents a genuine user
+    // submenu close action: market indices should be closed and descendants cleared.
     const state = applySidebarOpenChange({
       portfoliosOpen: false,
       stocksOpen: true,
@@ -139,8 +140,8 @@ describe('AppSidebar open state', () => {
     });
 
     expect(state.stocksOpen).toBe(true);
-    expect(state.marketIndicesOpen).toBe(true);
-    expect(state.marketIndicesDescendantOpenKeys).toEqual([`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/advanced`]);
+    expect(state.marketIndicesOpen).toBe(false);
+    expect(state.marketIndicesDescendantOpenKeys).toEqual([]);
   });
 
   it('keeps market indices closed when tracked stocks navigation starts from closed state', () => {
@@ -159,7 +160,7 @@ describe('AppSidebar open state', () => {
     expect(state.marketIndicesDescendantOpenKeys).toEqual([]);
   });
 
-  it('explicit title clicks toggle market indices open then closed while keeping stocks open', () => {
+  it('onOpenChange toggles market indices open then closed while keeping stocks open', () => {
     const opened = applySidebarOpenChange({
       portfoliosOpen: false,
       stocksOpen: true,
@@ -168,14 +169,12 @@ describe('AppSidebar open state', () => {
       marketIndicesDescendantOpenKeys: [],
       selectedKeys: ['dashboard'],
       newOpenKeys: ['stocks', 'market-indices-root'],
-      explicitMarketIndicesToggle: true,
     });
 
     const closed = applySidebarOpenChange({
       ...opened,
       selectedKeys: ['dashboard'],
       newOpenKeys: ['stocks'],
-      explicitMarketIndicesToggle: true,
     });
 
     expect(opened.marketIndicesOpen).toBe(true);
@@ -183,7 +182,7 @@ describe('AppSidebar open state', () => {
     expect(closed.stocksOpen).toBe(true);
   });
 
-  it('explicit market indices close clears descendants and keeps unrelated sections unchanged', () => {
+  it('market indices close clears descendants and keeps unrelated sections unchanged', () => {
     const state = applySidebarOpenChange({
       portfoliosOpen: false,
       stocksOpen: true,
@@ -195,7 +194,6 @@ describe('AppSidebar open state', () => {
       ],
       selectedKeys: ['dashboard'],
       newOpenKeys: ['stocks', 'stocks-directories'],
-      explicitMarketIndicesToggle: true,
     });
 
     expect(state.stocksOpen).toBe(true);
