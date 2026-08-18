@@ -266,7 +266,7 @@ describe('StocksPage tracked mode regression', () => {
     await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
     // The untrack icon-button must be present in tracked mode
     await waitFor(() => {
-      const deleteBtn = document.querySelector('[aria-label="\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0438\u0437 \u043e\u0442\u0441\u043b\u0435\u0436\u0438\u0432\u0430\u0435\u043c\u044b\u0445"]'); // Удалить из отслеживаемых
+      const deleteBtn = document.querySelector('[aria-label="Удалить из отслеживаемых"]'); // exact aria-label
       expect(deleteBtn).not.toBeNull();
     });
   });

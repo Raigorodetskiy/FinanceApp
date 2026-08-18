@@ -165,8 +165,11 @@ const preserveEntry = (current: LivePriceEntry | undefined, loading: boolean): L
 
 export const STOCKS_TABLE_TOTAL_COLS = 8;
 
-/** Catalog mode shows an extra Indices column instead of Статус. */
-const CATALOG_TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS + 1; // +Indices -Статус = net +1
+/**
+ * Catalog mode adds an Indices column that is absent in tracked mode (8 cols).
+ * Tracked mode never showed Indices; catalog removes Статус and adds Indices — net +1 vs tracked baseline.
+ */
+const CATALOG_TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS + 1;
 
 /** Label shown on the delayed-quote badge. */
 export const STALE_DELAY_LABEL = 'Задержано';
@@ -836,7 +839,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
                   aria-label={isTracked ? 'Акция уже отслеживается' : 'Добавить в отслеживаемые'}
                   disabled={isTracked || trackingLoading}
                   loading={trackingLoading}
-                  onClick={isTracked ? undefined : () => handleSetTracking(stock, true)}
+                  onClick={!isTracked && !trackingLoading ? () => handleSetTracking(stock, true) : undefined}
                 />
               </span>
             </Tooltip>
