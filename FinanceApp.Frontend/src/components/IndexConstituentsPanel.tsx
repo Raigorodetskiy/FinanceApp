@@ -18,6 +18,7 @@ import {
   ReloadOutlined,
   CaretRightFilled,
   FundOutlined,
+  EditOutlined,
   BarChartOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
@@ -29,6 +30,7 @@ import {
   getIndexConstituentHistory,
   getIndexConstituents,
   getIndexConstituentHistoryRefreshJob,
+  getStock,
   getStockPrice,
   refreshIndexConstituentHistory,
   refreshIndexConstituents,
@@ -36,8 +38,13 @@ import {
   startIndexConstituentsBatchQuoteRefresh,
   getIndexConstituentsBatchQuoteRefreshJob,
   trackStock,
+  updateStockMetadata,
   updateStockQuote,
 } from '../services/api';
+import StockEditModal, {
+  buildUpdateStockMetadataPayload,
+  loadStockMetadataLookups,
+} from './StockEditModal';
 import StockExchangeTag from './StockExchangeTag';
 import StockFundamentalsDrawer from './StockFundamentalsDrawer';
 import StockPriceChart from './StockPriceChart';
@@ -49,11 +56,15 @@ import type {
   IndexConstituentHistoryRefreshBatchResponse,
   IndexConstituentHistoryRefreshJobState,
   IndexConstituentsRefreshResponse,
+  MarketIndex,
+  SectorDto,
+  Stock,
   StockHistoryRange,
   StockQuoteResponse,
   UpdateStockQuoteRequest,
   UpdateStockQuoteResponse,
 } from '../types';
+import { StockTrackingStatus } from '../types';
 import { INDEX_HISTORY_JOB_POLL_INTERVAL_MS, INDEX_HISTORY_JOB_POLL_TIMEOUT_MS } from './indexConstituentHistoryRefresh';
 import {
   INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
@@ -265,6 +276,50 @@ export const getTrackButtonState = (trackingStatus: string, trackingLoading: boo
   };
 };
 
+const getTrackingStatusLabel = (trackingStatus?: StockTrackingStatus): string =>
+  trackingStatus === StockTrackingStatus.CatalogOnly ? 'CatalogOnly' : 'Tracked';
+
+export const mergeEditedStockIntoConstituents = (
+  constituents: IndexConstituentDto[],
+  updatedStock: Stock,
+  indexId: number,
+): IndexConstituentDto[] => {
+  if (!(updatedStock.marketIndexIds ?? []).includes(indexId)) {
+    return constituents.filter((item) => item.stockId !== updatedStock.id);
+  }
+
+  return constituents.map((item) => (
+    item.stockId === updatedStock.id
+      ? {
+        ...item,
+        ticker: updatedStock.ticker,
+        providerSymbol: updatedStock.providerSymbol ?? null,
+        name: updatedStock.name,
+        commonName: updatedStock.commonName,
+        exchange: updatedStock.exchange,
+        isin: updatedStock.isin ?? null,
+        wkn: updatedStock.wkn ?? null,
+        finanzenNetSlug: updatedStock.finanzenNetSlug ?? null,
+        currentPrice: updatedStock.currentPrice,
+        currentPriceChange: updatedStock.currentPriceChange ?? null,
+        currentPriceChangePercent: updatedStock.currentPriceChangePercent ?? null,
+        currentPriceAt: updatedStock.currentPriceAt ?? null,
+        trackingStatus: getTrackingStatusLabel(updatedStock.trackingStatus),
+      }
+      : item
+  ));
+};
+
+const removeStateEntry = <T,>(entries: Record<number, T>, stockId: number): Record<number, T> => {
+  if (!(stockId in entries)) {
+    return entries;
+  }
+
+  const next = { ...entries };
+  delete next[stockId];
+  return next;
+};
+
 export const beginConstituentQuoteRefresh = (inFlight: Set<number>, stockId: number): boolean => {
   if (inFlight.has(stockId)) {
     return false;
@@ -366,6 +421,13 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   const [batchQuoteRetryWaitText, setBatchQuoteRetryWaitText] = useState<string | null>(null);
   const [batchQuoteSummary, setBatchQuoteSummary] = useState<{ text: string; level: 'success' | 'warning' | 'error' | 'info' } | null>(null);
   const batchQuoteAbortRef = useRef<AbortController | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editModalLoading, setEditModalLoading] = useState(false);
+  const [editingStockId, setEditingStockId] = useState<number | null>(null);
+  const [editingStock, setEditingStock] = useState<Stock | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [sectors, setSectors] = useState<SectorDto[]>([]);
+  const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
   const [fundamentalsStock, setFundamentalsStock] = useState<{
     id: number;
     ticker: string;
@@ -402,6 +464,82 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  const ensureEditLookupsLoaded = useCallback(async () => {
+    if (sectors.length > 0 || marketIndices.length > 0) {
+      return;
+    }
+
+    const lookupData = await loadStockMetadataLookups();
+    setSectors(lookupData.sectors);
+    setMarketIndices(lookupData.marketIndices);
+    if (lookupData.marketIndicesLoadFailed) {
+      void messageApi.warning('Не удалось загрузить мировые индексы');
+    }
+  }, [marketIndices.length, messageApi, sectors.length]);
+
+  const handleEditCancel = useCallback(() => {
+    if (editSubmitting) {
+      return;
+    }
+
+    setEditModalOpen(false);
+    setEditModalLoading(false);
+    setEditingStockId(null);
+    setEditingStock(null);
+  }, [editSubmitting]);
+
+  const handleOpenEdit = useCallback(async (constituent: IndexConstituentDto) => {
+    setEditModalOpen(true);
+    setEditModalLoading(true);
+    setEditingStockId(constituent.stockId);
+    setEditingStock(null);
+
+    try {
+      const [stockResponse] = await Promise.all([
+        getStock(constituent.stockId),
+        ensureEditLookupsLoaded(),
+      ]);
+      setEditingStock(stockResponse.data);
+    } catch (err) {
+      setEditModalOpen(false);
+      void messageApi.error(getErrMsg(err, 'Ошибка загрузки акции'));
+    } finally {
+      setEditModalLoading(false);
+      setEditingStockId(null);
+    }
+  }, [ensureEditLookupsLoaded, messageApi]);
+
+  const handleEditSubmit = useCallback(async (values: Parameters<typeof buildUpdateStockMetadataPayload>[0]) => {
+    if (editingStock == null) {
+      return;
+    }
+
+    setEditSubmitting(true);
+    try {
+      await updateStockMetadata(editingStock.id, buildUpdateStockMetadataPayload(values));
+      const freshStock = (await getStock(editingStock.id)).data;
+
+      setConstituents((prev) => mergeEditedStockIntoConstituents(prev, freshStock, indexId));
+      setLivePrices((prev) => removeStateEntry(prev, editingStock.id));
+      setChartRefreshTokens((prev) => ({
+        ...removeStateEntry(prev, editingStock.id),
+        [editingStock.id]: (prev[editingStock.id] ?? 0) + 1,
+      }));
+      setExpandedStockId((prev) => (
+        (freshStock.marketIndexIds ?? []).includes(indexId) ? prev : (prev === editingStock.id ? null : prev)
+      ));
+      setFundamentalsStock((prev) => prev?.id === editingStock.id ? null : prev);
+      setEditModalOpen(false);
+      setEditingStock(null);
+      void messageApi.success('Акция обновлена');
+      await loadData();
+    } catch (err) {
+      void messageApi.error(getErrMsg(err, 'Ошибка сохранения акции'));
+    } finally {
+      setEditSubmitting(false);
+    }
+  }, [editingStock, indexId, loadData, messageApi]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -915,6 +1053,15 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
                 onClick={() => setFundamentalsStock({ id: record.stockId, ticker: record.ticker, name: record.name })}
               />
             </Tooltip>
+            <Tooltip title="Редактировать акцию">
+              <Button
+                icon={<EditOutlined />}
+                size="small"
+                aria-label="Редактировать акцию"
+                loading={editingStockId === record.stockId}
+                onClick={() => void handleOpenEdit(record)}
+              />
+            </Tooltip>
             {trackButtonState.isTracked ? (
               <Tooltip title={trackButtonState.tooltip}>
                 <span>{addButton}</span>
@@ -1067,6 +1214,17 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         stock={fundamentalsStock}
         open={fundamentalsStock != null}
         onClose={() => setFundamentalsStock(null)}
+      />
+      <StockEditModal
+        open={editModalOpen}
+        mode="edit"
+        stock={editingStock}
+        sectors={sectors}
+        marketIndices={marketIndices}
+        loading={editModalLoading}
+        submitting={editSubmitting}
+        onCancel={handleEditCancel}
+        onSubmit={handleEditSubmit}
       />
     </div>
   );

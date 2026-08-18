@@ -1070,6 +1070,177 @@ public class StocksControllerTests
         Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == stock.Id));
     }
 
+    [Fact]
+    public async Task GetById_ReturnsOnlyActiveMarketIndexIds_ExcludingFormerMemberships()
+    {
+        await using var context = CreateContext();
+        var formerIndex = new MarketIndex
+        {
+            Id = 1,
+            Name = "Former",
+            NormalizedName = "FORMER",
+            Code = "FRM",
+            NormalizedCode = "FRM",
+            SortOrder = 1,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var activeIndex = new MarketIndex
+        {
+            Id = 2,
+            Name = "Active",
+            NormalizedName = "ACTIVE",
+            Code = "ACT",
+            NormalizedCode = "ACT",
+            SortOrder = 2,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.MarketIndices.AddRange(formerIndex, activeIndex);
+        context.Stocks.Add(new Stock
+        {
+            Id = 302,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { StockId = 302, MarketIndexId = 1, MarketIndex = formerIndex, EffectiveTo = DateTime.UtcNow.AddDays(-1) },
+                new() { StockId = 302, MarketIndexId = 2, MarketIndex = activeIndex }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetById(302);
+
+        var stock = Assert.IsType<Stock>(result.Value);
+        Assert.Equal(new[] { 2 }, stock.MarketIndexIds);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_CatalogOnlyStock_PreservesTrackingStatus()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 303,
+            Ticker = "SAP",
+            Name = "SAP SE",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(existing.Id, new UpdateStockMetadataRequest
+        {
+            Name = "SAP SE Updated",
+            CommonName = "SAP Updated",
+            CurrentPrice = 101m
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, await context.Stocks.Select(x => x.TrackingStatus).SingleAsync());
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_UnchangedMarketIndexIds_DoesNotChurnMembershipHistory()
+    {
+        await using var context = CreateContext();
+        var marketIndex = new MarketIndex
+        {
+            Id = 4,
+            Name = "S&P 500",
+            NormalizedName = "S&P 500",
+            Code = "SPX",
+            NormalizedCode = "SPX",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.MarketIndices.Add(marketIndex);
+        context.Stocks.Add(new Stock
+        {
+            Id = 304,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { StockId = 304, MarketIndexId = 4, MarketIndex = marketIndex }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(304, new UpdateStockMetadataRequest
+        {
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            CurrentPrice = 100m,
+            MarketIndexIds = new List<int> { 4 }
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == 304));
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == 304 && x.EffectiveTo == null));
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_ExistingArchivedMarketIndexBinding_IsAllowed()
+    {
+        await using var context = CreateContext();
+        var archivedIndex = new MarketIndex
+        {
+            Id = 6,
+            Name = "Archived",
+            NormalizedName = "ARCHIVED",
+            Code = "ARC",
+            NormalizedCode = "ARC",
+            IsArchived = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.MarketIndices.Add(archivedIndex);
+        context.Stocks.Add(new Stock
+        {
+            Id = 305,
+            Ticker = "SAP",
+            Name = "SAP SE",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { StockId = 305, MarketIndexId = 6, MarketIndex = archivedIndex }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(305, new UpdateStockMetadataRequest
+        {
+            Name = "SAP SE Updated",
+            CommonName = "SAP",
+            CurrentPrice = 100m,
+            MarketIndexIds = new List<int> { 6 }
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == 305 && x.EffectiveTo == null));
+    }
+
 
     private static AppDbContext CreateContext()
     {
