@@ -21,12 +21,27 @@ describe('AppSidebar open state', () => {
     expect(keys).not.toContain('market-indices-root');
   });
 
-  it('opens stocks and nested market indices on an index route', () => {
+  it('opens stocks (but not market-indices-root) on an index route when marketIndicesOpen is false', () => {
+    // Route-based initial reveal is handled by the useState initializer, not computeSidebarOpenKeys.
+    // When marketIndicesOpen=false (explicit close or persisted preference), route does NOT force it open.
     const keys = computeSidebarOpenKeys({
       portfoliosOpen: false,
       stocksOpen: false,
       stocksDirectoriesOpen: false,
       marketIndicesOpen: false,
+      selectedKeys: [marketIndexSidebarKey(5)],
+    });
+
+    expect(keys).toContain('stocks');
+    expect(keys).not.toContain('market-indices-root');
+  });
+
+  it('opens stocks and nested market indices on an index route when marketIndicesOpen is true', () => {
+    const keys = computeSidebarOpenKeys({
+      portfoliosOpen: false,
+      stocksOpen: false,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: true,
       selectedKeys: [marketIndexSidebarKey(5)],
     });
 
@@ -106,7 +121,7 @@ describe('AppSidebar open state', () => {
     expect(state.marketIndicesOpen).toBe(false);
   });
 
-  it('cannot close required nested market indices on an index route', () => {
+  it('explicit close on an active index route is honoured (route does not override user intent)', () => {
     const state = applySidebarOpenChange({
       portfoliosOpen: false,
       stocksOpen: true,
@@ -117,13 +132,9 @@ describe('AppSidebar open state', () => {
       newOpenKeys: ['stocks'],
     });
 
-    const keys = computeSidebarOpenKeys({
-      ...state,
-      selectedKeys: [marketIndexSidebarKey(3)],
-    });
-
-    expect(keys).toContain('stocks');
-    expect(keys).toContain('market-indices-root');
+    expect(state.marketIndicesOpen).toBe(false);
+    expect(state.marketIndicesDescendantOpenKeys).toEqual([]);
+    expect(state.stocksOpen).toBe(true);
   });
 
   it('closing market indices from onOpenChange while on tracked stocks route closes it (leaf navigation does not call onOpenChange)', () => {

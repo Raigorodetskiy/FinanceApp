@@ -158,10 +158,12 @@ export function computeSidebarOpenKeys({
   const keys: string[] = [];
   const hasStocksSelection = selectedKeys.some(isStocksSelectedKey);
   const hasStocksDirectoriesSelection = selectedKeys.some(isStocksDirectoriesSelectedKey);
-  const hasMarketIndicesSelection = selectedKeys.some(isMarketIndicesSelectedKey);
   const marketIndicesDescendantKeys = filterMarketIndicesDescendantOpenKeys(marketIndicesDescendantOpenKeys);
   const stocksRootOpen = stocksOpen || hasStocksSelection;
-  const marketIndicesSubtreeOpen = marketIndicesOpen || hasMarketIndicesSelection;
+  // marketIndicesSubtreeOpen deliberately uses only the controlled state, NOT selectedKeys.
+  // Route-based initial reveal is handled by the useState initializer in AppSidebar.
+  // This ensures an explicit user close is always honoured even on active index routes.
+  const marketIndicesSubtreeOpen = marketIndicesOpen;
 
   if (portfoliosOpen || activePortfolioId != null) {
     keys.push('portfolios');
@@ -262,18 +264,16 @@ export function applySidebarOpenChange({
   // Market Indices: onOpenChange is the single authority.
   // Because onOpenChange is never fired for leaf clicks, any diff here is a genuine
   // submenu open or close action by the user (or a cascade from closing stocks).
+  // An explicit close is always honoured — even when the active route is inside
+  // the market-indices subtree — so that a repeated click on the title actually
+  // collapses the submenu. Initial reveal is handled by the useState initializer
+  // (one-time, not re-evaluated on every render).
   const prevHasMarketIndices = currentKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
   const nextHasMarketIndices = newOpenKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
-  const routeRequiresMarketIndices = selectedKeys.some(isMarketIndicesSelectedKey);
   if (prevHasMarketIndices && !nextHasMarketIndices) {
-    if (routeRequiresMarketIndices) {
-      // Route forces visibility; do not honour user close.
-      nextMarketIndicesOpen = true;
-    } else {
-      // User explicitly closed the submenu (or stocks cascade closed it).
-      nextMarketIndicesOpen = false;
-      nextMarketIndicesDescendantOpenKeys = [];
-    }
+    // User explicitly closed the submenu (or stocks cascade closed it).
+    nextMarketIndicesOpen = false;
+    nextMarketIndicesDescendantOpenKeys = [];
   } else if (!prevHasMarketIndices && nextHasMarketIndices) {
     nextMarketIndicesOpen = true;
     nextStocksOpen = true;
