@@ -7,4 +7,11 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  test: {
+    environment: 'node',
+    environmentMatchGlobs: [
+      ['**/*.interaction.test.tsx', 'jsdom'],
+    ],
+    setupFiles: ['./src/test-setup.ts'],
+  },
 });
