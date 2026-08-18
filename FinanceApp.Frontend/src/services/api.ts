@@ -112,6 +112,8 @@ export const deleteOrder = (portfolioId: number, orderId: number) =>
 
 // Stocks
 export const getStocks = () => api.get<Stock[]>('/Stocks');
+export const getTrackedStocks = () => api.get<Stock[]>('/Stocks/tracked');
+export const getStockCatalog = () => api.get<Stock[]>('/Stocks/catalog');
 export const getStock = (id: number) => api.get<Stock>(`/Stocks/${id}`);
 export const createStock = (data: CreateStockRequest) => api.post<Stock>('/Stocks', data);
 export const updateStock = (id: number, data: UpdateStockRequest) => api.put<Stock>(`/Stocks/${id}`, data);
@@ -259,5 +261,7 @@ export const getIndexConstituentPerformance = (
 
 export const trackStock = (id: number) =>
   api.post<Stock>(`/stocks/${id}/track`);
+export const untrackStock = (id: number) =>
+  api.post<Stock>(`/stocks/${id}/untrack`);
 
 export default api;

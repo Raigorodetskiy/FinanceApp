@@ -106,6 +106,14 @@ public class StocksController : ControllerBase
         return PrepareStocksForResponse(await query.ToListAsync());
     }
 
+    [HttpGet("tracked")]
+    public Task<ActionResult<IEnumerable<Stock>>> GetTracked()
+        => GetAll(includeCatalog: false);
+
+    [HttpGet("catalog")]
+    public Task<ActionResult<IEnumerable<Stock>>> GetCatalog()
+        => GetAll(includeCatalog: true);
+
     [HttpGet("{id}")]
     public async Task<ActionResult<Stock>> GetById(int id)
     {
@@ -418,6 +426,32 @@ public class StocksController : ControllerBase
             {
                 _logger.LogWarning(ex, "Stock promoted but history sync failed for stock {StockId}", stock.Id);
             }
+        }
+
+        return PrepareStockForResponse(stock);
+    }
+
+    /// <summary>
+    /// Demotes a Tracked stock to CatalogOnly without deleting the stock record.
+    /// If the stock is already CatalogOnly, returns 200 without changes.
+    /// </summary>
+    [HttpPost("{id}/untrack")]
+    public async Task<ActionResult<Stock>> Untrack(int id, CancellationToken cancellationToken = default)
+    {
+        var stock = await _context.Stocks
+            .Include(s => s.Industry)
+            .ThenInclude(i => i!.Sector)
+            .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
+            .ThenInclude(x => x.MarketIndex)
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+
+        if (stock == null) return NotFound();
+
+        if (stock.TrackingStatus != StockTrackingStatus.CatalogOnly)
+        {
+            stock.TrackingStatus = StockTrackingStatus.CatalogOnly;
+            stock.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         return PrepareStockForResponse(stock);

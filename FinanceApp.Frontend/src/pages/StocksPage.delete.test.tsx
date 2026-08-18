@@ -33,7 +33,7 @@ describe('StockDeleteAction', () => {
     const button = getProtectedDeleteButton(element);
     expect(button.type).toBe(Button);
     expect(button.props.disabled).toBe(true);
-    expect(button.props['aria-label']).toBe('Удалить');
+    expect(button.props['aria-label']).toBe('Удалить из отслеживаемых');
     button.props.onClick?.();
     expect(onDelete).not.toHaveBeenCalled();
   });
@@ -43,7 +43,7 @@ describe('StockDeleteAction', () => {
     const element = StockDeleteAction({ isProtected: false, onDelete }) as React.ReactElement;
 
     expect(element.type).toBe(Popconfirm);
-    expect(element.props.title).toBe('Удалить акцию?');
+    expect(element.props.title).toBe('Удалить из отслеживаемых? Акция останется в «Список акций», индексах и портфелях.');
 
     const tooltip = element.props.children as React.ReactElement;
     expect(tooltip.type).toBe(Tooltip);
@@ -71,7 +71,7 @@ describe('getStockDeleteErrorMessage', () => {
   });
 
   it('falls back to generic delete error for unknown failures', () => {
-    expect(getStockDeleteErrorMessage(new Error('boom'))).toBe('Ошибка удаления акции');
+    expect(getStockDeleteErrorMessage(new Error('boom'))).toBe('Ошибка удаления из отслеживаемых');
   });
 });
 

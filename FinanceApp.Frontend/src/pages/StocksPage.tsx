@@ -8,6 +8,7 @@ import {
   message,
   Tag,
   Tooltip,
+  Input,
 } from 'antd';
 import axios from 'axios';
 import {
@@ -21,14 +22,16 @@ import {
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
-  getStocks,
+  getStockCatalog,
   getStock,
   createStock,
   updateStockMetadata,
   updateStockQuote,
-  deleteStock,
+  getTrackedStocks,
   getPortfolios,
   getStockPrice,
+  trackStock,
+  untrackStock,
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockEditModal, {
@@ -45,6 +48,7 @@ import type {
   MarketIndex,
   SectorDto,
   Stock,
+  StockTrackingStatus,
   StockQuoteResponse,
   UpdateStockQuoteRequest,
 } from '../types';
@@ -69,9 +73,9 @@ const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
-export const STOCK_DELETE_TOOLTIP = 'Удалить';
-export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить, пока она находится в портфеле';
-const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления акции';
+export const STOCK_DELETE_TOOLTIP = 'Удалить из отслеживаемых';
+export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить из отслеживаемых, пока она находится в портфеле';
+const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления из отслеживаемых';
 
 export const getStockDeleteErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err) && typeof err.response?.data === 'string' && err.response.data.trim().length > 0) {
@@ -90,7 +94,7 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
   const buttonWithTooltip = (
     <Tooltip title={isProtected ? PROTECTED_STOCK_DELETE_TOOLTIP : STOCK_DELETE_TOOLTIP}>
       <span>
-        <Button icon={<DeleteOutlined />} size="small" aria-label="Удалить" disabled={isProtected} />
+        <Button icon={<DeleteOutlined />} size="small" aria-label="Удалить из отслеживаемых" disabled={isProtected} />
       </span>
     </Tooltip>
   );
@@ -101,7 +105,7 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
 
   return (
     <Popconfirm
-      title="Удалить акцию?"
+      title="Удалить из отслеживаемых? Акция останется в «Список акций», индексах и портфелях."
       onConfirm={onDelete}
       okText="Да"
       cancelText="Нет"
@@ -114,6 +118,8 @@ export const StockDeleteAction: React.FC<StockDeleteActionProps> = ({ isProtecte
 const TICKER_COL_WIDTH = 220;
 const NAME_COL_WIDTH = 300;
 const SAVED_PRICE_COL_WIDTH = 130;
+const TRACKING_STATUS_COL_WIDTH = 140;
+const INDEX_MEMBERSHIP_COL_WIDTH = 220;
 export const CHANGE_EUR_COL_WIDTH = 108;
 export const CHANGE_PCT_COL_WIDTH = 75;
 export const PRICE_TIME_COL_WIDTH = 135;
@@ -139,6 +145,7 @@ const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 
 const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
 const FLEX_MIN_WIDTH_STYLE: React.CSSProperties = { minWidth: 0, flex: 1 };
+const TRACKING_STATUS_CATALOG_ONLY: StockTrackingStatus = 0;
 
 type LivePriceEntry = {
   quote: StockQuoteResponse | null;
@@ -195,6 +202,7 @@ type StockRowActionsProps = {
   onOpenFundamentals: (stock: Stock) => void;
   onOpenEdit: (stock: Stock) => void;
   onDelete: (stockId: number) => void;
+  trackingAction?: React.ReactElement;
 };
 
 export const renderStockRowActions = ({
@@ -205,6 +213,7 @@ export const renderStockRowActions = ({
   onOpenFundamentals,
   onOpenEdit,
   onDelete,
+  trackingAction,
 }: StockRowActionsProps): React.ReactElement => {
   const quote = live?.quote ?? null;
   return (
@@ -235,13 +244,20 @@ export const renderStockRowActions = ({
           onClick={() => onOpenEdit(stock)}
         />
       </Tooltip>
-      <StockDeleteAction isProtected={isProtectedStock} onDelete={() => onDelete(stock.id)} />
+      {trackingAction ?? <StockDeleteAction isProtected={isProtectedStock} onDelete={() => onDelete(stock.id)} />}
     </div>
   );
 };
 
 
-const StocksPage: React.FC = () => {
+type StocksPageMode = 'tracked' | 'catalog';
+
+interface StocksPageProps {
+  mode?: StocksPageMode;
+}
+
+const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
+  const isCatalogMode = mode === 'catalog';
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [sectors, setSectors] = useState<SectorDto[]>([]);
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
@@ -255,6 +271,8 @@ const StocksPage: React.FC = () => {
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
+  const [trackingLoadingByStock, setTrackingLoadingByStock] = useState<Record<number, boolean>>({});
+  const [catalogQuery, setCatalogQuery] = useState('');
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
   const portfolioStockIds = useMemo(() => {
@@ -268,16 +286,40 @@ const StocksPage: React.FC = () => {
     });
     return ids;
   }, [portfolios]);
+  const marketIndexNameById = useMemo(() => new Map<number, string>(marketIndices.map((idx) => [idx.id, idx.name])), [marketIndices]);
+  const filteredStocks = useMemo(() => {
+    if (!isCatalogMode) {
+      return stocks;
+    }
+
+    const query = catalogQuery.trim().toLowerCase();
+    if (query.length === 0) {
+      return stocks;
+    }
+
+    return stocks.filter((stock) => {
+      const indexNames = (stock.marketIndexIds ?? [])
+        .map((id) => marketIndexNameById.get(id) ?? '')
+        .join(' ')
+        .toLowerCase();
+      return stock.ticker.toLowerCase().includes(query)
+        || stock.name.toLowerCase().includes(query)
+        || stock.commonName.toLowerCase().includes(query)
+        || stock.exchange.toLowerCase().includes(query)
+        || indexNames.includes(query);
+    });
+  }, [catalogQuery, isCatalogMode, marketIndexNameById, stocks]);
   const { portfolioGroup, fraGroup, nyseGroup } = useMemo(
-    () => groupStocks(stocks, portfolioStockIds),
-    [stocks, portfolioStockIds],
+    () => groupStocks(filteredStocks, portfolioStockIds),
+    [filteredStocks, portfolioStockIds],
   );
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const stocksRequest = isCatalogMode ? getStockCatalog() : getTrackedStocks();
       const [stocksRes, portfoliosRes, lookupData] = await Promise.all([
-        getStocks(),
+        stocksRequest,
         getPortfolios(),
         loadStockMetadataLookups(),
       ]);
@@ -294,11 +336,11 @@ const StocksPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isCatalogMode]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const persistConvertedPrice = useCallback(async (stock: Stock, quote: StockQuoteResponse) => {
     const patch = buildQuotePatch(quote);
@@ -314,7 +356,15 @@ const StocksPage: React.FC = () => {
     setRefreshing(true);
     try {
       const currentStocks = stocksRef.current;
-      const stocksWithTicker = currentStocks.filter((s) => s.ticker?.trim());
+      const stocksWithTicker = currentStocks.filter((s) => {
+        if (!s.ticker?.trim()) {
+          return false;
+        }
+        if (!isCatalogMode) {
+          return true;
+        }
+        return s.trackingStatus !== TRACKING_STATUS_CATALOG_ONLY;
+      });
 
       setLivePrices((prev) => {
         const next = { ...prev };
@@ -376,7 +426,7 @@ const StocksPage: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
-  }, [persistConvertedPrice, refreshing]);
+  }, [isCatalogMode, persistConvertedPrice, refreshing]);
 
   useEffect(() => {
     const autoRefreshTimer = setInterval(() => {
@@ -442,11 +492,29 @@ const StocksPage: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     try {
-      await deleteStock(id);
-      message.success('Акция удалена');
+      await untrackStock(id);
+      message.success('Акция удалена из отслеживаемых');
       fetchData();
     } catch (err: unknown) {
       message.error(getStockDeleteErrorMessage(err));
+    }
+  };
+
+  const handleSetTracking = async (stock: Stock, tracked: boolean) => {
+    setTrackingLoadingByStock((prev) => ({ ...prev, [stock.id]: true }));
+    try {
+      if (tracked) {
+        await trackStock(stock.id);
+        message.success('Акция добавлена в отслеживаемые');
+      } else {
+        await untrackStock(stock.id);
+        message.success('Акция удалена из отслеживаемых');
+      }
+      fetchData();
+    } catch {
+      message.error(tracked ? 'Ошибка добавления в отслеживаемые' : 'Ошибка удаления из отслеживаемых');
+    } finally {
+      setTrackingLoadingByStock((prev) => ({ ...prev, [stock.id]: false }));
     }
   };
 
@@ -496,7 +564,7 @@ const StocksPage: React.FC = () => {
     }
   };
 
-  const TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS;
+  const TOTAL_COLS = isCatalogMode ? STOCKS_TABLE_TOTAL_COLS + 2 : STOCKS_TABLE_TOTAL_COLS;
 
   const formatEur = (v: number) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
@@ -594,6 +662,43 @@ const StocksPage: React.FC = () => {
         );
       },
     },
+    ...(isCatalogMode ? [
+      {
+        title: 'Статус',
+        key: 'trackingStatus',
+        width: TRACKING_STATUS_COL_WIDTH,
+        render: (_: unknown, record: TableRow) => {
+          if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+          const stock = record as Stock;
+          const tracked = stock.trackingStatus !== TRACKING_STATUS_CATALOG_ONLY;
+          return (
+            <Tag color={tracked ? 'green' : 'default'}>
+              {tracked ? 'Отслеживается' : 'Не отслеживается'}
+            </Tag>
+          );
+        },
+      },
+      {
+        title: 'Индексы',
+        key: 'indices',
+        width: INDEX_MEMBERSHIP_COL_WIDTH,
+        render: (_: unknown, record: TableRow) => {
+          if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+          const stock = record as Stock;
+          const ids = stock.marketIndexIds ?? [];
+          if (ids.length === 0) {
+            return <Text type="secondary">—</Text>;
+          }
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {ids.map((indexId) => (
+                <Tag key={indexId}>{marketIndexNameById.get(indexId) ?? `#${indexId}`}</Tag>
+              ))}
+            </div>
+          );
+        },
+      },
+    ] : []),
     {
       title: 'Текущая цена',
       key: 'savedPrice',
@@ -716,6 +821,8 @@ const StocksPage: React.FC = () => {
         const stock = record as Stock;
         const live = livePrices[stock.id];
         const isProtectedStock = portfolioStockIds.has(stock.id);
+        const isTracked = stock.trackingStatus !== TRACKING_STATUS_CATALOG_ONLY;
+        const trackingLoading = trackingLoadingByStock[stock.id] === true;
         return renderStockRowActions({
           stock,
           live,
@@ -724,6 +831,33 @@ const StocksPage: React.FC = () => {
           onOpenFundamentals: (selectedStock) => setFundamentalsStock(selectedStock),
           onOpenEdit: openEditModal,
           onDelete: handleDelete,
+          trackingAction: isCatalogMode ? (
+            isTracked ? (
+              <Popconfirm
+                title="Удалить из отслеживаемых? Акция останется в «Список акций», индексах и портфелях."
+                onConfirm={() => handleSetTracking(stock, false)}
+                okText="Да"
+                cancelText="Нет"
+              >
+                <Button
+                  danger
+                  size="small"
+                  loading={trackingLoading}
+                >
+                  Удалить из отслеживаемых
+                </Button>
+              </Popconfirm>
+            ) : (
+              <Button
+                type="primary"
+                size="small"
+                loading={trackingLoading}
+                onClick={() => handleSetTracking(stock, true)}
+              >
+                Добавить в отслеживаемые
+              </Button>
+            )
+          ) : undefined,
         });
       },
     },
@@ -767,7 +901,7 @@ const StocksPage: React.FC = () => {
           columns={columns}
           rowKey={getTableRowKey}
           tableLayout="fixed"
-          scroll={{ x: STOCKS_TABLE_SCROLL_X }}
+          scroll={{ x: STOCKS_TABLE_SCROLL_X + (isCatalogMode ? TRACKING_STATUS_COL_WIDTH + INDEX_MEMBERSHIP_COL_WIDTH : 0) }}
           pagination={false}
           rowClassName={(record: TableRow) => {
             if (isChartRow(record)) return 'chart-panel-row';
@@ -782,13 +916,13 @@ const StocksPage: React.FC = () => {
     <>
       <AuthenticatedShell
         portfolios={portfolios}
-        selectedKeys={['stocks-list']}
+        selectedKeys={[isCatalogMode ? 'stocks-catalog' : 'stocks-list']}
         marketIndices={marketIndices}
         userName={user?.username}
         onLogout={logout}
         headerLeft={(
           <Title level={4} style={{ margin: 0 }}>
-            Акции
+            {isCatalogMode ? 'Список акций' : 'Отслеживаемые акции'}
           </Title>
         )}
         headerRight={(
@@ -803,6 +937,15 @@ const StocksPage: React.FC = () => {
             >
               Обновить цены
             </Button>
+            {isCatalogMode && (
+              <Input
+                placeholder="Поиск: тикер, название, биржа, индекс"
+                value={catalogQuery}
+                onChange={(event) => setCatalogQuery(event.target.value)}
+                allowClear
+                style={{ width: 320 }}
+              />
+            )}
             <Button
               type="primary"
               icon={<PlusOutlined />}

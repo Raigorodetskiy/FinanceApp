@@ -7,6 +7,7 @@ import {
   MARKET_INDICES_SIDEBAR_PARENT_KEY,
   marketIndexRoute,
   marketIndexSidebarKey,
+  STOCKS_CATALOG_KEY,
   STOCKS_DIRECTORIES_PARENT_KEY,
 } from './AppSidebar';
 
@@ -50,6 +51,7 @@ describe('AppSidebar market indices hierarchy', () => {
     const stockChildren = stocksItem?.children ?? [];
     expect(stockChildren.map((item) => item?.key)).toEqual([
       'stocks-list',
+      STOCKS_CATALOG_KEY,
       MARKET_INDICES_SIDEBAR_PARENT_KEY,
     ]);
     expect(stockChildren[0]?.label).toBe('Отслеживаемые акции');
@@ -87,10 +89,14 @@ describe('AppSidebar market indices hierarchy', () => {
     });
     const stocksItem = items?.find((item) => item?.key === 'stocks');
     const trackedStocksItem = stocksItem?.children?.find((item) => item?.key === 'stocks-list');
+    const catalogStocksItem = stocksItem?.children?.find((item) => item?.key === STOCKS_CATALOG_KEY);
     (trackedStocksItem?.onClick as (() => void) | undefined)?.();
+    (catalogStocksItem?.onClick as (() => void) | undefined)?.();
 
     expect(trackedStocksItem?.key).toBe('stocks-list');
+    expect(catalogStocksItem?.key).toBe(STOCKS_CATALOG_KEY);
     expect(routes).toContain('/stocks');
+    expect(routes).toContain('/stocks/catalog');
     expect(marketIndexSidebarKey(7)).toBe('market-index-7');
     expect(marketIndexRoute(7)).toBe('/market-indices/7');
   });

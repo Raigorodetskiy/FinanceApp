@@ -74,7 +74,8 @@ vi.mock('../services/api', async () => {
   const actual = await vi.importActual<typeof import('../services/api')>('../services/api');
   return {
     ...actual,
-    getStocks: vi.fn().mockResolvedValue({ data: [] }),
+    getTrackedStocks: vi.fn().mockResolvedValue({ data: [] }),
+    getStockCatalog: vi.fn().mockResolvedValue({ data: [] }),
     getPortfolios: vi.fn().mockResolvedValue({ data: [] }),
     getMe: vi.fn().mockResolvedValue({ data: { id: 1, username: 'testuser', email: 'test@example.com' } }),
     getSectors: vi.fn().mockResolvedValue([]),
@@ -187,7 +188,7 @@ describe('StocksPage → AppSidebar market indices data flow (Bug #2)', () => {
 
     // Navigate to tracked stocks
     await act(async () => {
-      await user.click(screen.getByText('Отслеживаемые акции'));
+      await user.click(screen.getAllByText('Отслеживаемые акции')[0]);
     });
 
     // Market Indices must remain open and entries must still be visible

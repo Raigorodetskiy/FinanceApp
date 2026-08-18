@@ -21,6 +21,20 @@ describe('AppSidebar open state', () => {
     expect(keys).not.toContain('market-indices-root');
   });
 
+  it('keeps /stocks/catalog opening only the stocks submenu', () => {
+    const keys = computeSidebarOpenKeys({
+      portfoliosOpen: false,
+      stocksOpen: false,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: false,
+      selectedKeys: ['stocks-catalog'],
+    });
+
+    expect(keys).toContain('stocks');
+    expect(keys).not.toContain('stocks-directories');
+    expect(keys).not.toContain('market-indices-root');
+  });
+
   it('opens stocks (but not market-indices-root) on an index route when marketIndicesOpen is false', () => {
     // Route-based initial reveal is handled by the useState initializer, not computeSidebarOpenKeys.
     // When marketIndicesOpen=false (explicit close or persisted preference), route does NOT force it open.
