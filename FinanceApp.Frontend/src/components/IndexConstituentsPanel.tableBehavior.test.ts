@@ -6,9 +6,10 @@ import {
   getConstituentTableRowKey,
   getTrackButtonState,
   INDEX_CONSTITUENTS_TOTAL_COLS,
+  mergeEditedStockIntoConstituents,
   makeConstituentRows,
 } from './IndexConstituentsPanel';
-import type { IndexConstituentDto } from '../types';
+import type { IndexConstituentDto, Stock } from '../types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const panelSource = readFileSync(join(__dirname, 'IndexConstituentsPanel.tsx'), 'utf8');
@@ -68,9 +69,9 @@ describe('IndexConstituentsPanel plus-action state contracts', () => {
 });
 
 describe('IndexConstituentsPanel action/behavior contracts', () => {
-  it('renders fundamentals action and does not render edit/delete actions', () => {
+  it('renders fundamentals and edit actions but still does not render delete actions', () => {
     expect(panelSource).toContain('FundOutlined');
-    expect(panelSource).not.toContain('EditOutlined');
+    expect(panelSource).toContain('EditOutlined');
     expect(panelSource).not.toContain('DeleteOutlined');
   });
 
@@ -79,10 +80,17 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
     expect(panelSource).toContain("trackingStatus: 'Tracked'");
   });
 
-  it('does not perform per-row stock detail requests (no getStock/getStockHistory/getStockFundamentals imports)', () => {
-    expect(panelSource).not.toContain('getStock(');
+  it('loads authoritative stock details before editing but still avoids direct row history/fundamentals imports', () => {
+    expect(panelSource).toContain('getStock(');
+    expect(panelSource).toContain('updateStockMetadata(');
+    expect(panelSource).toContain('StockEditModal');
     expect(panelSource).not.toContain('getStockHistory');
     expect(panelSource).not.toContain('getStockFundamentals');
+  });
+
+  it('labels the new row edit action accessibly in Russian', () => {
+    expect(panelSource).toContain('aria-label="Редактировать акцию"');
+    expect(panelSource).toContain('<Tooltip title="Редактировать акцию">');
   });
 
   it('keeps quote-refresh control and removes row-level history-refresh control', () => {
@@ -128,5 +136,63 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
   it('shows distinct persistence-failure text without pretending the provider fetch failed', () => {
     expect(panelSource).toContain('QUOTE_PERSIST_FAILURE_MESSAGE');
     expect(panelSource).toContain('Цена получена, но не удалось сохранить её');
+  });
+});
+
+describe('IndexConstituentsPanel edit reconciliation helpers', () => {
+  const constituent = makeConstituent({
+    stockId: 1,
+    providerSymbol: 'AAPL',
+    currentPrice: 100,
+    currentPriceChange: 2,
+    currentPriceChangePercent: 1.5,
+    currentPriceAt: '2026-08-18T00:00:00Z',
+  });
+
+  it('updates the existing row immediately when the stock remains in the current index', () => {
+    const updatedStock: Stock = {
+      id: 1,
+      ticker: 'AAPL',
+      providerSymbol: 'AAPL',
+      name: 'Apple Inc. Updated',
+      commonName: 'Apple',
+      exchange: 'NASDAQ',
+      currentPrice: 110,
+      currentPriceChange: null,
+      currentPriceChangePercent: null,
+      currentPriceAt: null,
+      updatedAt: '2026-08-18T01:00:00Z',
+      marketIndexIds: [5, 7],
+      trackingStatus: 0,
+    };
+
+    const result = mergeEditedStockIntoConstituents([constituent], updatedStock, 5);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      stockId: 1,
+      name: 'Apple Inc. Updated',
+      currentPrice: 110,
+      currentPriceChange: null,
+      currentPriceChangePercent: null,
+      currentPriceAt: null,
+      trackingStatus: 'CatalogOnly',
+    });
+  });
+
+  it('removes the row immediately when the edited stock is no longer assigned to the current index', () => {
+    const updatedStock: Stock = {
+      id: 1,
+      ticker: 'AAPL',
+      name: 'Apple Inc.',
+      commonName: 'Apple',
+      exchange: 'NASDAQ',
+      currentPrice: 100,
+      updatedAt: '2026-08-18T01:00:00Z',
+      marketIndexIds: [7],
+      trackingStatus: 1,
+    };
+
+    expect(mergeEditedStockIntoConstituents([constituent], updatedStock, 5)).toEqual([]);
   });
 });

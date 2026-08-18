@@ -2,12 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Table,
   Button,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-  Space,
   Spin,
   Typography,
   Popconfirm,
@@ -35,10 +29,13 @@ import {
   deleteStock,
   getPortfolios,
   getStockPrice,
-  getSectors,
-  getMarketIndices,
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
+import StockEditModal, {
+  buildCreateStockPayload,
+  buildUpdateStockMetadataPayload,
+  loadStockMetadataLookups,
+} from '../components/StockEditModal';
 import StockPriceChart from '../components/StockPriceChart';
 import StockFundamentalsDrawer from '../components/StockFundamentalsDrawer';
 import StockExchangeTag from '../components/StockExchangeTag';
@@ -48,16 +45,20 @@ import type {
   MarketIndex,
   SectorDto,
   Stock,
-  StockExchange,
   StockQuoteResponse,
-  UpdateStockMetadataRequest,
   UpdateStockQuoteRequest,
 } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
-import { isValidFinanzenNetSlug } from '../utils/finanzenNet';
 import { isQuoteDelayed } from '../utils/quote';
 import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
+
+export {
+  buildCreateStockPayload,
+  buildUpdateStockMetadataPayload,
+  IDENTITY_IMMUTABLE_HELPER,
+  STOCK_MARKET_INDEX_SELECT_MODE,
+} from '../components/StockEditModal';
 
 dayjs.extend(utc);
 
@@ -68,72 +69,9 @@ const AUTO_REFRESH_INTERVAL = 10 * 60; // 10 minutes in seconds
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const PORTFOLIO_ROW_CLASS = 'portfolio-stock-row';
-const DEFAULT_STOCK_EXCHANGE: StockExchange = 'NYSE';
-const exchangeLabelByValue: Record<StockExchange, string> = {
-  NYSE: 'NYSE',
-  NASDAQ: 'NASDAQ',
-  Frankfurt: 'Frankfurt',
-};
-const exchangeOptions: { label: string; value: StockExchange }[] = [
-  { label: exchangeLabelByValue.NYSE, value: 'NYSE' },
-  { label: exchangeLabelByValue.NASDAQ, value: 'NASDAQ' },
-  { label: exchangeLabelByValue.Frankfurt, value: 'Frankfurt' },
-];
 export const STOCK_DELETE_TOOLTIP = 'Удалить';
 export const PROTECTED_STOCK_DELETE_TOOLTIP = 'Акцию нельзя удалить, пока она находится в портфеле';
 const STOCK_DELETE_GENERIC_ERROR = 'Ошибка удаления акции';
-export const IDENTITY_IMMUTABLE_HELPER = 'Тикер и биржа определяют инструмент и не могут быть изменены. Для другого тикера или биржи создайте новую акцию.';
-export const STOCK_MARKET_INDEX_SELECT_MODE = 'multiple';
-
-type StockFormValues = {
-  ticker: string;
-  name: string;
-  commonName?: string;
-  exchange: StockExchange;
-  currentPrice: number;
-  wkn?: string;
-  isin?: string;
-  finanzenNetSlug?: string;
-  sectorId?: number;
-  industryId?: number | null;
-  marketIndexIds?: number[];
-};
-
-export const buildCreateStockPayload = (values: StockFormValues) => {
-  const normalizeId = (v?: string): string | null => {
-    const s = (v ?? '').trim().toUpperCase();
-    return s.length > 0 ? s : null;
-  };
-
-  const normalizedName = values.name.trim();
-  const normalizedCommonName = (values.commonName ?? '').trim() || normalizedName;
-
-  return {
-    ...values,
-    name: normalizedName,
-    commonName: normalizedCommonName,
-    wkn: normalizeId(values.wkn),
-    isin: normalizeId(values.isin),
-    finanzenNetSlug: (values.finanzenNetSlug ?? '').trim().toLowerCase() || null,
-    exchange: values.exchange,
-    industryId: values.industryId ?? null,
-    marketIndexIds: values.marketIndexIds ?? [],
-  };
-};
-
-export const buildUpdateStockMetadataPayload = (values: StockFormValues): UpdateStockMetadataRequest => {
-  const payload = buildCreateStockPayload(values);
-  return {
-    name: payload.name,
-    commonName: payload.commonName,
-    wkn: payload.wkn,
-    isin: payload.isin,
-    finanzenNetSlug: payload.finanzenNetSlug,
-    currentPrice: payload.currentPrice,
-    industryId: payload.industryId,
-    marketIndexIds: payload.marketIndexIds,
-  };
-};
 
 export const getStockDeleteErrorMessage = (err: unknown): string => {
   if (axios.isAxiosError(err) && typeof err.response?.data === 'string' && err.response.data.trim().length > 0) {
@@ -317,10 +255,8 @@ const StocksPage: React.FC = () => {
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
   const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
-  const [form] = Form.useForm();
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
-  const selectedFormSectorId = Form.useWatch('sectorId', form) as number | undefined;
   const portfolioStockIds = useMemo(() => {
     const ids = new Set<number>();
     portfolios.forEach((portfolio) => {
@@ -340,18 +276,17 @@ const StocksPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [stocksRes, portfoliosRes, sectorsRes] = await Promise.all([
+      const [stocksRes, portfoliosRes, lookupData] = await Promise.all([
         getStocks(),
         getPortfolios(),
-        getSectors(true),
+        loadStockMetadataLookups(),
       ]);
-      const marketIndicesRes = await getMarketIndices(true).catch(() => null);
       setStocks(stocksRes.data);
       stocksRef.current = stocksRes.data;
       setPortfolios(portfoliosRes.data);
-      setSectors(sectorsRes);
-      setMarketIndices(marketIndicesRes ?? []);
-      if (marketIndicesRes == null) {
+      setSectors(lookupData.sectors);
+      setMarketIndices(lookupData.marketIndices);
+      if (lookupData.marketIndicesLoadFailed) {
         message.warning('Не удалось загрузить мировые индексы');
       }
     } catch {
@@ -467,28 +402,15 @@ const StocksPage: React.FC = () => {
 
   const openCreateModal = () => {
     setEditingStock(null);
-    form.resetFields();
-    form.setFieldsValue({
-      exchange: DEFAULT_STOCK_EXCHANGE,
-      sectorId: undefined,
-      industryId: undefined,
-      marketIndexIds: [],
-    });
     setModalOpen(true);
   };
 
   const openEditModal = (stock: Stock) => {
     setEditingStock(stock);
-    form.setFieldsValue({
-      ...stock,
-      sectorId: stock.sector?.id,
-      industryId: stock.industryId ?? undefined,
-      marketIndexIds: stock.marketIndexIds ?? [],
-    });
     setModalOpen(true);
   };
 
-  const handleSubmit = async (values: StockFormValues) => {
+  const handleSubmit = async (values: Parameters<typeof buildUpdateStockMetadataPayload>[0]) => {
     setSubmitting(true);
     try {
       if (editingStock) {
@@ -499,7 +421,7 @@ const StocksPage: React.FC = () => {
         message.success('Акция добавлена');
       }
       setModalOpen(false);
-      form.resetFields();
+      setEditingStock(null);
       fetchData();
     } catch (err: unknown) {
       const errorMsg =
@@ -578,85 +500,6 @@ const StocksPage: React.FC = () => {
 
   const formatEur = (v: number) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
-  const renderClassificationName = (name: string, isArchived: boolean) => (
-    <Space size={6}>
-      <span>{name}</span>
-      {isArchived && (
-        <Tag color="default" style={{ marginInlineEnd: 0 }}>
-          Архив
-        </Tag>
-      )}
-    </Space>
-  );
-  const sectorOptions = useMemo(() => {
-    const options = sectors
-      .filter((sector) => !sector.isArchived)
-      .map((sector) => ({
-        value: sector.id,
-        label: renderClassificationName(sector.name, sector.isArchived),
-      }));
-
-    if (
-      editingStock?.sector
-      && editingStock.sector.isArchived
-      && !options.some((option) => option.value === editingStock.sector?.id)
-    ) {
-      options.push({
-        value: editingStock.sector.id,
-        label: renderClassificationName(editingStock.sector.name, true),
-      });
-    }
-
-    return options;
-  }, [editingStock, sectors]);
-  const industryOptions = useMemo(() => {
-    if (selectedFormSectorId == null) {
-      return [];
-    }
-
-    const selectedSector = sectors.find((sector) => sector.id === selectedFormSectorId);
-    const options = (selectedSector?.industries ?? [])
-      .filter((industry) => !industry.isArchived)
-      .map((industry) => ({
-        value: industry.id,
-        label: renderClassificationName(industry.name, industry.isArchived),
-      }));
-
-    if (
-      editingStock?.industry
-      && editingStock.industry.isArchived
-      && editingStock.sector?.id === selectedFormSectorId
-      && !options.some((option) => option.value === editingStock.industry?.id)
-    ) {
-      options.push({
-        value: editingStock.industry.id,
-        label: renderClassificationName(editingStock.industry.name, true),
-      });
-    }
-
-    return options;
-  }, [editingStock, sectors, selectedFormSectorId]);
-  const marketIndexOptions = useMemo(() => {
-    const options = marketIndices
-      .filter((marketIndex) => !marketIndex.isArchived)
-      .map((marketIndex) => ({
-        value: marketIndex.id,
-        label: renderClassificationName(`${marketIndex.code} — ${marketIndex.name}`, marketIndex.isArchived),
-      }));
-
-    const selectedIds = editingStock?.marketIndexIds ?? [];
-    selectedIds.forEach((marketIndexId) => {
-      const marketIndex = marketIndices.find((item) => item.id === marketIndexId);
-      if (marketIndex && marketIndex.isArchived && !options.some((option) => option.value === marketIndex.id)) {
-        options.push({
-          value: marketIndex.id,
-          label: renderClassificationName(`${marketIndex.code} — ${marketIndex.name}`, true),
-        });
-      }
-    });
-
-    return options;
-  }, [editingStock, marketIndices]);
   const columns = [
     {
       title: 'Тикер',
@@ -992,160 +835,16 @@ const StocksPage: React.FC = () => {
         open={fundamentalsStock !== null}
         onClose={() => setFundamentalsStock(null)}
       />
-      <Modal
-        title={editingStock ? 'Редактировать акцию' : 'Добавить акцию'}
+      <StockEditModal
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); setEditingStock(null); }}
-        footer={null}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{ exchange: DEFAULT_STOCK_EXCHANGE }}
-          onFinish={handleSubmit}
-        >
-          <Form.Item
-            label="Тикер"
-            name="ticker"
-            rules={[{ required: true, message: 'Введите тикер' }]}
-            extra={editingStock ? IDENTITY_IMMUTABLE_HELPER : undefined}
-          >
-            <Input placeholder="AAPL" disabled={!!editingStock} />
-          </Form.Item>
-          <Form.Item
-            label="Название"
-            name="name"
-            rules={[{ required: true, message: 'Введите название' }]}
-          >
-            <Input placeholder="Apple Inc." />
-          </Form.Item>
-          <Form.Item
-            label="Общее название"
-            name="commonName"
-            extra="Используется для обозначения одной и той же компании/бумаги на разных биржах."
-          >
-            <Input placeholder="Если оставить пустым, будет использовано поле «Название»" />
-          </Form.Item>
-          <Form.Item
-            label="Биржа"
-            name="exchange"
-            rules={[{ required: true, message: 'Выберите биржу' }]}
-          >
-            <Select options={exchangeOptions} disabled={!!editingStock} />
-          </Form.Item>
-          <Form.Item label="Сектор" name="sectorId">
-            <Select
-              allowClear
-              placeholder="Не выбран"
-              options={sectorOptions}
-              onChange={(value) => {
-                form.setFieldsValue({ sectorId: value, industryId: undefined });
-              }}
-            />
-          </Form.Item>
-          <Form.Item label="Отрасль" name="industryId">
-            <Select
-              allowClear
-              placeholder={selectedFormSectorId != null ? 'Не выбрана' : 'Сначала выберите сектор'}
-              options={industryOptions}
-              disabled={selectedFormSectorId == null}
-            />
-          </Form.Item>
-          <Form.Item label="Мировые индексы" name="marketIndexIds">
-            <Select
-              mode={STOCK_MARKET_INDEX_SELECT_MODE}
-              allowClear
-              placeholder="Не выбраны"
-              options={marketIndexOptions}
-            />
-          </Form.Item>
-          <Form.Item
-            label="Текущая цена (€)"
-            name="currentPrice"
-            rules={[{ required: true, message: 'Введите текущую цену' }]}
-          >
-            <InputNumber
-              min={0}
-              step={0.01}
-              style={{ width: '100%' }}
-              placeholder="0.00"
-              prefix="€"
-            />
-          </Form.Item>
-          <Form.Item
-            label="WKN"
-            name="wkn"
-            rules={[
-              {
-                validator: (_, value: string | undefined) => {
-                  const v = (value ?? '').trim().toUpperCase();
-                  if (v.length === 0) return Promise.resolve();
-                  if (/^[A-Z0-9]{6}$/.test(v)) return Promise.resolve();
-                  return Promise.reject(new Error('WKN: ровно 6 буквенно-цифровых символов'));
-                },
-              },
-            ]}
-          >
-            <Input
-              placeholder="865985"
-              maxLength={6}
-              onChange={(e) => {
-                form.setFieldValue('wkn', e.target.value.toUpperCase());
-              }}
-            />
-          </Form.Item>
-          <Form.Item
-            label="ISIN"
-            name="isin"
-            rules={[
-              {
-                validator: (_, value: string | undefined) => {
-                  const v = (value ?? '').trim().toUpperCase();
-                  if (v.length === 0) return Promise.resolve();
-                  if (/^[A-Z]{2}[A-Z0-9]{10}$/.test(v)) return Promise.resolve();
-                  return Promise.reject(new Error('ISIN: 2 буквы страны + 10 буквенно-цифровых символов'));
-                },
-              },
-            ]}
-          >
-            <Input
-              placeholder="US0378331005"
-              maxLength={12}
-              onChange={(e) => {
-                form.setFieldValue('isin', e.target.value.toUpperCase());
-              }}
-            />
-          </Form.Item>
-          <Form.Item
-            label="finanzen.net Slug"
-            name="finanzenNetSlug"
-            tooltip="Часть URL после /aktien/. Например: western_digital-aktie. Разрешены строчные буквы, цифры, дефисы и подчёркивания. Оставьте пустым, если не нужно."
-            rules={[
-              {
-                validator: (_, value: string | undefined) => {
-                  const v = (value ?? '').trim().toLowerCase();
-                  if (v.length === 0) return Promise.resolve();
-                  if (isValidFinanzenNetSlug(v)) return Promise.resolve();
-                  return Promise.reject(new Error('Разрешены строчные буквы, цифры, дефисы и подчёркивания; первый символ — буква или цифра'));
-                },
-              },
-            ]}
-          >
-            <Input
-              placeholder="western_digital-aktie"
-              maxLength={120}
-              onChange={(e) => {
-                form.setFieldValue('finanzenNetSlug', e.target.value.toLowerCase());
-              }}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={submitting} block>
-              {editingStock ? 'Сохранить' : 'Добавить'}
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
+        mode={editingStock ? 'edit' : 'create'}
+        stock={editingStock}
+        sectors={sectors}
+        marketIndices={marketIndices}
+        submitting={submitting}
+        onCancel={() => { setModalOpen(false); setEditingStock(null); }}
+        onSubmit={handleSubmit}
+      />
     </>
   );
 };
