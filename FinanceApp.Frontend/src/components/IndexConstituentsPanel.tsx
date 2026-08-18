@@ -491,7 +491,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     void loadPerformance(range);
   }, [loadPerformance]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (refetchPerformance = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -506,8 +506,11 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         isCuratedSnapshot: res.data.isCuratedSnapshot === true,
         isStale: res.data.isStale === true,
       });
-      // Reload performance so newly added/removed constituents are reflected.
-      void loadPerformance(performanceRangeRef.current);
+      // Reload performance only on explicit user-triggered reloads (add/edit/remove/refresh).
+      // The initial mount performance load is handled by the dedicated useEffect below.
+      if (refetchPerformance) {
+        void loadPerformance(performanceRangeRef.current);
+      }
     } catch (err) {
       setError(getErrMsg(err, 'Ошибка загрузки состава индекса'));
     } finally {
@@ -587,7 +590,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       setEditModalOpen(false);
       setEditingStock(null);
       void messageApi.success('Акция обновлена');
-      await loadData();
+      await loadData(true);
     } catch (err) {
       void messageApi.error(getErrMsg(err, 'Ошибка сохранения акции'));
     } finally {
@@ -608,7 +611,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         void messageApi.error(result.message);
       }
       if (result.shouldReload) {
-        await loadData();
+        await loadData(true);
       }
       setSourceMeta((prev) => ({
         source: getNonEmptyString(res.data.providerName) ?? prev.source,
@@ -817,7 +820,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       else void messageApi.error(summaryText);
 
       // Reload constituents so table and expanded chart reflect authoritative DB state
-      await loadData();
+      await loadData(true);
     } catch (err) {
       const text = getErrMsg(err, 'Ошибка пакетного обновления цен');
       setBatchQuoteSummary({ text, level: 'error' });
