@@ -572,16 +572,14 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
   // Handle Market Indices submenu title click: directly toggle state so behavior
   // is order-independent (Ant Design may fire onTitleClick before or after onOpenChange).
   const handleMarketIndicesTitleClick = useCallback(() => {
-    setMarketIndicesOpen((prev) => {
-      const next = !prev;
-      if (!next) {
-        setMarketIndicesDescendantOpenKeys([]);
-      } else {
-        setStocksOpen(true);
-      }
-      return next;
-    });
-  }, []);
+    const next = !marketIndicesOpen;
+    setMarketIndicesOpen(next);
+    if (!next) {
+      setMarketIndicesDescendantOpenKeys([]);
+    } else {
+      setStocksOpen(true);
+    }
+  }, [marketIndicesOpen]);
 
   // Handle submenu open/close changes from Ant Design.
   // Market Indices open state is managed exclusively by handleMarketIndicesTitleClick,
