@@ -132,7 +132,8 @@ export function isMarketIndicesSelectedKey(key: string): boolean {
 
 function isMarketIndicesDescendantOpenKey(key: string): boolean {
   return key.startsWith(`${MARKET_INDICES_SIDEBAR_PARENT_KEY}-`)
-    || key.startsWith(`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/`);
+    || key.startsWith(`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/`)
+    || key.startsWith(MARKET_INDEX_KEY_PREFIX);
 }
 
 function filterMarketIndicesDescendantOpenKeys(keys: string[]): string[] {
