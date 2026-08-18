@@ -682,3 +682,25 @@ export interface IndexConstituentsBatchQuoteRefreshJobResponse {
   nextRetryAtUtc?: string | null;
   error?: string | null;
 }
+
+// ── Index constituent performance ───────────────────────────────────────────
+
+/** "Available" when changePercent is populated; "InsufficientData" otherwise. */
+export type ConstituentPerformanceDataStatus = 'Available' | 'InsufficientData';
+
+export interface IndexConstituentPerformanceItem {
+  stockId: number;
+  startPrice: number | null;
+  endPrice: number | null;
+  changePercent: number | null;
+  startAtUtc: string | null;
+  endAtUtc: string | null;
+  dataStatus: ConstituentPerformanceDataStatus;
+}
+
+export interface IndexConstituentPerformanceResponse {
+  marketIndexId: number;
+  range: StockHistoryRange;
+  generatedAtUtc: string;
+  items: IndexConstituentPerformanceItem[];
+}

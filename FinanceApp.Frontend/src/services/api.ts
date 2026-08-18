@@ -47,6 +47,7 @@ import type {
   IndexConstituentHistoryRefreshJobResponse,
   IndexConstituentHistoryRefreshBatchResponse,
   IndexConstituentsBatchQuoteRefreshJobResponse,
+  IndexConstituentPerformanceResponse,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -244,6 +245,16 @@ export const startIndexConstituentsBatchQuoteRefresh = (indexId: number) =>
 export const getIndexConstituentsBatchQuoteRefreshJob = (indexId: number, jobId: string) =>
   api.get<IndexConstituentsBatchQuoteRefreshJobResponse>(
     `/market-indices/${indexId}/constituents/quotes/refresh-jobs/${jobId}`,
+  );
+
+export const getIndexConstituentPerformance = (
+  indexId: number,
+  range: StockHistoryRange,
+  signal?: AbortSignal,
+) =>
+  api.get<IndexConstituentPerformanceResponse>(
+    `/market-indices/${indexId}/constituents/performance`,
+    { params: { range }, signal },
   );
 
 export const trackStock = (id: number) =>

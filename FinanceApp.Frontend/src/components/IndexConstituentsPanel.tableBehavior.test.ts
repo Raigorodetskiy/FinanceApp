@@ -39,7 +39,7 @@ describe('IndexConstituentsPanel row expansion contracts', () => {
   });
 
   it('keeps full-width chart row span aligned with stock-table column count', () => {
-    expect(INDEX_CONSTITUENTS_TOTAL_COLS).toBe(8);
+    expect(INDEX_CONSTITUENTS_TOTAL_COLS).toBe(9);
   });
 });
 
