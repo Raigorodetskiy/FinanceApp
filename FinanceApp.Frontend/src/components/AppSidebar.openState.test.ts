@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MARKET_INDICES_SIDEBAR_PARENT_KEY,
   applySidebarOpenChange,
   computeSidebarOpenKeys,
   marketIndexSidebarKey,
@@ -64,6 +65,7 @@ describe('AppSidebar open state', () => {
       stocksOpen: false,
       stocksDirectoriesOpen: false,
       marketIndicesOpen: false,
+      marketIndicesDescendantOpenKeys: [],
       selectedKeys: ['dashboard'],
       newOpenKeys: ['stocks', 'market-indices-root'],
     });
@@ -78,12 +80,14 @@ describe('AppSidebar open state', () => {
       stocksOpen: true,
       stocksDirectoriesOpen: false,
       marketIndicesOpen: true,
+      marketIndicesDescendantOpenKeys: [`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/advanced`],
       selectedKeys: ['dashboard'],
       newOpenKeys: [],
     });
 
     expect(state.stocksOpen).toBe(false);
     expect(state.marketIndicesOpen).toBe(false);
+    expect(state.marketIndicesDescendantOpenKeys).toEqual([]);
   });
 
   it('closing directories on a non-directory route only updates the directories state', () => {
@@ -92,6 +96,7 @@ describe('AppSidebar open state', () => {
       stocksOpen: true,
       stocksDirectoriesOpen: true,
       marketIndicesOpen: false,
+      marketIndicesDescendantOpenKeys: [],
       selectedKeys: ['dashboard'],
       newOpenKeys: ['stocks'],
     });
@@ -107,8 +112,10 @@ describe('AppSidebar open state', () => {
       stocksOpen: true,
       stocksDirectoriesOpen: false,
       marketIndicesOpen: true,
+      marketIndicesDescendantOpenKeys: [],
       selectedKeys: [marketIndexSidebarKey(3)],
       newOpenKeys: ['stocks'],
+      explicitMarketIndicesToggle: true,
     });
 
     const keys = computeSidebarOpenKeys({
@@ -118,5 +125,82 @@ describe('AppSidebar open state', () => {
 
     expect(keys).toContain('stocks');
     expect(keys).toContain('market-indices-root');
+  });
+
+  it('keeps market indices open when tracked stocks navigation emits reconciliation openKeys', () => {
+    const state = applySidebarOpenChange({
+      portfoliosOpen: false,
+      stocksOpen: true,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: true,
+      marketIndicesDescendantOpenKeys: [`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/advanced`],
+      selectedKeys: ['stocks-list'],
+      newOpenKeys: ['stocks'],
+    });
+
+    expect(state.stocksOpen).toBe(true);
+    expect(state.marketIndicesOpen).toBe(true);
+    expect(state.marketIndicesDescendantOpenKeys).toEqual([`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/advanced`]);
+  });
+
+  it('keeps market indices closed when tracked stocks navigation starts from closed state', () => {
+    const state = applySidebarOpenChange({
+      portfoliosOpen: false,
+      stocksOpen: true,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: false,
+      marketIndicesDescendantOpenKeys: [],
+      selectedKeys: ['stocks-list'],
+      newOpenKeys: ['stocks'],
+    });
+
+    expect(state.stocksOpen).toBe(true);
+    expect(state.marketIndicesOpen).toBe(false);
+    expect(state.marketIndicesDescendantOpenKeys).toEqual([]);
+  });
+
+  it('explicit title clicks toggle market indices open then closed while keeping stocks open', () => {
+    const opened = applySidebarOpenChange({
+      portfoliosOpen: false,
+      stocksOpen: true,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: false,
+      marketIndicesDescendantOpenKeys: [],
+      selectedKeys: ['dashboard'],
+      newOpenKeys: ['stocks', 'market-indices-root'],
+      explicitMarketIndicesToggle: true,
+    });
+
+    const closed = applySidebarOpenChange({
+      ...opened,
+      selectedKeys: ['dashboard'],
+      newOpenKeys: ['stocks'],
+      explicitMarketIndicesToggle: true,
+    });
+
+    expect(opened.marketIndicesOpen).toBe(true);
+    expect(closed.marketIndicesOpen).toBe(false);
+    expect(closed.stocksOpen).toBe(true);
+  });
+
+  it('explicit market indices close clears descendants and keeps unrelated sections unchanged', () => {
+    const state = applySidebarOpenChange({
+      portfoliosOpen: false,
+      stocksOpen: true,
+      stocksDirectoriesOpen: true,
+      marketIndicesOpen: true,
+      marketIndicesDescendantOpenKeys: [
+        `${MARKET_INDICES_SIDEBAR_PARENT_KEY}/advanced`,
+        `${MARKET_INDICES_SIDEBAR_PARENT_KEY}-nested`,
+      ],
+      selectedKeys: ['dashboard'],
+      newOpenKeys: ['stocks', 'stocks-directories'],
+      explicitMarketIndicesToggle: true,
+    });
+
+    expect(state.stocksOpen).toBe(true);
+    expect(state.stocksDirectoriesOpen).toBe(true);
+    expect(state.marketIndicesOpen).toBe(false);
+    expect(state.marketIndicesDescendantOpenKeys).toEqual([]);
   });
 });
