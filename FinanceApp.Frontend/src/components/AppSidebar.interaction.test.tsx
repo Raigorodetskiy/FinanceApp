@@ -165,6 +165,20 @@ describe('AppSidebar real DOM interaction — Market Indices toggle', () => {
     expect(isExpanded('Мировые индексы')).toBe(false);
   });
 
+  it('5b. Market Indices open → click «Список акций» navigates to /stocks/catalog and Market Indices stays expanded', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ localState: { [LS_STOCKS]: '1', [LS_MI]: '1' } });
+
+    expect(isExpanded('Мировые индексы')).toBe(true);
+
+    await act(async () => {
+      await user.click(screen.getByText('Список акций'));
+    });
+
+    expect(capturedPathname).toBe('/stocks/catalog');
+    expect(isExpanded('Мировые индексы')).toBe(true);
+  });
+
   it('6. Closing Market Indices keeps Акции expanded', async () => {
     const user = userEvent.setup();
     renderSidebar({ localState: { [LS_STOCKS]: '1', [LS_MI]: '1' } });

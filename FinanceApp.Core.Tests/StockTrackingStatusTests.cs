@@ -195,6 +195,173 @@ public class StockTrackingStatusTests
         Assert.Equal(1, await context.Stocks.CountAsync());
     }
 
+    [Fact]
+    public async Task Untrack_TrackedStock_KeepsStockHistoryFundamentalsMembershipsAndPortfolioReferences()
+    {
+        await using var context = CreateContext();
+
+        var user = new User
+        {
+            Username = "user",
+            Email = "user@example.com",
+            PasswordHash = "hash",
+            CreatedAt = DateTime.UtcNow,
+        };
+        var portfolio = new Portfolio
+        {
+            Name = "Main",
+            User = user,
+            CreatedAt = DateTime.UtcNow,
+        };
+        var index = new MarketIndex
+        {
+            Id = 1,
+            Name = "S&P 500",
+            NormalizedName = "S&P 500",
+            Code = "SPX",
+            NormalizedCode = "SPX",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var stock = new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = DateTime.UtcNow,
+            MarketIndices = new List<StockMarketIndex>
+            {
+                new() { MarketIndex = index, EffectiveFrom = DateTime.UtcNow, ImportedAt = DateTime.UtcNow }
+            }
+        };
+
+        context.Stocks.Add(stock);
+        context.Portfolios.Add(portfolio);
+        await context.SaveChangesAsync();
+
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Timestamp = DateTime.UtcNow.Date,
+            Interval = "1d",
+            Open = 100m,
+            High = 101m,
+            Low = 99m,
+            Close = 100m,
+            QuoteUnitMultiplier = 1m,
+        });
+        context.FundamentalsSnapshots.Add(new CompanyFundamentalsSnapshot
+        {
+            StockId = stock.Id,
+            SourceSymbol = "AAPL",
+            Source = "Test",
+            FetchedAtUtc = DateTime.UtcNow,
+        });
+        context.PortfolioItems.Add(new PortfolioItem
+        {
+            PortfolioId = portfolio.Id,
+            StockId = stock.Id,
+            Quantity = 1m,
+            BuyPrice = 100m,
+            BoughtAt = DateTime.UtcNow,
+        });
+        context.Orders.Add(new Order
+        {
+            PortfolioId = portfolio.Id,
+            StockId = stock.Id,
+            Type = OrderType.Buy,
+            Quantity = 1m,
+            Price = 100m,
+            CreatedAt = DateTime.UtcNow,
+        });
+        context.Transactions.Add(new Transaction
+        {
+            PortfolioId = portfolio.Id,
+            Type = TransactionType.Buy,
+            Amount = 100m,
+            SignedAmount = -100m,
+            StockId = stock.Id,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.Untrack(stock.Id);
+
+        var actionResult = Assert.IsType<ActionResult<Stock>>(result);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, actionResult.Value!.TrackingStatus);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, (await context.Stocks.FindAsync(stock.Id))!.TrackingStatus);
+        Assert.Equal(1, await context.StockHistoricalPrices.CountAsync(x => x.StockId == stock.Id));
+        Assert.Equal(1, await context.FundamentalsSnapshots.CountAsync(x => x.StockId == stock.Id));
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == stock.Id && x.EffectiveTo == null));
+        Assert.Equal(1, await context.PortfolioItems.CountAsync(x => x.StockId == stock.Id));
+        Assert.Equal(1, await context.Orders.CountAsync(x => x.StockId == stock.Id));
+        Assert.Equal(1, await context.Transactions.CountAsync(x => x.StockId == stock.Id));
+    }
+
+    [Fact]
+    public async Task Untrack_StockAppearsInCatalogButNotTrackedAndRetrackReusesSameId()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "BASF",
+            Name = "BASF",
+            CommonName = "BASF",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 50m,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+        var stockId = stock.Id;
+
+        var controller = CreateController(context);
+        await controller.Untrack(stockId);
+
+        var tracked = Assert.IsAssignableFrom<IEnumerable<Stock>>((await controller.GetAll()).Value!).ToList();
+        var catalog = Assert.IsAssignableFrom<IEnumerable<Stock>>((await controller.GetAll(includeCatalog: true)).Value!).ToList();
+        Assert.DoesNotContain(tracked, x => x.Id == stockId);
+        Assert.Contains(catalog, x => x.Id == stockId);
+
+        await controller.Track(stockId);
+        Assert.Equal(1, await context.Stocks.CountAsync());
+        Assert.Equal(stockId, (await context.Stocks.SingleAsync()).Id);
+        Assert.Equal(StockTrackingStatus.Tracked, (await context.Stocks.SingleAsync()).TrackingStatus);
+    }
+
+    [Fact]
+    public async Task Untrack_Idempotent_AndWorksForStockWithoutIndexMembership()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Ticker = "SOLO",
+            Name = "Solo Corp",
+            CommonName = "Solo Corp",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 10m,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var first = await controller.Untrack(stock.Id);
+        var second = await controller.Untrack(stock.Id);
+
+        Assert.Equal(StockTrackingStatus.CatalogOnly, first.Value!.TrackingStatus);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, second.Value!.TrackingStatus);
+        Assert.Equal(1, await context.Stocks.CountAsync(x => x.Id == stock.Id));
+        var catalog = Assert.IsAssignableFrom<IEnumerable<Stock>>((await controller.GetAll(includeCatalog: true)).Value!);
+        Assert.Contains(catalog, x => x.Id == stock.Id);
+    }
+
     // ── DELETE demotes CatalogOnly when still in an index ────────────────────
 
     [Fact]

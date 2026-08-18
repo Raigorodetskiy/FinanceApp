@@ -37,6 +37,7 @@ const MARKET_INDICES_DESCENDANT_OPEN_KEYS_STORAGE_KEY = 'financeapp.sidebar.mark
 export const MARKET_INDICES_SIDEBAR_PARENT_KEY = 'market-indices-root';
 export const MARKET_INDEX_KEY_PREFIX = 'market-index-';
 export const MARKET_INDICES_MANAGE_KEY = 'market-indices-manage';
+export const STOCKS_CATALOG_KEY = 'stocks-catalog';
 
 export function marketIndexSidebarKey(id: number): string {
   return `${MARKET_INDEX_KEY_PREFIX}${id}`;
@@ -142,6 +143,7 @@ function filterMarketIndicesDescendantOpenKeys(keys: string[]): string[] {
 export function isStocksSelectedKey(key: string): boolean {
   return key === 'stocks'
     || key === 'stocks-list'
+    || key === STOCKS_CATALOG_KEY
     || isMarketIndicesSelectedKey(key);
 }
 
@@ -399,6 +401,12 @@ export function buildSidebarMenuItems({
           icon: <UnorderedListOutlined />,
           label: 'Отслеживаемые акции',
           onClick: () => onNavigate('/stocks'),
+        },
+        {
+          key: STOCKS_CATALOG_KEY,
+          icon: <UnorderedListOutlined />,
+          label: 'Список акций',
+          onClick: () => onNavigate('/stocks/catalog'),
         },
         {
           key: MARKET_INDICES_SIDEBAR_PARENT_KEY,

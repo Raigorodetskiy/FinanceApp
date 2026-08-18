@@ -47,6 +47,14 @@ const App: React.FC = () => {
               }
             />
             <Route
+              path="/stocks/catalog"
+              element={
+                <PrivateRoute>
+                  <StocksPage mode="catalog" />
+                </PrivateRoute>
+              }
+            />
+            <Route
               path="/sectors"
               element={
                 <PrivateRoute>
