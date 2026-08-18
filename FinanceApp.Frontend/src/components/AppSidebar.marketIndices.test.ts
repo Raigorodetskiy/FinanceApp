@@ -52,6 +52,7 @@ describe('AppSidebar market indices hierarchy', () => {
       'stocks-list',
       MARKET_INDICES_SIDEBAR_PARENT_KEY,
     ]);
+    expect(stockChildren[0]?.label).toBe('Отслеживаемые акции');
   });
 
   it('keeps management first and appends only visible dynamic indices', () => {
@@ -78,6 +79,18 @@ describe('AppSidebar market indices hierarchy', () => {
   });
 
   it('preserves market index leaf routing keys', () => {
+    const routes: string[] = [];
+    const items = buildSidebarMenuItems({
+      portfolios: [],
+      marketIndices: [],
+      onNavigate: (route) => routes.push(route),
+    });
+    const stocksItem = items?.find((item) => item?.key === 'stocks');
+    const trackedStocksItem = stocksItem?.children?.find((item) => item?.key === 'stocks-list');
+    (trackedStocksItem?.onClick as (() => void) | undefined)?.();
+
+    expect(trackedStocksItem?.key).toBe('stocks-list');
+    expect(routes).toContain('/stocks');
     expect(marketIndexSidebarKey(7)).toBe('market-index-7');
     expect(marketIndexRoute(7)).toBe('/market-indices/7');
   });

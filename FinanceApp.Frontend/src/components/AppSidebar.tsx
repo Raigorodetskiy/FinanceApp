@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   ApartmentOutlined,
   BookOutlined,
@@ -32,6 +32,7 @@ const PORTFOLIOS_OPEN_STORAGE_KEY = 'financeapp.sidebar.portfolios.open';
 const STOCKS_OPEN_STORAGE_KEY = 'financeapp.sidebar.stocks.open';
 const STOCKS_DIRECTORIES_OPEN_STORAGE_KEY = 'financeapp.sidebar.stocks-directories.open';
 const MARKET_INDICES_OPEN_STORAGE_KEY = 'financeapp.sidebar.market-indices.open';
+const MARKET_INDICES_DESCENDANT_OPEN_KEYS_STORAGE_KEY = 'financeapp.sidebar.market-indices.descendant-open-keys';
 
 export const MARKET_INDICES_SIDEBAR_PARENT_KEY = 'market-indices-root';
 export const MARKET_INDEX_KEY_PREFIX = 'market-index-';
@@ -50,16 +51,19 @@ export interface SidebarOpenState {
   stocksOpen: boolean;
   stocksDirectoriesOpen: boolean;
   marketIndicesOpen: boolean;
+  marketIndicesDescendantOpenKeys: string[];
 }
 
-export interface SidebarOpenKeysParams extends SidebarOpenState {
+export interface SidebarOpenKeysParams extends Omit<SidebarOpenState, 'marketIndicesDescendantOpenKeys'> {
   selectedKeys: string[];
   activePortfolioId?: string | number;
   defaultOpenKeys?: string[];
+  marketIndicesDescendantOpenKeys?: string[];
 }
 
 export interface SidebarOpenChangeParams extends SidebarOpenKeysParams {
   newOpenKeys: string[];
+  explicitMarketIndicesToggle?: boolean;
 }
 
 export type PortfolioSection = 'positions' | 'transactions';
@@ -126,6 +130,16 @@ export function isMarketIndicesSelectedKey(key: string): boolean {
     || key.startsWith(MARKET_INDEX_KEY_PREFIX);
 }
 
+function isMarketIndicesDescendantOpenKey(key: string): boolean {
+  return key.startsWith(`${MARKET_INDICES_SIDEBAR_PARENT_KEY}-`)
+    || key.startsWith(`${MARKET_INDICES_SIDEBAR_PARENT_KEY}/`)
+    || key.startsWith(MARKET_INDEX_KEY_PREFIX);
+}
+
+function filterMarketIndicesDescendantOpenKeys(keys: string[]): string[] {
+  return Array.from(new Set(keys.filter(isMarketIndicesDescendantOpenKey)));
+}
+
 export function isStocksSelectedKey(key: string): boolean {
   return key === 'stocks'
     || key === 'stocks-list'
@@ -137,6 +151,7 @@ export function computeSidebarOpenKeys({
   stocksOpen,
   stocksDirectoriesOpen,
   marketIndicesOpen,
+  marketIndicesDescendantOpenKeys = [],
   selectedKeys,
   activePortfolioId,
   defaultOpenKeys,
@@ -145,6 +160,7 @@ export function computeSidebarOpenKeys({
   const hasStocksSelection = selectedKeys.some(isStocksSelectedKey);
   const hasStocksDirectoriesSelection = selectedKeys.some(isStocksDirectoriesSelectedKey);
   const hasMarketIndicesSelection = selectedKeys.some(isMarketIndicesSelectedKey);
+  const marketIndicesDescendantKeys = filterMarketIndicesDescendantOpenKeys(marketIndicesDescendantOpenKeys);
   const stocksRootOpen = stocksOpen || hasStocksSelection;
   const marketIndicesSubtreeOpen = marketIndicesOpen || hasMarketIndicesSelection;
 
@@ -159,12 +175,18 @@ export function computeSidebarOpenKeys({
   }
   if (marketIndicesSubtreeOpen) {
     keys.push(MARKET_INDICES_SIDEBAR_PARENT_KEY);
+    for (const key of marketIndicesDescendantKeys) {
+      if (!keys.includes(key)) keys.push(key);
+    }
   }
   if (activePortfolioId != null) {
     keys.push(`${PORTFOLIO_KEY_PREFIX}${activePortfolioId}`);
   }
   if (defaultOpenKeys) {
     for (const key of defaultOpenKeys) {
+      if (!marketIndicesSubtreeOpen && isMarketIndicesDescendantOpenKey(key)) {
+        continue;
+      }
       if (!keys.includes(key)) keys.push(key);
     }
   }
@@ -177,16 +199,21 @@ export function applySidebarOpenChange({
   stocksOpen,
   stocksDirectoriesOpen,
   marketIndicesOpen,
+  marketIndicesDescendantOpenKeys = [],
   selectedKeys,
   activePortfolioId,
   defaultOpenKeys,
   newOpenKeys,
+  explicitMarketIndicesToggle = false,
 }: SidebarOpenChangeParams): SidebarOpenState {
+  const currentMarketIndicesDescendantKeys = filterMarketIndicesDescendantOpenKeys(marketIndicesDescendantOpenKeys);
+  const nextMarketIndicesDescendantKeys = filterMarketIndicesDescendantOpenKeys(newOpenKeys);
   const currentKeys = computeSidebarOpenKeys({
     portfoliosOpen,
     stocksOpen,
     stocksDirectoriesOpen,
     marketIndicesOpen,
+    marketIndicesDescendantOpenKeys: currentMarketIndicesDescendantKeys,
     selectedKeys,
     activePortfolioId,
     defaultOpenKeys,
@@ -196,6 +223,7 @@ export function applySidebarOpenChange({
   let nextStocksOpen = stocksOpen;
   let nextStocksDirectoriesOpen = stocksDirectoriesOpen;
   let nextMarketIndicesOpen = marketIndicesOpen;
+  let nextMarketIndicesDescendantOpenKeys = currentMarketIndicesDescendantKeys;
 
   const prevHasPortfolios = currentKeys.includes('portfolios');
   const nextHasPortfolios = newOpenKeys.includes('portfolios');
@@ -214,6 +242,7 @@ export function applySidebarOpenChange({
     if (!routeRequiresStocks) {
       nextStocksOpen = false;
       nextMarketIndicesOpen = false;
+      nextMarketIndicesDescendantOpenKeys = [];
     }
   } else if (!prevHasStocks && nextHasStocks) {
     nextStocksOpen = true;
@@ -234,12 +263,25 @@ export function applySidebarOpenChange({
   const nextHasMarketIndices = newOpenKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
   const routeRequiresMarketIndices = selectedKeys.some(isMarketIndicesSelectedKey);
   if (prevHasMarketIndices && !nextHasMarketIndices) {
-    if (!routeRequiresMarketIndices) {
+    if (routeRequiresMarketIndices) {
+      nextMarketIndicesOpen = true;
+    } else if (!nextHasStocks) {
       nextMarketIndicesOpen = false;
+      nextMarketIndicesDescendantOpenKeys = [];
+    } else if (explicitMarketIndicesToggle) {
+      nextMarketIndicesOpen = false;
+      nextMarketIndicesDescendantOpenKeys = [];
+    } else {
+      nextMarketIndicesOpen = true;
     }
   } else if (!prevHasMarketIndices && nextHasMarketIndices) {
     nextMarketIndicesOpen = true;
     nextStocksOpen = true;
+    nextMarketIndicesDescendantOpenKeys = nextMarketIndicesDescendantKeys;
+  } else if (nextHasMarketIndices) {
+    nextMarketIndicesDescendantOpenKeys = nextMarketIndicesDescendantKeys;
+  } else if (!nextMarketIndicesOpen) {
+    nextMarketIndicesDescendantOpenKeys = [];
   }
 
   return {
@@ -247,6 +289,7 @@ export function applySidebarOpenChange({
     stocksOpen: nextStocksOpen,
     stocksDirectoriesOpen: nextStocksDirectoriesOpen,
     marketIndicesOpen: nextMarketIndicesOpen,
+    marketIndicesDescendantOpenKeys: nextMarketIndicesDescendantOpenKeys,
   };
 }
 
@@ -255,6 +298,7 @@ export interface BuildSidebarMenuItemsParams {
   activePortfolioId?: string | number;
   marketIndices?: MarketIndex[];
   onNavigate: (route: string) => void;
+  onMarketIndicesTitleClick?: () => void;
 }
 
 export function buildSidebarMenuItems({
@@ -262,6 +306,7 @@ export function buildSidebarMenuItems({
   activePortfolioId,
   marketIndices = [],
   onNavigate,
+  onMarketIndicesTitleClick,
 }: BuildSidebarMenuItemsParams): MenuProps['items'] {
   const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
     const pid = portfolio.id;
@@ -354,13 +399,14 @@ export function buildSidebarMenuItems({
         {
           key: 'stocks-list',
           icon: <UnorderedListOutlined />,
-          label: 'Список акций',
+          label: 'Отслеживаемые акции',
           onClick: () => onNavigate('/stocks'),
         },
         {
           key: MARKET_INDICES_SIDEBAR_PARENT_KEY,
           icon: <GlobalOutlined />,
           label: 'Мировые индексы',
+          onTitleClick: onMarketIndicesTitleClick,
           children: [
             {
               key: MARKET_INDICES_MANAGE_KEY,
@@ -452,6 +498,20 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     } catch {}
     return selectedKeys.some(isMarketIndicesSelectedKey);
   });
+  const [marketIndicesDescendantOpenKeys, setMarketIndicesDescendantOpenKeys] = useState<string[]>(() => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+    try {
+      const stored = window.localStorage.getItem(MARKET_INDICES_DESCENDANT_OPEN_KEYS_STORAGE_KEY);
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? filterMarketIndicesDescendantOpenKeys(parsed.filter((value): value is string => typeof value === 'string')) : [];
+    } catch {
+      return [];
+    }
+  });
+  const marketIndicesTitleToggleRequestedRef = useRef(false);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -488,36 +548,66 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     } catch {}
   }, [marketIndicesOpen]);
 
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        MARKET_INDICES_DESCENDANT_OPEN_KEYS_STORAGE_KEY,
+        JSON.stringify(filterMarketIndicesDescendantOpenKeys(marketIndicesDescendantOpenKeys)),
+      );
+    } catch {}
+  }, [marketIndicesDescendantOpenKeys]);
+
   const openKeys = useMemo((): string[] => {
     return computeSidebarOpenKeys({
       portfoliosOpen,
       stocksOpen,
       stocksDirectoriesOpen,
       marketIndicesOpen,
+      marketIndicesDescendantOpenKeys,
       activePortfolioId,
       defaultOpenKeys,
       selectedKeys,
     });
-  }, [portfoliosOpen, stocksOpen, stocksDirectoriesOpen, marketIndicesOpen, activePortfolioId, defaultOpenKeys, selectedKeys]);
+  }, [portfoliosOpen, stocksOpen, stocksDirectoriesOpen, marketIndicesOpen, marketIndicesDescendantOpenKeys, activePortfolioId, defaultOpenKeys, selectedKeys]);
+
+  const handleMarketIndicesTitleClick = useCallback(() => {
+    marketIndicesTitleToggleRequestedRef.current = true;
+  }, []);
 
   // Handle submenu open/close changes from Ant Design.
   const handleMenuOpenChange = useCallback((newOpenKeys: string[]) => {
+    const explicitMarketIndicesToggle = marketIndicesTitleToggleRequestedRef.current;
+    marketIndicesTitleToggleRequestedRef.current = false;
+
     const nextState = applySidebarOpenChange({
       portfoliosOpen,
       stocksOpen,
       stocksDirectoriesOpen,
       marketIndicesOpen,
+      marketIndicesDescendantOpenKeys,
       activePortfolioId,
       defaultOpenKeys,
       selectedKeys,
       newOpenKeys,
+      explicitMarketIndicesToggle,
     });
 
     setPortfoliosOpen(nextState.portfoliosOpen);
     setStocksOpen(nextState.stocksOpen);
     setStocksDirectoriesOpen(nextState.stocksDirectoriesOpen);
     setMarketIndicesOpen(nextState.marketIndicesOpen);
-  }, [activePortfolioId, defaultOpenKeys, marketIndicesOpen, portfoliosOpen, selectedKeys, stocksDirectoriesOpen, stocksOpen]);
+    setMarketIndicesDescendantOpenKeys(nextState.marketIndicesDescendantOpenKeys);
+  }, [
+    activePortfolioId,
+    defaultOpenKeys,
+    marketIndicesDescendantOpenKeys,
+    marketIndicesOpen,
+    portfoliosOpen,
+    selectedKeys,
+    stocksDirectoriesOpen,
+    stocksOpen,
+  ]);
 
   const handleNavigate = useCallback((route: string) => {
     navigate(route);
@@ -529,7 +619,8 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     activePortfolioId,
     marketIndices,
     onNavigate: handleNavigate,
-  }), [portfolios, activePortfolioId, marketIndices, handleNavigate]);
+    onMarketIndicesTitleClick: handleMarketIndicesTitleClick,
+  }), [portfolios, activePortfolioId, marketIndices, handleNavigate, handleMarketIndicesTitleClick]);
 
   const bottomItems: NonNullable<MenuProps['items']> = [
     {
