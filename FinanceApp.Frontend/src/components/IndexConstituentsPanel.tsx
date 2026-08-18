@@ -68,8 +68,12 @@ import type {
 } from '../types';
 import { StockTrackingStatus } from '../types';
 import { INDEX_HISTORY_JOB_POLL_INTERVAL_MS, INDEX_HISTORY_JOB_POLL_TIMEOUT_MS } from './indexConstituentHistoryRefresh';
-import { STOCK_HISTORY_RANGE_OPTIONS, toStockHistoryRange } from './historyRangeOptions';
-import { formatPerformance, sortConstituentsByPerformance } from './performanceHelpers';
+import { STOCK_HISTORY_RANGE_OPTIONS } from './historyRangeOptions';
+import {
+  formatPerformance,
+  sortConstituentsByName,
+  sortConstituentsByPerformance,
+} from './performanceHelpers';
 import type { PerformanceMap } from './performanceHelpers';
 import {
   INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
@@ -250,6 +254,20 @@ const TRACKED_TOOLTIP = 'Уже добавлена в список акций';
 const ADD_TRACKED_ARIA_LABEL = 'Добавлена в список акций';
 const ADD_CATALOG_ARIA_LABEL = 'Добавить в список акций';
 const FUNDAMENTALS_ARIA_LABEL = 'Фундаментальные данные';
+
+export type ConstituentSortMode = 'name' | StockHistoryRange;
+export const CONSTITUENT_NAME_SORT_MODE: ConstituentSortMode = 'name';
+const STOCK_HISTORY_RANGE_SET = new Set<StockHistoryRange>(
+  STOCK_HISTORY_RANGE_OPTIONS.map((option) => option.value),
+);
+export const CONSTITUENT_SORT_MODE_OPTIONS: Array<{ label: string; value: ConstituentSortMode }> = [
+  { label: 'По названию', value: CONSTITUENT_NAME_SORT_MODE },
+  ...STOCK_HISTORY_RANGE_OPTIONS,
+];
+
+export function isStockHistoryRangeSortMode(value: string): value is StockHistoryRange {
+  return STOCK_HISTORY_RANGE_SET.has(value as StockHistoryRange);
+}
 
 export const INDEX_CONSTITUENTS_TOTAL_COLS = 9;
 export const QUOTE_PERSIST_FAILURE_MESSAGE = 'Цена получена, но не удалось сохранить её';
@@ -441,22 +459,36 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     name: string;
   } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
-  const [performanceRange, setPerformanceRange] = useState<StockHistoryRange>(() => toStockHistoryRange('1y'));
+  const [sortMode, setSortMode] = useState<ConstituentSortMode>(CONSTITUENT_NAME_SORT_MODE);
   const [performanceMap, setPerformanceMap] = useState<PerformanceMap>(new Map());
   const [performanceLoading, setPerformanceLoading] = useState(false);
   const [performanceError, setPerformanceError] = useState<string | null>(null);
   const performanceAbortRef = useRef<AbortController | null>(null);
-  /** Ref keeps the latest range value so the cleanup effect can read it without a stale closure. */
-  const performanceRangeRef = useRef<StockHistoryRange>('1y');
-  performanceRangeRef.current = performanceRange;
+  const performanceRequestIdRef = useRef(0);
+  const sortModeRef = useRef<ConstituentSortMode>(CONSTITUENT_NAME_SORT_MODE);
+  sortModeRef.current = sortMode;
   const quoteRefreshInFlightRef = useRef(new Set<number>());
   const persistIndexQuote = useCallback(async (stockId: number, patch: UpdateStockQuoteRequest) => (
     await updateStockQuote(stockId, patch)
   ).data, []);
 
+  const resetPerformanceState = useCallback(() => {
+    setPerformanceMap(new Map());
+    setPerformanceLoading(false);
+    setPerformanceError(null);
+  }, []);
+
+  const clearPerformanceStateAndAbort = useCallback(() => {
+    performanceRequestIdRef.current += 1;
+    performanceAbortRef.current?.abort();
+    performanceAbortRef.current = null;
+    resetPerformanceState();
+  }, [resetPerformanceState]);
+
   const loadPerformance = useCallback(async (range: StockHistoryRange) => {
     performanceAbortRef.current?.abort();
     const ctrl = new AbortController();
+    const requestId = ++performanceRequestIdRef.current;
     performanceAbortRef.current = ctrl;
     setPerformanceLoading(true);
     setPerformanceMap(new Map());
@@ -464,6 +496,8 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     try {
       const res = await getIndexConstituentPerformance(indexId, range, ctrl.signal);
       if (ctrl.signal.aborted) return;
+      if (performanceRequestIdRef.current !== requestId) return;
+      if (sortModeRef.current !== range) return;
       const map = new Map<number, number | null>();
       for (const item of res.data.items) {
         map.set(item.stockId, item.changePercent ?? null);
@@ -471,25 +505,35 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       setPerformanceMap(map);
     } catch (err) {
       if (ctrl.signal.aborted || axios.isCancel(err)) return;
+      if (performanceRequestIdRef.current !== requestId) return;
+      if (sortModeRef.current !== range) return;
       setPerformanceError(getErrMsg(err, 'Ошибка загрузки данных о росте'));
     } finally {
-      if (!ctrl.signal.aborted) setPerformanceLoading(false);
+      if (!ctrl.signal.aborted && performanceRequestIdRef.current === requestId && sortModeRef.current === range) {
+        setPerformanceLoading(false);
+      }
     }
   }, [indexId]);
 
   // Reload performance when indexId changes (loadPerformance is recreated) and on initial mount.
   useEffect(() => {
-    setPerformanceMap(new Map());
-    setPerformanceError(null);
-    void loadPerformance(performanceRangeRef.current);
+    resetPerformanceState();
+    if (isStockHistoryRangeSortMode(sortModeRef.current)) {
+      void loadPerformance(sortModeRef.current);
+    }
     return () => { performanceAbortRef.current?.abort(); };
-  }, [loadPerformance]);
+  }, [loadPerformance, resetPerformanceState]);
 
-  const handlePerformanceRangeChange = useCallback((range: StockHistoryRange) => {
-    setPerformanceRange(range);
-    performanceRangeRef.current = range;
-    void loadPerformance(range);
-  }, [loadPerformance]);
+  const handleSortModeChange = useCallback((mode: ConstituentSortMode) => {
+    setSortMode(mode);
+    sortModeRef.current = mode;
+    if (isStockHistoryRangeSortMode(mode)) {
+      void loadPerformance(mode);
+      return;
+    }
+
+    clearPerformanceStateAndAbort();
+  }, [clearPerformanceStateAndAbort, loadPerformance]);
 
   const loadData = useCallback(async (refetchPerformance = false) => {
     setLoading(true);
@@ -508,8 +552,8 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       });
       // Reload performance only on explicit user-triggered reloads (add/edit/remove/refresh).
       // The initial mount performance load is handled by the dedicated useEffect below.
-      if (refetchPerformance) {
-        void loadPerformance(performanceRangeRef.current);
+      if (refetchPerformance && isStockHistoryRangeSortMode(sortModeRef.current)) {
+        void loadPerformance(sortModeRef.current);
       }
     } catch (err) {
       setError(getErrMsg(err, 'Ошибка загрузки состава индекса'));
@@ -836,7 +880,9 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   };
 
   const filteredConstituents = useMemo(() => {
-    const sorted = sortConstituentsByPerformance(constituents, performanceMap);
+    const sorted = isStockHistoryRangeSortMode(sortMode)
+      ? sortConstituentsByPerformance(constituents, performanceMap)
+      : sortConstituentsByName(constituents);
     const query = search.trim().toLowerCase();
     if (!query) return sorted;
     return sorted.filter((c) =>
@@ -846,7 +892,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       || (c.wkn?.toLowerCase().includes(query) ?? false)
       || (c.isin?.toLowerCase().includes(query) ?? false)
       || (c.providerSymbol?.toLowerCase().includes(query) ?? false));
-  }, [constituents, search, performanceMap]);
+  }, [constituents, search, performanceMap, sortMode]);
 
   const rows = useMemo(
     () => makeConstituentRows(filteredConstituents, expandedStockId),
@@ -1199,14 +1245,14 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           size="small"
         />
         <Space size={4} align="center">
-          <span style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>Рост за период:</span>
-          <Select<StockHistoryRange>
+          <span style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>Сортировка:</span>
+          <Select<ConstituentSortMode>
             size="small"
-            value={performanceRange}
-            onChange={handlePerformanceRangeChange}
-            options={STOCK_HISTORY_RANGE_OPTIONS}
+            value={sortMode}
+            onChange={handleSortModeChange}
+            options={CONSTITUENT_SORT_MODE_OPTIONS}
             style={{ width: 90 }}
-            aria-label="Рост за период"
+            aria-label="Сортировка"
             loading={performanceLoading}
           />
         </Space>

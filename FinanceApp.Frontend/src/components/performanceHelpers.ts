@@ -9,6 +9,12 @@ export type PerformanceDisplayValue =
 
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
+export const NAME_SORT_COLLATOR_LOCALE = 'en';
+export const NAME_SORT_COLLATOR_OPTIONS: Readonly<Intl.CollatorOptions> = {
+  sensitivity: 'base',
+  numeric: true,
+};
+const ENGLISH_COLLATOR = new Intl.Collator(NAME_SORT_COLLATOR_LOCALE, NAME_SORT_COLLATOR_OPTIONS);
 
 /**
  * Formats a changePercent value for display in the performance column.
@@ -59,6 +65,25 @@ export function sortConstituentsByPerformance(
     } else if (bHas) {
       return 1;
     }
+
+    return a.stockId - b.stockId;
+  });
+}
+
+/**
+ * Sorts constituents alphabetically by displayed company name using deterministic
+ * English/Latin collation (case-insensitive, numeric-aware).
+ * Tie-breakers: ticker (same collator), then stockId ascending.
+ */
+export function sortConstituentsByName(
+  constituents: readonly IndexConstituentDto[],
+): IndexConstituentDto[] {
+  return [...constituents].sort((a, b) => {
+    const byName = ENGLISH_COLLATOR.compare(a.name, b.name);
+    if (byName !== 0) return byName;
+
+    const byTicker = ENGLISH_COLLATOR.compare(a.ticker, b.ticker);
+    if (byTicker !== 0) return byTicker;
 
     return a.stockId - b.stockId;
   });

@@ -4,11 +4,17 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import {
   formatPerformance,
+  NAME_SORT_COLLATOR_LOCALE,
+  NAME_SORT_COLLATOR_OPTIONS,
+  sortConstituentsByName,
   sortConstituentsByPerformance,
 } from './performanceHelpers';
 import type { PerformanceMap } from './performanceHelpers';
 import {
+  CONSTITUENT_NAME_SORT_MODE,
+  CONSTITUENT_SORT_MODE_OPTIONS,
   INDEX_CONSTITUENTS_TOTAL_COLS,
+  isStockHistoryRangeSortMode,
 } from './IndexConstituentsPanel';
 import { STOCK_HISTORY_RANGE_OPTIONS } from './historyRangeOptions';
 import type { IndexConstituentDto } from '../types';
@@ -155,11 +161,61 @@ describe('sortConstituentsByPerformance', () => {
   });
 });
 
+describe('sortConstituentsByName', () => {
+  it('sorts alphabetically with English collation, case-insensitive and numeric-aware', () => {
+    const items = [
+      makeConstituent({ stockId: 1, name: 'alpha 10', ticker: 'A10' }),
+      makeConstituent({ stockId: 2, name: 'Alpha 2', ticker: 'A2' }),
+      makeConstituent({ stockId: 3, name: 'alpha 1', ticker: 'A1' }),
+    ];
+
+    const sorted = sortConstituentsByName(items);
+    expect(sorted.map((c) => c.stockId)).toEqual([3, 2, 1]);
+  });
+
+  it('breaks name ties by ticker using English collation', () => {
+    const items = [
+      makeConstituent({ stockId: 1, name: 'Acme', ticker: 'A10' }),
+      makeConstituent({ stockId: 2, name: 'Acme', ticker: 'A2' }),
+      makeConstituent({ stockId: 3, name: 'Acme', ticker: 'A1' }),
+    ];
+
+    const sorted = sortConstituentsByName(items);
+    expect(sorted.map((c) => c.stockId)).toEqual([3, 2, 1]);
+  });
+
+  it('breaks full ties by stockId ascending', () => {
+    const items = [
+      makeConstituent({ stockId: 7, name: 'Acme', ticker: 'AAPL' }),
+      makeConstituent({ stockId: 3, name: 'Acme', ticker: 'AAPL' }),
+      makeConstituent({ stockId: 5, name: 'Acme', ticker: 'AAPL' }),
+    ];
+
+    const sorted = sortConstituentsByName(items);
+    expect(sorted.map((c) => c.stockId)).toEqual([3, 5, 7]);
+  });
+
+  it('uses explicit English locale and does not use Russian locale', () => {
+    expect(NAME_SORT_COLLATOR_LOCALE).toBe('en');
+    expect(NAME_SORT_COLLATOR_LOCALE).not.toBe('ru');
+    expect(NAME_SORT_COLLATOR_OPTIONS).toMatchObject({
+      sensitivity: 'base',
+      numeric: true,
+    });
+  });
+});
+
 // ── Panel source contracts ────────────────────────────────────────────────────
 
 describe('IndexConstituentsPanel performance column count', () => {
   it('updates total column count to accommodate performance column', () => {
     expect(INDEX_CONSTITUENTS_TOTAL_COLS).toBe(9);
+  });
+
+  it('keeps performance column/scroll/expanded-row colSpan contracts stable', () => {
+    expect(panelSource).toContain("title: 'Рост за период'");
+    expect(panelSource).toContain('PERFORMANCE_COL_WIDTH');
+    expect(panelSource).toContain('props: { colSpan: INDEX_CONSTITUENTS_TOTAL_COLS }');
   });
 });
 
@@ -175,13 +231,27 @@ describe('IndexConstituentsPanel period selector contracts', () => {
     ]);
   });
 
-  it('renders period selector with accessible label', () => {
-    expect(panelSource).toContain('Рост за период');
-    expect(panelSource).toContain('aria-label="Рост за период"');
+  it('prepends name sorting option before shared period options', () => {
+    expect(CONSTITUENT_SORT_MODE_OPTIONS[0]).toEqual({
+      label: 'По названию',
+      value: CONSTITUENT_NAME_SORT_MODE,
+    });
+    expect(CONSTITUENT_SORT_MODE_OPTIONS.slice(1)).toEqual(STOCK_HISTORY_RANGE_OPTIONS);
   });
 
-  it('defaults to 1y range', () => {
-    expect(panelSource).toContain("toStockHistoryRange('1y')");
+  it('uses safe guard for frontend-only name mode vs stock history ranges', () => {
+    expect(isStockHistoryRangeSortMode('1y')).toBe(true);
+    expect(isStockHistoryRangeSortMode('name')).toBe(false);
+    expect(isStockHistoryRangeSortMode('invalid')).toBe(false);
+  });
+
+  it('renders sort selector with accessible label', () => {
+    expect(panelSource).toContain('Сортировка');
+    expect(panelSource).toContain('aria-label="Сортировка"');
+  });
+
+  it('defaults to alphabetical name mode', () => {
+    expect(panelSource).toContain('useState<ConstituentSortMode>(CONSTITUENT_NAME_SORT_MODE)');
   });
 
   it('does not render a direction selector or laggards mode', () => {
@@ -203,12 +273,16 @@ describe('IndexConstituentsPanel performance API contracts', () => {
     expect(panelSource).toContain('performanceAbortRef');
   });
 
-  it('uses performanceRangeRef to avoid stale range closures', () => {
-    expect(panelSource).toContain('performanceRangeRef');
-    expect(panelSource).toContain('performanceRangeRef.current');
+  it('uses sort mode/ref + request guards to reject stale responses', () => {
+    expect(panelSource).toContain('sortModeRef');
+    expect(panelSource).toContain('performanceRequestIdRef');
+    expect(panelSource).toContain('sortModeRef.current !== range');
   });
 
-  it('clears performanceMap when range changes', () => {
+  it('clears performance state for name mode and aborts in-flight requests', () => {
+    expect(panelSource).toContain('clearPerformanceStateAndAbort');
+    expect(panelSource).toContain('setPerformanceLoading(false)');
+    expect(panelSource).toContain('setPerformanceError(null)');
     expect(panelSource).toContain('setPerformanceMap(new Map())');
   });
 
@@ -220,8 +294,13 @@ describe('IndexConstituentsPanel performance API contracts', () => {
     expect(panelSource).toContain('Недостаточно исторических данных');
   });
 
-  it('reloads performance after constituent data reload', () => {
-    expect(panelSource).toContain('void loadPerformance(performanceRangeRef.current)');
+  it('does not reload performance on constituent reload when name mode is active', () => {
+    expect(panelSource).toContain('refetchPerformance && isStockHistoryRangeSortMode(sortModeRef.current)');
+  });
+
+  it('initial/index reload requests performance only for real periods', () => {
+    expect(panelSource).toContain('if (isStockHistoryRangeSortMode(sortModeRef.current))');
+    expect(panelSource).toContain('void loadPerformance(sortModeRef.current)');
   });
 
   it('cancels performance request on unmount/indexId change', () => {
@@ -230,7 +309,8 @@ describe('IndexConstituentsPanel performance API contracts', () => {
 });
 
 describe('IndexConstituentsPanel sorting contracts', () => {
-  it('sorts constituents by performance before filtering', () => {
+  it('sorts by name in reset mode and by performance in period mode before filtering', () => {
+    expect(panelSource).toContain('sortConstituentsByName');
     expect(panelSource).toContain('sortConstituentsByPerformance');
     expect(panelSource).toContain('performanceMap');
   });
