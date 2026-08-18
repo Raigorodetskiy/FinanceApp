@@ -35,6 +35,7 @@ const MARKET_INDICES_OPEN_STORAGE_KEY = 'financeapp.sidebar.market-indices.open'
 
 export const MARKET_INDICES_SIDEBAR_PARENT_KEY = 'market-indices-root';
 export const MARKET_INDEX_KEY_PREFIX = 'market-index-';
+export const MARKET_INDICES_MANAGE_KEY = 'market-indices-manage';
 
 export function marketIndexSidebarKey(id: number): string {
   return `${MARKET_INDEX_KEY_PREFIX}${id}`;
@@ -42,6 +43,23 @@ export function marketIndexSidebarKey(id: number): string {
 
 export function marketIndexRoute(id: number): string {
   return `/market-indices/${id}`;
+}
+
+export interface SidebarOpenState {
+  portfoliosOpen: boolean;
+  stocksOpen: boolean;
+  stocksDirectoriesOpen: boolean;
+  marketIndicesOpen: boolean;
+}
+
+export interface SidebarOpenKeysParams extends SidebarOpenState {
+  selectedKeys: string[];
+  activePortfolioId?: string | number;
+  defaultOpenKeys?: string[];
+}
+
+export interface SidebarOpenChangeParams extends SidebarOpenKeysParams {
+  newOpenKeys: string[];
 }
 
 export type PortfolioSection = 'positions' | 'transactions';
@@ -54,7 +72,7 @@ export interface AppSidebarProps {
   defaultOpenKeys?: string[];
   /** ID of the currently viewed portfolio, if any */
   activePortfolioId?: string | number;
-  /** Market indices for the top-level dynamic submenu. Pass an empty array while loading. */
+  /** Market indices for the nested dynamic submenu under Stocks. Pass an empty array while loading. */
   marketIndices?: MarketIndex[];
 }
 
@@ -93,6 +111,275 @@ export function buildStocksDirectoriesMenuItems(
     label: entry.label,
     onClick: () => onNavigate(entry.route),
   }));
+}
+
+export function isStocksDirectoriesSelectedKey(key: string): boolean {
+  return key === STOCKS_DIRECTORIES_PARENT_KEY
+    || key === 'sectors'
+    || key === 'financial-metrics'
+    || key.startsWith('sectors-');
+}
+
+export function isMarketIndicesSelectedKey(key: string): boolean {
+  return key === MARKET_INDICES_SIDEBAR_PARENT_KEY
+    || key === MARKET_INDICES_MANAGE_KEY
+    || key.startsWith(MARKET_INDEX_KEY_PREFIX);
+}
+
+export function isStocksSelectedKey(key: string): boolean {
+  return key === 'stocks'
+    || key === 'stocks-list'
+    || isMarketIndicesSelectedKey(key);
+}
+
+export function computeSidebarOpenKeys({
+  portfoliosOpen,
+  stocksOpen,
+  stocksDirectoriesOpen,
+  marketIndicesOpen,
+  selectedKeys,
+  activePortfolioId,
+  defaultOpenKeys,
+}: SidebarOpenKeysParams): string[] {
+  const keys: string[] = [];
+  const hasStocksSelection = selectedKeys.some(isStocksSelectedKey);
+  const hasStocksDirectoriesSelection = selectedKeys.some(isStocksDirectoriesSelectedKey);
+  const hasMarketIndicesSelection = selectedKeys.some(isMarketIndicesSelectedKey);
+  const stocksSubtreeOpen = stocksOpen || hasStocksSelection || marketIndicesOpen || hasMarketIndicesSelection;
+
+  if (portfoliosOpen || activePortfolioId != null) {
+    keys.push('portfolios');
+  }
+  if (stocksSubtreeOpen) {
+    keys.push('stocks');
+  }
+  if (stocksDirectoriesOpen || hasStocksDirectoriesSelection) {
+    keys.push(STOCKS_DIRECTORIES_PARENT_KEY);
+  }
+  if (stocksSubtreeOpen && (marketIndicesOpen || hasMarketIndicesSelection)) {
+    keys.push(MARKET_INDICES_SIDEBAR_PARENT_KEY);
+  }
+  if (activePortfolioId != null) {
+    keys.push(`${PORTFOLIO_KEY_PREFIX}${activePortfolioId}`);
+  }
+  if (defaultOpenKeys) {
+    for (const key of defaultOpenKeys) {
+      if (!keys.includes(key)) keys.push(key);
+    }
+  }
+
+  return keys;
+}
+
+export function applySidebarOpenChange({
+  portfoliosOpen,
+  stocksOpen,
+  stocksDirectoriesOpen,
+  marketIndicesOpen,
+  selectedKeys,
+  activePortfolioId,
+  defaultOpenKeys,
+  newOpenKeys,
+}: SidebarOpenChangeParams): SidebarOpenState {
+  const currentKeys = computeSidebarOpenKeys({
+    portfoliosOpen,
+    stocksOpen,
+    stocksDirectoriesOpen,
+    marketIndicesOpen,
+    selectedKeys,
+    activePortfolioId,
+    defaultOpenKeys,
+  });
+
+  let nextPortfoliosOpen = portfoliosOpen;
+  let nextStocksOpen = stocksOpen;
+  let nextStocksDirectoriesOpen = stocksDirectoriesOpen;
+  let nextMarketIndicesOpen = marketIndicesOpen;
+
+  const prevHasPortfolios = currentKeys.includes('portfolios');
+  const nextHasPortfolios = newOpenKeys.includes('portfolios');
+  if (prevHasPortfolios && !nextHasPortfolios) {
+    if (activePortfolioId == null) {
+      nextPortfoliosOpen = false;
+    }
+  } else if (!prevHasPortfolios && nextHasPortfolios) {
+    nextPortfoliosOpen = true;
+  }
+
+  const prevHasStocks = currentKeys.includes('stocks');
+  const nextHasStocks = newOpenKeys.includes('stocks');
+  const routeRequiresStocks = selectedKeys.some(isStocksSelectedKey);
+  if (prevHasStocks && !nextHasStocks) {
+    if (!routeRequiresStocks) {
+      nextStocksOpen = false;
+      nextMarketIndicesOpen = false;
+    }
+  } else if (!prevHasStocks && nextHasStocks) {
+    nextStocksOpen = true;
+  }
+
+  const prevHasStocksDirectories = currentKeys.includes(STOCKS_DIRECTORIES_PARENT_KEY);
+  const nextHasStocksDirectories = newOpenKeys.includes(STOCKS_DIRECTORIES_PARENT_KEY);
+  const routeRequiresDirectories = selectedKeys.some(isStocksDirectoriesSelectedKey);
+  if (prevHasStocksDirectories && !nextHasStocksDirectories) {
+    if (!routeRequiresDirectories) {
+      nextStocksDirectoriesOpen = false;
+    }
+  } else if (!prevHasStocksDirectories && nextHasStocksDirectories) {
+    nextStocksDirectoriesOpen = true;
+  }
+
+  const prevHasMarketIndices = currentKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
+  const nextHasMarketIndices = newOpenKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
+  const routeRequiresMarketIndices = selectedKeys.some(isMarketIndicesSelectedKey);
+  if (prevHasMarketIndices && !nextHasMarketIndices) {
+    if (!routeRequiresMarketIndices) {
+      nextMarketIndicesOpen = false;
+    }
+  } else if (!prevHasMarketIndices && nextHasMarketIndices) {
+    nextMarketIndicesOpen = true;
+    nextStocksOpen = true;
+  }
+
+  return {
+    portfoliosOpen: nextPortfoliosOpen,
+    stocksOpen: nextStocksOpen,
+    stocksDirectoriesOpen: nextStocksDirectoriesOpen,
+    marketIndicesOpen: nextMarketIndicesOpen,
+  };
+}
+
+export interface BuildSidebarMenuItemsParams {
+  portfolios: Portfolio[];
+  activePortfolioId?: string | number;
+  marketIndices?: MarketIndex[];
+  onNavigate: (route: string) => void;
+}
+
+export function buildSidebarMenuItems({
+  portfolios,
+  activePortfolioId,
+  marketIndices = [],
+  onNavigate,
+}: BuildSidebarMenuItemsParams): MenuProps['items'] {
+  const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
+    const pid = portfolio.id;
+    return [
+      {
+        key: `${PORTFOLIO_KEY_PREFIX}${pid}-positions`,
+        className: 'sidebar-leaf-item',
+        icon: <UnorderedListOutlined />,
+        label: 'Позиции',
+        onClick: () => onNavigate(`/portfolios/${pid}?section=positions`),
+      },
+      {
+        key: `${PORTFOLIO_KEY_PREFIX}${pid}-transactions`,
+        className: 'sidebar-leaf-item',
+        icon: <WalletOutlined />,
+        label: 'Транзакции',
+        onClick: () => onNavigate(`/portfolios/${pid}?section=transactions`),
+      },
+    ];
+  };
+
+  const portfolioChildren: NonNullable<MenuProps['items']> = portfolios
+    .map((portfolio) => {
+      const pid = portfolio.id;
+      const isActive = activePortfolioId != null && String(portfolio.id) === String(activePortfolioId);
+      const children = buildPortfolioChildren(portfolio);
+
+      if (isActive) {
+        return {
+          key: `${PORTFOLIO_KEY_PREFIX}${pid}`,
+          className: 'sidebar-portfolio-node sidebar-portfolio-node--active',
+          icon: <FolderOpenOutlined />,
+          label: (
+            <Tooltip title={portfolio.name} placement="right">
+              <span className="sidebar-node-label">{portfolio.name}</span>
+            </Tooltip>
+          ),
+          children,
+        };
+      }
+      return {
+        key: `${PORTFOLIO_KEY_PREFIX}${pid}`,
+        className: 'sidebar-portfolio-node',
+        icon: <FolderOutlined />,
+        label: (
+          <Tooltip title={portfolio.name} placement="right">
+            <span className="sidebar-node-label">{portfolio.name}</span>
+          </Tooltip>
+        ),
+        onClick: () => onNavigate(`/portfolios/${pid}`),
+        children: undefined,
+      };
+    });
+
+  const marketIndexChildren: NonNullable<MenuProps['items']> = marketIndices
+    .filter((idx) => !idx.isArchived && idx.showInNavigation !== false)
+    .map((idx) => {
+      const tooltip = idx.name === idx.code ? idx.name : `${idx.name} (${idx.code})`;
+      return {
+        key: marketIndexSidebarKey(idx.id),
+        className: 'sidebar-leaf-item',
+        icon: <GlobalOutlined />,
+        label: (
+          <Tooltip title={tooltip} placement="right">
+            <span className="sidebar-node-label">{idx.name}</span>
+          </Tooltip>
+        ),
+        onClick: () => onNavigate(marketIndexRoute(idx.id)),
+      };
+    });
+
+  return [
+    {
+      key: 'dashboard',
+      icon: <DashboardOutlined />,
+      label: 'Главная',
+      onClick: () => onNavigate('/'),
+    },
+    {
+      key: 'portfolios',
+      icon: <FolderOutlined />,
+      label: 'Портфели',
+      children: portfolioChildren,
+    },
+    {
+      key: 'stocks',
+      icon: <StockOutlined />,
+      label: 'Акции',
+      children: [
+        {
+          key: 'stocks-list',
+          icon: <UnorderedListOutlined />,
+          label: 'Список акций',
+          onClick: () => onNavigate('/stocks'),
+        },
+        {
+          key: MARKET_INDICES_SIDEBAR_PARENT_KEY,
+          icon: <GlobalOutlined />,
+          label: 'Мировые индексы',
+          children: [
+            {
+              key: MARKET_INDICES_MANAGE_KEY,
+              className: 'sidebar-leaf-item',
+              icon: <UnorderedListOutlined />,
+              label: 'Управление',
+              onClick: () => onNavigate('/market-indices'),
+            },
+            ...marketIndexChildren,
+          ],
+        },
+      ],
+    },
+    {
+      key: STOCKS_DIRECTORIES_PARENT_KEY,
+      icon: STOCKS_DIRECTORIES_PARENT_ICON,
+      label: STOCKS_DIRECTORIES_PARENT_LABEL,
+      children: buildStocksDirectoriesMenuItems(onNavigate),
+    },
+  ];
 }
 
 const AppSidebar: React.FC<AppSidebarProps> = ({
@@ -134,35 +421,35 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const [stocksOpen, setStocksOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k === 'financial-metrics' || k.startsWith('stocks-'));
+      return selectedKeys.some(isStocksSelectedKey);
     }
     try {
       const stored = window.localStorage.getItem(STOCKS_OPEN_STORAGE_KEY);
       if (stored !== null) return stored === '1';
     } catch {}
-    return selectedKeys.some((k) => k === 'stocks' || k === 'stocks-list' || k === 'sectors' || k === 'financial-metrics' || k.startsWith('stocks-'));
+    return selectedKeys.some(isStocksSelectedKey);
   });
 
   const [stocksDirectoriesOpen, setStocksDirectoriesOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return selectedKeys.some((k) => k === 'sectors' || k === 'financial-metrics' || k.startsWith('sectors-'));
+      return selectedKeys.some(isStocksDirectoriesSelectedKey);
     }
     try {
       const stored = window.localStorage.getItem(STOCKS_DIRECTORIES_OPEN_STORAGE_KEY);
       if (stored !== null) return stored === '1';
     } catch {}
-    return selectedKeys.some((k) => k === 'sectors' || k === 'financial-metrics' || k.startsWith('sectors-'));
+    return selectedKeys.some(isStocksDirectoriesSelectedKey);
   });
 
   const [marketIndicesOpen, setMarketIndicesOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
-      return selectedKeys.some((k) => k === MARKET_INDICES_SIDEBAR_PARENT_KEY || k.startsWith(MARKET_INDEX_KEY_PREFIX));
+      return selectedKeys.some(isMarketIndicesSelectedKey);
     }
     try {
       const stored = window.localStorage.getItem(MARKET_INDICES_OPEN_STORAGE_KEY);
       if (stored !== null) return stored === '1';
     } catch {}
-    return selectedKeys.some((k) => k === MARKET_INDICES_SIDEBAR_PARENT_KEY || k.startsWith(MARKET_INDEX_KEY_PREFIX));
+    return selectedKeys.some(isMarketIndicesSelectedKey);
   });
 
   React.useEffect(() => {
@@ -200,239 +487,48 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
     } catch {}
   }, [marketIndicesOpen]);
 
-  // Compute controlled open keys: combine user-controlled state with
-  // route-required keys (active portfolio hierarchy must always be visible).
   const openKeys = useMemo((): string[] => {
-    const keys: string[] = [];
-    const hasStocksSelection = selectedKeys.some((key) =>
-      key === 'stocks'
-      || key === 'stocks-list'
-      || key === 'sectors'
-      || key === 'financial-metrics'
-      || key.startsWith('stocks-')
-    );
-    const hasStocksDirectoriesSelection = selectedKeys.some((key) =>
-      key === 'stocks-directories'
-      || key === 'sectors'
-      || key === 'financial-metrics'
-      || key.startsWith('sectors-')
-    );
-    const hasMarketIndicesSelection = selectedKeys.some((key) =>
-      key === MARKET_INDICES_SIDEBAR_PARENT_KEY
-      || key.startsWith(MARKET_INDEX_KEY_PREFIX)
-    );
-    // Always open portfolios when on a portfolio route, or when user has it open.
-    if (portfoliosOpen || activePortfolioId != null) {
-      keys.push('portfolios');
-    }
-    // Open stocks when route requires it OR user has it open.
-    if (stocksOpen || hasStocksSelection) {
-      keys.push('stocks');
-    }
-    // Open stocks-directories when route requires it OR user has it open (only when stocks is open).
-    if ((stocksOpen || hasStocksSelection) && (stocksDirectoriesOpen || hasStocksDirectoriesSelection)) {
-      keys.push('stocks-directories');
-    }
-    // Open market-indices root when route requires it OR user has it open.
-    if (marketIndicesOpen || hasMarketIndicesSelection) {
-      keys.push(MARKET_INDICES_SIDEBAR_PARENT_KEY);
-    }
-    // Keep the specific active portfolio node open.
-    if (activePortfolioId != null) {
-      keys.push(`${PORTFOLIO_KEY_PREFIX}${activePortfolioId}`);
-    }
-    // Honour any externally required keys (e.g. from defaultOpenKeys prop).
-    if (defaultOpenKeys) {
-      for (const k of defaultOpenKeys) {
-        if (!keys.includes(k)) keys.push(k);
-      }
-    }
-    return keys;
+    return computeSidebarOpenKeys({
+      portfoliosOpen,
+      stocksOpen,
+      stocksDirectoriesOpen,
+      marketIndicesOpen,
+      activePortfolioId,
+      defaultOpenKeys,
+      selectedKeys,
+    });
   }, [portfoliosOpen, stocksOpen, stocksDirectoriesOpen, marketIndicesOpen, activePortfolioId, defaultOpenKeys, selectedKeys]);
 
   // Handle submenu open/close changes from Ant Design.
   const handleMenuOpenChange = useCallback((newOpenKeys: string[]) => {
-    const prevHasPortfolios = openKeys.includes('portfolios');
-    const nextHasPortfolios = newOpenKeys.includes('portfolios');
-    if (prevHasPortfolios && !nextHasPortfolios) {
-      if (activePortfolioId == null) {
-        setPortfoliosOpen(false);
-      }
-    } else if (!prevHasPortfolios && nextHasPortfolios) {
-      setPortfoliosOpen(true);
-    }
+    const nextState = applySidebarOpenChange({
+      portfoliosOpen,
+      stocksOpen,
+      stocksDirectoriesOpen,
+      marketIndicesOpen,
+      activePortfolioId,
+      defaultOpenKeys,
+      selectedKeys,
+      newOpenKeys,
+    });
 
-    const prevHasStocks = openKeys.includes('stocks');
-    const nextHasStocks = newOpenKeys.includes('stocks');
-    const routeRequiresStocks = selectedKeys.some((key) =>
-      key === 'stocks'
-      || key === 'stocks-list'
-      || key === 'sectors'
-      || key === 'financial-metrics'
-      || key.startsWith('stocks-')
-    );
-    if (prevHasStocks && !nextHasStocks) {
-      if (!routeRequiresStocks) {
-        setStocksOpen(false);
-        setStocksDirectoriesOpen(false);
-      }
-    } else if (!prevHasStocks && nextHasStocks) {
-      setStocksOpen(true);
-    }
+    setPortfoliosOpen(nextState.portfoliosOpen);
+    setStocksOpen(nextState.stocksOpen);
+    setStocksDirectoriesOpen(nextState.stocksDirectoriesOpen);
+    setMarketIndicesOpen(nextState.marketIndicesOpen);
+  }, [activePortfolioId, defaultOpenKeys, marketIndicesOpen, portfoliosOpen, selectedKeys, stocksDirectoriesOpen, stocksOpen]);
 
-    const prevHasStocksDirectories = openKeys.includes('stocks-directories');
-    const nextHasStocksDirectories = newOpenKeys.includes('stocks-directories');
-    const routeRequiresDirectories = selectedKeys.some((key) =>
-      key === 'sectors'
-      || key === 'financial-metrics'
-      || key.startsWith('sectors-')
-    );
-    if (prevHasStocksDirectories && !nextHasStocksDirectories) {
-      if (!routeRequiresDirectories) {
-        setStocksDirectoriesOpen(false);
-      }
-    } else if (!prevHasStocksDirectories && nextHasStocksDirectories) {
-      setStocksDirectoriesOpen(true);
-    }
+  const handleNavigate = useCallback((route: string) => {
+    navigate(route);
+    setMobileOpen(false);
+  }, [navigate]);
 
-    const prevHasMarketIndices = openKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
-    const nextHasMarketIndices = newOpenKeys.includes(MARKET_INDICES_SIDEBAR_PARENT_KEY);
-    const routeRequiresMarketIndices = selectedKeys.some((key) =>
-      key === MARKET_INDICES_SIDEBAR_PARENT_KEY || key.startsWith(MARKET_INDEX_KEY_PREFIX)
-    );
-    if (prevHasMarketIndices && !nextHasMarketIndices) {
-      if (!routeRequiresMarketIndices) {
-        setMarketIndicesOpen(false);
-      }
-    } else if (!prevHasMarketIndices && nextHasMarketIndices) {
-      setMarketIndicesOpen(true);
-    }
-  }, [openKeys, activePortfolioId, selectedKeys]);
-
-  const buildPortfolioChildren = (portfolio: Portfolio): NonNullable<MenuProps['items']> => {
-    const pid = portfolio.id;
-    return [
-      {
-        key: `${PORTFOLIO_KEY_PREFIX}${pid}-positions`,
-        className: 'sidebar-leaf-item',
-        icon: <UnorderedListOutlined />,
-        label: 'Позиции',
-        onClick: () => { navigate(`/portfolios/${pid}?section=positions`); setMobileOpen(false); },
-      },
-      {
-        key: `${PORTFOLIO_KEY_PREFIX}${pid}-transactions`,
-        className: 'sidebar-leaf-item',
-        icon: <WalletOutlined />,
-        label: 'Транзакции',
-        onClick: () => { navigate(`/portfolios/${pid}?section=transactions`); setMobileOpen(false); },
-      },
-    ];
-  };
-
-  const allMenuItems: MenuProps['items'] = useMemo(() => {
-    const portfolioChildren: NonNullable<MenuProps['items']> = portfolios
-      .map((portfolio) => {
-        const pid = portfolio.id;
-        const isActive = activePortfolioId != null && String(portfolio.id) === String(activePortfolioId);
-        const children = buildPortfolioChildren(portfolio);
-
-        if (isActive) {
-          return {
-            key: `${PORTFOLIO_KEY_PREFIX}${pid}`,
-            className: 'sidebar-portfolio-node sidebar-portfolio-node--active',
-            icon: <FolderOpenOutlined />,
-            label: (
-              <Tooltip title={portfolio.name} placement="right">
-                <span className="sidebar-node-label">{portfolio.name}</span>
-              </Tooltip>
-            ),
-            children,
-          };
-        }
-        return {
-          key: `${PORTFOLIO_KEY_PREFIX}${pid}`,
-          className: 'sidebar-portfolio-node',
-          icon: <FolderOutlined />,
-          label: (
-            <Tooltip title={portfolio.name} placement="right">
-              <span className="sidebar-node-label">{portfolio.name}</span>
-            </Tooltip>
-          ),
-          onClick: () => { navigate(`/portfolios/${pid}`); setMobileOpen(false); },
-          children: undefined,
-        };
-      });
-
-    const marketIndexChildren: NonNullable<MenuProps['items']> = marketIndices
-      .filter((idx) => !idx.isArchived && idx.showInNavigation !== false)
-      .map((idx) => {
-        const tooltip = idx.name === idx.code ? idx.name : `${idx.name} (${idx.code})`;
-        return {
-          key: marketIndexSidebarKey(idx.id),
-          className: 'sidebar-leaf-item',
-          icon: <GlobalOutlined />,
-          label: (
-            <Tooltip title={tooltip} placement="right">
-              <span className="sidebar-node-label">{idx.name}</span>
-            </Tooltip>
-          ),
-          onClick: () => { navigate(marketIndexRoute(idx.id)); setMobileOpen(false); },
-        };
-      });
-
-    return [
-      {
-        key: 'dashboard',
-        icon: <DashboardOutlined />,
-        label: 'Главная',
-        onClick: () => { navigate('/'); setMobileOpen(false); },
-      },
-      {
-        key: 'portfolios',
-        icon: <FolderOutlined />,
-        label: 'Портфели',
-        children: portfolioChildren,
-      },
-      {
-        key: 'stocks',
-        icon: <StockOutlined />,
-        label: 'Акции',
-        children: [
-          {
-            key: 'stocks-list',
-            icon: <UnorderedListOutlined />,
-            label: 'Список акций',
-            onClick: () => { navigate('/stocks'); setMobileOpen(false); },
-          },
-          {
-            key: STOCKS_DIRECTORIES_PARENT_KEY,
-            icon: STOCKS_DIRECTORIES_PARENT_ICON,
-            label: STOCKS_DIRECTORIES_PARENT_LABEL,
-            children: buildStocksDirectoriesMenuItems((route) => {
-              navigate(route);
-              setMobileOpen(false);
-            }),
-          },
-        ],
-      },
-      {
-        key: MARKET_INDICES_SIDEBAR_PARENT_KEY,
-        icon: <GlobalOutlined />,
-        label: 'Мировые индексы',
-        children: [
-          {
-            key: 'market-indices-manage',
-            className: 'sidebar-leaf-item',
-            icon: <UnorderedListOutlined />,
-            label: 'Управление',
-            onClick: () => { navigate('/market-indices'); setMobileOpen(false); },
-          },
-          ...marketIndexChildren,
-        ],
-      },
-    ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [portfolios, activePortfolioId, marketIndices]);
+  const allMenuItems: MenuProps['items'] = useMemo(() => buildSidebarMenuItems({
+    portfolios,
+    activePortfolioId,
+    marketIndices,
+    onNavigate: handleNavigate,
+  }), [portfolios, activePortfolioId, marketIndices, handleNavigate]);
 
   const bottomItems: NonNullable<MenuProps['items']> = [
     {
