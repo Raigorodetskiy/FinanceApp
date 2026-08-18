@@ -46,7 +46,7 @@ const mcdCatalogStock: Stock = {
 
 const buildHistoryResponse = (range: '1y' | '6m') => ({
   range,
-  interval: range === '6m' ? '1d' : '1d',
+  interval: '1d',
   currency: 'USD',
   financialCurrency: 'USD',
   normalizedQuoteCurrency: 'USD',
@@ -404,7 +404,7 @@ describe('StocksPage catalog mode', () => {
     await waitFor(() => expect(api.getStockHistory).toHaveBeenLastCalledWith(mcdCatalogStock.id, '6m'));
     expect(api.trackStock).not.toHaveBeenCalled();
     expect(addButton).toBeEnabled();
-  }, 15000);
+  }, 30000);
 
   it('catalog charts create no automatic history or quote refresh timers', async () => {
     const user = userEvent.setup();

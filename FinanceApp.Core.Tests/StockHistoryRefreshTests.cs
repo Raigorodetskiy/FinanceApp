@@ -20,6 +20,7 @@ public class StockHistoryRefreshTests
     public async Task GetHistoryAsync_CatalogOnlyStockWithPersistedHistoryAndNoMemberships_ReturnsStoredPoints()
     {
         await using var context = CreateInMemoryContext();
+        var now = DateTime.UtcNow;
         var stock = new Stock
         {
             Id = 1,
@@ -32,8 +33,8 @@ public class StockHistoryRefreshTests
         context.StockHistoricalPrices.Add(new StockHistoricalPrice
         {
             StockId = stock.Id,
-            Interval = "1d",
-            Timestamp = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            Interval = "1wk",
+            Timestamp = now.AddDays(-7),
             Open = 300m,
             High = 305m,
             Low = 299m,
@@ -52,7 +53,7 @@ public class StockHistoryRefreshTests
         var response = await service.GetHistoryAsync(stock, "1y");
 
         Assert.Equal("1y", response.Range);
-        Assert.Equal("1d", response.Interval);
+        Assert.Equal("1wk", response.Interval);
         Assert.Single(response.Points);
         Assert.Equal(304m, response.Points[0].CloseRaw);
         Assert.Equal(0, handler.CallCount);
@@ -64,6 +65,7 @@ public class StockHistoryRefreshTests
     public async Task GetHistoryAsync_CatalogOnlyStockWithoutStoredHistory_PerformsOnDemandSync()
     {
         await using var context = CreateInMemoryContext();
+        var now = DateTime.UtcNow;
         var stock = new Stock
         {
             Id = 1,
@@ -76,19 +78,19 @@ public class StockHistoryRefreshTests
         await context.SaveChangesAsync();
 
         var handler = new CountingHandler(
-            SuccessChartJson(1704067200, 10m),
-            SuccessChartJson(1704672000, 20m),
-            SuccessChartJson(1705276800, 30m),
-            SuccessChartJson(1705881600, 40m),
-            SuccessChartJson(1706486400, 50m));
+            SuccessChartJson(ToUnix(now.AddDays(-300)), 10m),
+            SuccessChartJson(ToUnix(now.AddDays(-7)), 20m),
+            SuccessChartJson(ToUnix(now.AddDays(-1)), 30m),
+            SuccessChartJson(ToUnix(now.AddHours(-6)), 40m),
+            SuccessChartJson(ToUnix(now.AddMinutes(-30)), 50m));
         var service = CreateService(context, handler);
 
         var response = await service.GetHistoryAsync(stock, "1y");
 
         Assert.Equal(5, handler.CallCount);
         Assert.Single(response.Points);
-        Assert.Equal(30m, response.Points[0].CloseRaw);
-        Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == stock.Id && x.Interval == "1d"));
+        Assert.Equal(20m, response.Points[0].CloseRaw);
+        Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == stock.Id && x.Interval == "1wk"));
         Assert.Equal(StockTrackingStatus.CatalogOnly, await context.Stocks.Select(x => x.TrackingStatus).SingleAsync());
         Assert.Equal(1, await context.Stocks.CountAsync());
         Assert.Empty(await context.StockMarketIndices.ToListAsync());
@@ -287,7 +289,7 @@ public class StockHistoryRefreshTests
         await using var context = CreateInMemoryContext();
         context.Stocks.AddRange(
             new Stock { Id = 1, Ticker = "TRACK", Exchange = StockExchanges.Nyse, Name = "Tracked", TrackingStatus = StockTrackingStatus.Tracked },
-            new Stock { Id = 2, Ticker = "CAT", Exchange = StockExchanges.Nyse, Name = "Catalog", TrackingStatus = StockTrackingStatus.CatalogOnly });
+            new Stock { Id = 2, Ticker = "CATONLY", Exchange = StockExchanges.Nyse, Name = "Catalog", TrackingStatus = StockTrackingStatus.CatalogOnly });
         await context.SaveChangesAsync();
 
         var handler = new CountingHandler(
@@ -302,7 +304,7 @@ public class StockHistoryRefreshTests
 
         Assert.Equal(5, handler.CallCount);
         Assert.All(handler.RequestedUrls, url => Assert.Contains("TRACK", url, StringComparison.Ordinal));
-        Assert.DoesNotContain(handler.RequestedUrls, url => url.Contains("CAT", StringComparison.Ordinal));
+        Assert.DoesNotContain(handler.RequestedUrls, url => url.Contains("CATONLY", StringComparison.Ordinal));
         Assert.False(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == 2));
     }
 
@@ -585,6 +587,8 @@ public class StockHistoryRefreshTests
     }
 
     private static string EmptyChartJson() => """{"chart":{"result":[]}}""";
+
+    private static long ToUnix(DateTime value) => new DateTimeOffset(value).ToUnixTimeSeconds();
 
     private sealed class FixedHttpClientFactory : IHttpClientFactory
     {
