@@ -783,6 +783,7 @@ const StocksPage: React.FC = () => {
       <AuthenticatedShell
         portfolios={portfolios}
         selectedKeys={['stocks-list']}
+        marketIndices={marketIndices}
         userName={user?.username}
         onLogout={logout}
         headerLeft={(

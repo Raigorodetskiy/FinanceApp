@@ -207,15 +207,25 @@ describe('AppSidebar real DOM interaction — Market Indices toggle', () => {
     const user = userEvent.setup();
     const { unmount } = renderSidebar({ localState: { [LS_STOCKS]: '1', [LS_MI]: '0' } });
 
-    // Open via click
+    // Open via click — this genuinely saves LS_MI='1' to localStorage
     await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
     expect(localStorage.getItem(LS_MI)).toBe('1');
 
     unmount();
     cleanup();
 
-    // Remount with the persisted state (LS_MI='1' saved by above click)
-    renderSidebar({ localState: { [LS_STOCKS]: '1', [LS_MI]: '1' } });
+    // Remount WITHOUT clearing localStorage — the persisted value must drive initial state
+    render(
+      <MemoryRouter>
+        <LocationCapture />
+        <AppSidebar
+          portfolios={[]}
+          selectedKeys={[]}
+          onLogout={() => {}}
+          marketIndices={[SP500]}
+        />
+      </MemoryRouter>,
+    );
     expect(isExpanded('Мировые индексы')).toBe(true);
   });
 
@@ -232,23 +242,113 @@ describe('AppSidebar real DOM interaction — Market Indices toggle', () => {
     expect(isExpanded('Мировые индексы')).toBe(true);
   });
 
-  it('10. Keyboard activation of the submenu title toggles Market Indices', async () => {
+  it('9c. explicit click closes Market Indices even on active market-index-* route', async () => {
+    const user = userEvent.setup();
+    // Simulate being on a /market-indices/:id route with submenu open
+    renderSidebar({
+      selectedKeys: ['market-index-1'],
+      localState: { [LS_STOCKS]: '1', [LS_MI]: '1' },
+    });
+
+    expect(isExpanded('Мировые индексы')).toBe(true);
+
+    // Explicit click must close it despite the active index route
+    await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
+
+    expect(isExpanded('Мировые индексы')).toBe(false);
+    // Акции parent must remain open
+    expect(isExpanded('Акции')).toBe(true);
+    // localStorage must reflect closed state
+    expect(localStorage.getItem(LS_MI)).toBe('0');
+  });
+
+  it('9d. explicit click closes Market Indices on market-indices-manage route', async () => {
+    const user = userEvent.setup();
+    renderSidebar({
+      selectedKeys: ['market-indices-manage'],
+      localState: { [LS_STOCKS]: '1', [LS_MI]: '1' },
+    });
+
+    expect(isExpanded('Мировые индексы')).toBe(true);
+
+    await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
+
+    expect(isExpanded('Мировые индексы')).toBe(false);
+    expect(localStorage.getItem(LS_MI)).toBe('0');
+  });
+
+  it('9e. close on active index route → localStorage=0 → remount keeps it closed', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderSidebar({
+      selectedKeys: ['market-index-1'],
+      localState: { [LS_STOCKS]: '1', [LS_MI]: '1' },
+    });
+
+    // Explicit close
+    await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
+    expect(localStorage.getItem(LS_MI)).toBe('0');
+
+    unmount();
+    cleanup();
+
+    // Remount with same route but without manually re-injecting localStorage
+    render(
+      <MemoryRouter initialEntries={['/market-indices/1']}>
+        <LocationCapture />
+        <AppSidebar
+          portfolios={[]}
+          selectedKeys={['market-index-1']}
+          onLogout={() => {}}
+          marketIndices={[SP500]}
+        />
+      </MemoryRouter>,
+    );
+    // Persisted closed preference must win over initial route reveal on remount
+    // (initial reveal is one-time; subsequent mounts use the persisted value)
+    expect(isExpanded('Мировые индексы')).toBe(false);
+  });
+
+  it('9f. after explicit close on active route, next click reopens with all visible entries', async () => {
+    const user = userEvent.setup();
+    renderSidebar({
+      selectedKeys: ['market-index-1'],
+      localState: { [LS_STOCKS]: '1', [LS_MI]: '1' },
+    });
+
+    // Close
+    await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
+    expect(isExpanded('Мировые индексы')).toBe(false);
+
+    // Reopen — Управление and SP500 must both appear
+    await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
+    expect(isExpanded('Мировые индексы')).toBe(true);
+    expect(screen.getByText('Управление')).toBeInTheDocument();
+    expect(screen.getByText('S&P 500')).toBeInTheDocument();
+  });
+
+  it('10. Keyboard interaction: Ant Design submenu titles respond to mouse/pointer but not to keyboard Enter/Space in jsdom', async () => {
+    // Ant Design v5 renders submenu title elements that handle click events via
+    // pointer/mouse handlers but do not implement keydown/keypress activation in jsdom.
+    // Keyboard accessibility is provided by Ant Design's own internal focus management
+    // and arrow-key navigation, which relies on native browser focus events not
+    // reproducible in jsdom. Testing the actual toggle via userEvent.click (pointer)
+    // is verified in tests 1-9f above. This test documents the known jsdom limitation
+    // and ensures no uncaught exception is thrown when keyboard events are fired.
     const user = userEvent.setup();
     renderSidebar({ localState: { [LS_STOCKS]: '1', [LS_MI]: '0' } });
 
     const title = getSubmenuTitle('Мировые индексы');
     title.focus();
+
+    // No uncaught exception must be thrown
     await act(async () => {
       await user.keyboard('{Enter}');
     });
 
-    // If Ant Design treats Enter on a focused submenu title as a toggle, it should
-    // now be expanded. If the DOM does not support keyboard activation for this
-    // particular Ant Design version, aria-expanded may remain false — we accept
-    // either outcome but document which one occurred.
-    const expanded = isExpanded('Мировые индексы');
-    // At minimum: no unhandled exception and state is boolean
-    expect(typeof expanded).toBe('boolean');
+    // Pointer-based click does work and is the primary tested interaction
+    await act(async () => { await user.click(getSubmenuTitle('Мировые индексы')); });
+    expect(isExpanded('Мировые индексы')).toBe(true);
+    expect(screen.getByText('Управление')).toBeInTheDocument();
   });
 
   it('11. Top-level Справочники section is independent of Market Indices toggle', async () => {
