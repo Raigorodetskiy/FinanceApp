@@ -145,18 +145,19 @@ export function computeSidebarOpenKeys({
   const hasStocksSelection = selectedKeys.some(isStocksSelectedKey);
   const hasStocksDirectoriesSelection = selectedKeys.some(isStocksDirectoriesSelectedKey);
   const hasMarketIndicesSelection = selectedKeys.some(isMarketIndicesSelectedKey);
-  const stocksSubtreeOpen = stocksOpen || hasStocksSelection || marketIndicesOpen || hasMarketIndicesSelection;
+  const stocksRootOpen = stocksOpen || hasStocksSelection;
+  const marketIndicesSubtreeOpen = marketIndicesOpen || hasMarketIndicesSelection;
 
   if (portfoliosOpen || activePortfolioId != null) {
     keys.push('portfolios');
   }
-  if (stocksSubtreeOpen) {
+  if (stocksRootOpen || marketIndicesSubtreeOpen) {
     keys.push('stocks');
   }
   if (stocksDirectoriesOpen || hasStocksDirectoriesSelection) {
     keys.push(STOCKS_DIRECTORIES_PARENT_KEY);
   }
-  if (stocksSubtreeOpen && (marketIndicesOpen || hasMarketIndicesSelection)) {
+  if (marketIndicesSubtreeOpen) {
     keys.push(MARKET_INDICES_SIDEBAR_PARENT_KEY);
   }
   if (activePortfolioId != null) {
