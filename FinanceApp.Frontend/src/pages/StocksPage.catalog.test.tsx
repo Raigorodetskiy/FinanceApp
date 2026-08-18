@@ -3,7 +3,7 @@ import React from 'react';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AuthContext from '../contexts/AuthContext';
 import type { Stock } from '../types';
 import StocksPage from './StocksPage';
@@ -31,6 +31,113 @@ const untrackedStock: Stock = {
   trackingStatus: 0,
   marketIndexIds: [],
 };
+
+const mcdCatalogStock: Stock = {
+  id: 4,
+  ticker: 'MCD',
+  name: "McDonald's Corporation",
+  commonName: "McDonald's",
+  exchange: 'NYSE',
+  currentPrice: 300,
+  updatedAt: '2026-08-18T00:00:00Z',
+  trackingStatus: 0,
+  marketIndexIds: [],
+};
+
+const buildHistoryResponse = (range: '1y' | '6m') => ({
+  range,
+  interval: range === '6m' ? '1d' : '1d',
+  currency: 'USD',
+  financialCurrency: 'USD',
+  normalizedQuoteCurrency: 'USD',
+  quoteUnitMultiplier: 1,
+  rateToEur: null,
+  rateTimestampUtc: null,
+  rateSource: null,
+  conversionWarning: null,
+  volumeMetrics: {
+    averageVolume20: 1000,
+    averageVolume50: 900,
+    relativeVolume: 1.2,
+    turnover: 305000,
+    turnoverCurrency: 'USD',
+    latestMetricsTimestamp: '2026-08-02T00:00:00Z',
+    usesCompletedCandle: true,
+  },
+  points: range === '6m'
+    ? [
+        {
+          timestamp: '2026-07-01T00:00:00Z',
+          interval: '1d',
+          openRaw: 320,
+          highRaw: 325,
+          lowRaw: 318,
+          closeRaw: 322,
+          openNormalized: 320,
+          highNormalized: 325,
+          lowNormalized: 318,
+          closeNormalized: 322,
+          openEur: null,
+          highEur: null,
+          lowEur: null,
+          closeEur: null,
+          volume: 1200,
+        },
+        {
+          timestamp: '2026-08-02T00:00:00Z',
+          interval: '1d',
+          openRaw: 326,
+          highRaw: 331,
+          lowRaw: 324,
+          closeRaw: 330,
+          openNormalized: 326,
+          highNormalized: 331,
+          lowNormalized: 324,
+          closeNormalized: 330,
+          openEur: null,
+          highEur: null,
+          lowEur: null,
+          closeEur: null,
+          volume: 1400,
+        },
+      ]
+    : [
+        {
+          timestamp: '2026-01-01T00:00:00Z',
+          interval: '1d',
+          openRaw: 290,
+          highRaw: 295,
+          lowRaw: 288,
+          closeRaw: 292,
+          openNormalized: 290,
+          highNormalized: 295,
+          lowNormalized: 288,
+          closeNormalized: 292,
+          openEur: null,
+          highEur: null,
+          lowEur: null,
+          closeEur: null,
+          volume: 1000,
+        },
+        {
+          timestamp: '2026-08-02T00:00:00Z',
+          interval: '1d',
+          openRaw: 301,
+          highRaw: 306,
+          lowRaw: 300,
+          closeRaw: 305,
+          openNormalized: 301,
+          highNormalized: 306,
+          lowNormalized: 300,
+          closeNormalized: 305,
+          openEur: null,
+          highEur: null,
+          lowEur: null,
+          closeEur: null,
+          volume: 1300,
+        },
+      ],
+});
 
 const untrackedStockFRA: Stock = {
   id: 3,
@@ -66,6 +173,9 @@ vi.mock('../services/api', async () => {
       },
     ]),
     getStockPrice: vi.fn(),
+    getStockHistory: vi.fn(),
+    refreshStockHistory: vi.fn(),
+    getIndexConstituentHistory: vi.fn(),
     trackStock: vi.fn().mockResolvedValue({ data: {} }),
     untrackStock: vi.fn().mockResolvedValue({ data: {} }),
   };
@@ -94,8 +204,23 @@ describe('StocksPage catalog mode', () => {
     vi.clearAllMocks();
     const api = await import('../services/api');
     vi.mocked(api.getTrackedStocks).mockResolvedValue({ data: [trackedStock] });
-    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: [trackedStock, untrackedStock, untrackedStockFRA] });
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: [trackedStock, untrackedStock, untrackedStockFRA, mcdCatalogStock] });
+    vi.mocked(api.getStockHistory).mockImplementation(async (_id, range) => ({ data: buildHistoryResponse(range as '1y' | '6m') }));
+    vi.mocked(api.refreshStockHistory).mockResolvedValue({ data: { stockId: mcdCatalogStock.id, deletedPoints: 2, importedPoints: 2 } });
+    vi.mocked(api.getIndexConstituentHistory).mockResolvedValue({ data: buildHistoryResponse('1y') });
   });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const getTickerToggleButton = (stockId: number, ticker: string) => {
+    const button = document.querySelector(
+      `tr[data-row-key="${stockId}"] button[aria-label="Открыть график цены: ${ticker}"]`,
+    );
+    expect(button).not.toBeNull();
+    return button as HTMLButtonElement;
+  };
 
   // Test 1: All exchange fixtures render in one table, not separate sections
   it('renders all stocks from different exchanges in a single unified table', async () => {
@@ -250,6 +375,75 @@ describe('StocksPage catalog mode', () => {
     const rows = document.querySelectorAll('tr.portfolio-stock-row');
     expect(rows.length).toBe(0);
   });
+
+  it('loads catalog stock history via general endpoint, supports range changes and manual refresh, and keeps tracking action enabled', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    renderPage('catalog');
+
+    await waitFor(() => expect(screen.getAllByText('MCD').length).toBeGreaterThan(0));
+    const stockRow = screen.getAllByText('MCD')[0].closest('tr');
+    expect(stockRow).not.toBeNull();
+    const addButton = within(stockRow as HTMLElement).getByRole('button', { name: 'Добавить в отслеживаемые' });
+    expect(addButton).toBeEnabled();
+
+    await user.click(getTickerToggleButton(mcdCatalogStock.id, 'MCD'));
+
+    await waitFor(() => expect(api.getStockHistory).toHaveBeenCalledWith(mcdCatalogStock.id, '1y'));
+    expect(await screen.findByText("История цены: MCD — McDonald's Corporation")).toBeInTheDocument();
+    expect(screen.getByText('305.00 USD')).toBeInTheDocument();
+
+    await user.click(screen.getByText('6 мес.'));
+    await waitFor(() => expect(api.getStockHistory).toHaveBeenCalledWith(mcdCatalogStock.id, '6m'));
+    expect(await screen.findByText('330.00 USD')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Перезагрузить историю/ }));
+    await user.click(await screen.findByRole('button', { name: 'Перезагрузить' }));
+
+    await waitFor(() => expect(api.refreshStockHistory).toHaveBeenCalledWith(mcdCatalogStock.id));
+    await waitFor(() => expect(api.getStockHistory).toHaveBeenLastCalledWith(mcdCatalogStock.id, '6m'));
+    expect(api.trackStock).not.toHaveBeenCalled();
+    expect(addButton).toBeEnabled();
+  }, 15000);
+
+  it('catalog charts create no automatic history or quote refresh timers', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    renderPage('catalog');
+
+    await waitFor(() => expect(screen.getAllByText('MCD').length).toBeGreaterThan(0));
+    await user.click(getTickerToggleButton(mcdCatalogStock.id, 'MCD'));
+    await waitFor(() => expect(api.getStockHistory).toHaveBeenCalledWith(mcdCatalogStock.id, '1y'));
+
+    vi.useFakeTimers();
+    try {
+      vi.clearAllMocks();
+      await act(async () => { vi.advanceTimersByTime(15 * 60 * 1000); });
+
+      expect(api.getStockHistory).not.toHaveBeenCalled();
+      expect(api.refreshStockHistory).not.toHaveBeenCalled();
+      expect(api.getStockPrice).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it('catalog uses the general stock history endpoint even when the stock belongs to an index', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    vi.mocked(api.getStockCatalog).mockResolvedValue({
+      data: [{ ...mcdCatalogStock, id: 5, marketIndexIds: [1] }],
+    });
+    renderPage('catalog');
+
+    await waitFor(() => expect(screen.getAllByText('MCD').length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(document.querySelector('tr[data-row-key="5"] button[aria-label="Открыть график цены: MCD"]')).not.toBeNull());
+    await user.click(getTickerToggleButton(5, 'MCD'));
+
+    await waitFor(() => expect(api.getStockHistory).toHaveBeenCalledWith(5, '1y'));
+    expect(api.getIndexConstituentHistory).not.toHaveBeenCalled();
+  }, 15000);
 });
 
 describe('StocksPage tracked mode regression', () => {
@@ -297,4 +491,3 @@ describe('StocksPage tracked mode regression', () => {
     });
   });
 });
-
