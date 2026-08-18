@@ -985,6 +985,410 @@ public class MarketIndicesControllerTests
         Assert.False(updatedDto.ShowInNavigation);
     }
 
+    // ── GetConstituentPerformance tests ────────────────────────────────────────
+
+    [Fact]
+    public async Task GetConstituentPerformance_InvalidRange_Returns400()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+        var marketIndex = await context.MarketIndices.FirstAsync();
+
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, range: "bad-range");
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_MissingIndex_Returns404()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var controller = CreateController(context);
+
+        var result = await controller.GetConstituentPerformance(99999);
+
+        Assert.IsType<NotFoundObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_EmptyIndex_ReturnsEmptyItems()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = await context.MarketIndices.FirstAsync();
+        var controller = CreateController(context);
+
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        Assert.Equal(marketIndex.Id, dto.MarketIndexId);
+        Assert.Equal("1y", dto.Range);
+        Assert.Empty(dto.Items);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_NormalizesRange()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = await context.MarketIndices.FirstAsync();
+        var controller = CreateController(context);
+
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "  1Y  ");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        Assert.Equal("1y", dto.Range);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_FormerMembersExcluded()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP1", SortOrder = 990 };
+        context.MarketIndices.Add(marketIndex);
+        var currentStock = new Stock { Ticker = "CURR", Exchange = "NYSE", Name = "Current", TrackingStatus = StockTrackingStatus.Tracked };
+        var formerStock = new Stock { Ticker = "FMRS", Exchange = "NYSE", Name = "Former", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.AddRange(currentStock, formerStock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = currentStock.Id, EffectiveTo = null });
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = formerStock.Id, EffectiveTo = DateTime.UtcNow.AddDays(-30) });
+
+        // Add history for both stocks
+        var now = DateTime.UtcNow;
+        var interval = "1wk";
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = currentStock.Id, Timestamp = now.AddDays(-14), Interval = interval, Close = 100m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = currentStock.Id, Timestamp = now.AddDays(-7), Interval = interval, Close = 110m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = formerStock.Id, Timestamp = now.AddDays(-14), Interval = interval, Close = 50m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = formerStock.Id, Timestamp = now.AddDays(-7), Interval = interval, Close = 60m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        Assert.Single(dto.Items);
+        Assert.Equal(currentStock.Id, dto.Items[0].StockId);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_PositiveChange_ComputedCorrectly()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP2", SortOrder = 991 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "GROW", Exchange = "NYSE", Name = "GrowCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 125m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        var item = Assert.Single(dto.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.NotNull(item.ChangePercent);
+        Assert.Equal(25.0, item.ChangePercent!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_NegativeChange_ComputedCorrectly()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP3", SortOrder = 992 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "DROP", Exchange = "NYSE", Name = "DropCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 200m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 160m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        var item = Assert.Single(dto.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.NotNull(item.ChangePercent);
+        Assert.Equal(-20.0, item.ChangePercent!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_ZeroChange_ComputedCorrectly()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP4", SortOrder = 993 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "FLAT", Exchange = "NYSE", Name = "FlatCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.Equal(0.0, item.ChangePercent!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_StartPriceZero_ReturnsInsufficientData()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP5", SortOrder = 994 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "ZERO", Exchange = "NYSE", Name = "ZeroCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 0m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 10m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(
+            Assert.IsType<OkObjectResult>(result.Result).Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Null(item.ChangePercent);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_FewerThanTwoPoints_ReturnsInsufficientData()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP6", SortOrder = 995 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "SPARSE", Exchange = "NYSE", Name = "SparseCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        // Only one point
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.Add(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(
+            Assert.IsType<OkObjectResult>(result.Result).Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Null(item.ChangePercent);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_NoHistoryPoints_ReturnsInsufficientData()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP7", SortOrder = 996 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "NODATA", Exchange = "NYSE", Name = "NoCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(
+            Assert.IsType<OkObjectResult>(result.Result).Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_OneStockMissingData_DoesNotFailOthers()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP8", SortOrder = 997 };
+        context.MarketIndices.Add(marketIndex);
+        var stockA = new Stock { Ticker = "AOKAY", Exchange = "NYSE", Name = "AОК", TrackingStatus = StockTrackingStatus.Tracked };
+        var stockB = new Stock { Ticker = "BNODAT", Exchange = "NYSE", Name = "BNone", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.AddRange(stockA, stockB);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.AddRange(
+            new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stockA.Id, EffectiveTo = null },
+            new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stockB.Id, EffectiveTo = null }
+        );
+
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stockA.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = stockA.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 110m, QuoteUnitMultiplier = 1m }
+            // stockB has no history
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        Assert.Equal(2, dto.Items.Count);
+
+        var a = dto.Items.Single(x => x.StockId == stockA.Id);
+        var b = dto.Items.Single(x => x.StockId == stockB.Id);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, a.DataStatus);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, b.DataStatus);
+        Assert.Null(b.ChangePercent);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_UsesChronologicalFirstAndLastPoints()
+    {
+        // Verifies earliest/latest points chosen correctly even if inserted out of order.
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXP9", SortOrder = 998 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "ORDER", Exchange = "NYSE", Name = "OrderCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        var now = DateTime.UtcNow;
+        // Insert out of chronological order
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 130m, QuoteUnitMultiplier = 1m },  // latest
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-21), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m }, // earliest
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 115m, QuoteUnitMultiplier = 1m }  // middle
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(
+            Assert.IsType<OkObjectResult>(result.Result).Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        // start=100, end=130 → 30%
+        Assert.Equal(30.0, item.ChangePercent!.Value, precision: 6);
+        Assert.Equal(100m, item.StartPrice);
+        Assert.Equal(130m, item.EndPrice);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_QuoteUnitMultiplierApplied()
+    {
+        // GBp stocks have QuoteUnitMultiplier=0.01; percentage should still be correct
+        // because the multiplier is constant across both endpoints and cancels out.
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDXPA", SortOrder = 999 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "GBP", Exchange = "Frankfurt", Name = "GbpCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+
+        var now = DateTime.UtcNow;
+        // Raw prices in pence; multiplier converts to GBP
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 10000m, QuoteUnitMultiplier = 0.01m },
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 11000m, QuoteUnitMultiplier = 0.01m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(
+            Assert.IsType<OkObjectResult>(result.Result).Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        // 100 GBP → 110 GBP → +10%
+        Assert.Equal(10.0, item.ChangePercent!.Value, precision: 6);
+        Assert.Equal(100m, item.StartPrice);  // 10000 × 0.01
+        Assert.Equal(110m, item.EndPrice);    // 11000 × 0.01
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_ArchivedIndex_ReturnsData()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "Archived", Code = "ARCPF", SortOrder = 9999, IsArchived = true };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "ARCH", Exchange = "NYSE", Name = "ArchCo", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex { MarketIndexId = marketIndex.Id, StockId = stock.Id, EffectiveTo = null });
+        var now = DateTime.UtcNow;
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-14), Interval = "1wk", Close = 100m, QuoteUnitMultiplier = 1m },
+            new StockHistoricalPrice { StockId = stock.Id, Timestamp = now.AddDays(-7), Interval = "1wk", Close = 105m, QuoteUnitMultiplier = 1m }
+        );
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        Assert.Single(dto.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, dto.Items[0].DataStatus);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_ResponseIncludesCorrectMarketIndexIdAndRange()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = await context.MarketIndices.FirstAsync();
+        var controller = CreateController(context);
+
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "3m");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        Assert.Equal(marketIndex.Id, dto.MarketIndexId);
+        Assert.Equal("3m", dto.Range);
+        Assert.True(dto.GeneratedAtUtc <= DateTime.UtcNow);
+        Assert.True(dto.GeneratedAtUtc > DateTime.UtcNow.AddSeconds(-10));
+    }
+
     private static async Task<AppDbContext> CreateSqliteContextAsync()
     {
         var connection = new SqliteConnection("DataSource=:memory:");

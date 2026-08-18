@@ -4,6 +4,7 @@ import {
   Button,
   Empty,
   Input,
+  Select,
   Space,
   Spin,
   Table,
@@ -30,6 +31,7 @@ import {
   getIndexConstituentHistory,
   getIndexConstituents,
   getIndexConstituentHistoryRefreshJob,
+  getIndexConstituentPerformance,
   getStock,
   getStockPrice,
   refreshIndexConstituentHistory,
@@ -66,6 +68,9 @@ import type {
 } from '../types';
 import { StockTrackingStatus } from '../types';
 import { INDEX_HISTORY_JOB_POLL_INTERVAL_MS, INDEX_HISTORY_JOB_POLL_TIMEOUT_MS } from './indexConstituentHistoryRefresh';
+import { STOCK_HISTORY_RANGE_OPTIONS, toStockHistoryRange } from './historyRangeOptions';
+import { formatPerformance, sortConstituentsByPerformance } from './performanceHelpers';
+import type { PerformanceMap } from './performanceHelpers';
 import {
   INDEX_BATCH_QUOTE_JOB_POLL_INTERVAL_MS,
   INDEX_BATCH_QUOTE_JOB_POLL_TIMEOUT_MS,
@@ -221,6 +226,7 @@ const NAME_COL_WIDTH = 300;
 const SAVED_PRICE_COL_WIDTH = 130;
 const CHANGE_EUR_COL_WIDTH = 108;
 const CHANGE_PCT_COL_WIDTH = 75;
+const PERFORMANCE_COL_WIDTH = 130;
 const API_PRICE_COL_WIDTH = 130;
 const PRICE_TIME_COL_WIDTH = 135;
 const ACTIONS_COL_WIDTH = 180;
@@ -232,6 +238,7 @@ const TABLE_SCROLL_X =
   + SAVED_PRICE_COL_WIDTH
   + CHANGE_EUR_COL_WIDTH
   + CHANGE_PCT_COL_WIDTH
+  + PERFORMANCE_COL_WIDTH
   + API_PRICE_COL_WIDTH
   + PRICE_TIME_COL_WIDTH
   + ACTIONS_COL_WIDTH;
@@ -244,7 +251,7 @@ const ADD_TRACKED_ARIA_LABEL = 'Добавлена в список акций';
 const ADD_CATALOG_ARIA_LABEL = 'Добавить в список акций';
 const FUNDAMENTALS_ARIA_LABEL = 'Фундаментальные данные';
 
-export const INDEX_CONSTITUENTS_TOTAL_COLS = 8;
+export const INDEX_CONSTITUENTS_TOTAL_COLS = 9;
 export const QUOTE_PERSIST_FAILURE_MESSAGE = 'Цена получена, но не удалось сохранить её';
 export const QUOTE_NO_EUR_MESSAGE = 'Цена получена, но конвертация в EUR недоступна';
 
@@ -434,12 +441,57 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
     name: string;
   } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
+  const [performanceRange, setPerformanceRange] = useState<StockHistoryRange>(() => toStockHistoryRange('1y'));
+  const [performanceMap, setPerformanceMap] = useState<PerformanceMap>(new Map());
+  const [performanceLoading, setPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState<string | null>(null);
+  const performanceAbortRef = useRef<AbortController | null>(null);
+  /** Ref keeps the latest range value so the cleanup effect can read it without a stale closure. */
+  const performanceRangeRef = useRef<StockHistoryRange>('1y');
+  performanceRangeRef.current = performanceRange;
   const quoteRefreshInFlightRef = useRef(new Set<number>());
   const persistIndexQuote = useCallback(async (stockId: number, patch: UpdateStockQuoteRequest) => (
     await updateStockQuote(stockId, patch)
   ).data, []);
 
-  const loadData = useCallback(async () => {
+  const loadPerformance = useCallback(async (range: StockHistoryRange) => {
+    performanceAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    performanceAbortRef.current = ctrl;
+    setPerformanceLoading(true);
+    setPerformanceMap(new Map());
+    setPerformanceError(null);
+    try {
+      const res = await getIndexConstituentPerformance(indexId, range, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      const map = new Map<number, number | null>();
+      for (const item of res.data.items) {
+        map.set(item.stockId, item.changePercent ?? null);
+      }
+      setPerformanceMap(map);
+    } catch (err) {
+      if (ctrl.signal.aborted || axios.isCancel(err)) return;
+      setPerformanceError(getErrMsg(err, 'Ошибка загрузки данных о росте'));
+    } finally {
+      if (!ctrl.signal.aborted) setPerformanceLoading(false);
+    }
+  }, [indexId]);
+
+  // Reload performance when indexId changes (loadPerformance is recreated) and on initial mount.
+  useEffect(() => {
+    setPerformanceMap(new Map());
+    setPerformanceError(null);
+    void loadPerformance(performanceRangeRef.current);
+    return () => { performanceAbortRef.current?.abort(); };
+  }, [loadPerformance]);
+
+  const handlePerformanceRangeChange = useCallback((range: StockHistoryRange) => {
+    setPerformanceRange(range);
+    performanceRangeRef.current = range;
+    void loadPerformance(range);
+  }, [loadPerformance]);
+
+  const loadData = useCallback(async (refetchPerformance = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -454,12 +506,17 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         isCuratedSnapshot: res.data.isCuratedSnapshot === true,
         isStale: res.data.isStale === true,
       });
+      // Reload performance only on explicit user-triggered reloads (add/edit/remove/refresh).
+      // The initial mount performance load is handled by the dedicated useEffect below.
+      if (refetchPerformance) {
+        void loadPerformance(performanceRangeRef.current);
+      }
     } catch (err) {
       setError(getErrMsg(err, 'Ошибка загрузки состава индекса'));
     } finally {
       setLoading(false);
     }
-  }, [indexId]);
+  }, [indexId, loadPerformance]);
 
   useEffect(() => {
     void loadData();
@@ -533,7 +590,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       setEditModalOpen(false);
       setEditingStock(null);
       void messageApi.success('Акция обновлена');
-      await loadData();
+      await loadData(true);
     } catch (err) {
       void messageApi.error(getErrMsg(err, 'Ошибка сохранения акции'));
     } finally {
@@ -554,7 +611,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         void messageApi.error(result.message);
       }
       if (result.shouldReload) {
-        await loadData();
+        await loadData(true);
       }
       setSourceMeta((prev) => ({
         source: getNonEmptyString(res.data.providerName) ?? prev.source,
@@ -763,7 +820,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       else void messageApi.error(summaryText);
 
       // Reload constituents so table and expanded chart reflect authoritative DB state
-      await loadData();
+      await loadData(true);
     } catch (err) {
       const text = getErrMsg(err, 'Ошибка пакетного обновления цен');
       setBatchQuoteSummary({ text, level: 'error' });
@@ -779,16 +836,17 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
   };
 
   const filteredConstituents = useMemo(() => {
+    const sorted = sortConstituentsByPerformance(constituents, performanceMap);
     const query = search.trim().toLowerCase();
-    if (!query) return constituents;
-    return constituents.filter((c) =>
+    if (!query) return sorted;
+    return sorted.filter((c) =>
       c.ticker.toLowerCase().includes(query)
       || c.name.toLowerCase().includes(query)
       || (c.commonName?.toLowerCase().includes(query) ?? false)
       || (c.wkn?.toLowerCase().includes(query) ?? false)
       || (c.isin?.toLowerCase().includes(query) ?? false)
       || (c.providerSymbol?.toLowerCase().includes(query) ?? false));
-  }, [constituents, search]);
+  }, [constituents, search, performanceMap]);
 
   const rows = useMemo(
     () => makeConstituentRows(filteredConstituents, expandedStockId),
@@ -948,6 +1006,27 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       },
     },
     {
+      title: 'Рост за период',
+      key: 'performance',
+      align: 'right',
+      width: PERFORMANCE_COL_WIDTH,
+      render: (_: unknown, record) => {
+        if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+        if (performanceLoading) {
+          return <span style={{ color: '#8c8c8c', fontSize: 12 }}>…</span>;
+        }
+        const perf = formatPerformance(performanceMap.get(record.stockId));
+        if (perf.kind === 'unavailable') {
+          return (
+            <Tooltip title="Недостаточно исторических данных">
+              <span style={{ color: '#8c8c8c' }}>—</span>
+            </Tooltip>
+          );
+        }
+        return <span style={{ color: perf.color, whiteSpace: 'nowrap' }}>{perf.formatted}</span>;
+      },
+    },
+    {
       title: 'Цена API',
       key: 'apiPrice',
       align: 'right',
@@ -1099,6 +1178,16 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         />
       )}
 
+      {performanceError && !performanceLoading && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          style={{ marginBottom: 12 }}
+          message={performanceError}
+        />
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <Input
           placeholder="Поиск по тикеру, названию, WKN, ISIN…"
@@ -1109,6 +1198,18 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           style={{ maxWidth: 320 }}
           size="small"
         />
+        <Space size={4} align="center">
+          <span style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>Рост за период:</span>
+          <Select<StockHistoryRange>
+            size="small"
+            value={performanceRange}
+            onChange={handlePerformanceRangeChange}
+            options={STOCK_HISTORY_RANGE_OPTIONS}
+            style={{ width: 90 }}
+            aria-label="Рост за период"
+            loading={performanceLoading}
+          />
+        </Space>
         {!isArchived && (
           <Button
             size="small"

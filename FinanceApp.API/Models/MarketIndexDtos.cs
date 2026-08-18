@@ -182,6 +182,34 @@ public enum IndexConstituentsBatchQuoteRefreshJobState
     Interrupted
 }
 
+/// <summary>Performance result for one current constituent over a requested range.</summary>
+public sealed class IndexConstituentPerformanceItemDto
+{
+    public int StockId { get; init; }
+    public decimal? StartPrice { get; init; }
+    public decimal? EndPrice { get; init; }
+    public double? ChangePercent { get; init; }
+    public DateTime? StartAtUtc { get; init; }
+    public DateTime? EndAtUtc { get; init; }
+    public ConstituentPerformanceDataStatus DataStatus { get; init; } = ConstituentPerformanceDataStatus.InsufficientData;
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ConstituentPerformanceDataStatus
+{
+    Available,
+    InsufficientData,
+}
+
+/// <summary>Response for GET /api/market-indices/{indexId}/constituents/performance?range=...</summary>
+public sealed class IndexConstituentPerformanceResponse
+{
+    public int MarketIndexId { get; init; }
+    public string Range { get; init; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; init; }
+    public IReadOnlyList<IndexConstituentPerformanceItemDto> Items { get; init; } = Array.Empty<IndexConstituentPerformanceItemDto>();
+}
+
 public enum IndexConstituentsBatchQuoteRefreshJobEnqueueStatus
 {
     Enqueued,
