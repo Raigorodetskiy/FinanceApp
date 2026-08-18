@@ -378,6 +378,112 @@ public class StocksControllerTests
 
 
     [Fact]
+    public async Task GetHistory_MissingStock_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var result = await controller.GetHistory(999, "1y");
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task GetHistory_InvalidRange_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 76,
+            Ticker = "AAPL",
+            Name = "Apple",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 1m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var service = new RecordingStockHistoryService();
+        var controller = CreateController(context, service);
+        var result = await controller.GetHistory(76, "bad-range");
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("Invalid range", Assert.IsType<string>(badRequest.Value), StringComparison.Ordinal);
+        Assert.Empty(service.GetHistoryCalls);
+    }
+
+    [Fact]
+    public async Task GetHistory_CatalogOnlyStock_AllowsGeneralEndpointWithoutMembershipMutation()
+    {
+        await using var context = CreateContext();
+        var stock = new Stock
+        {
+            Id = 78,
+            Ticker = "MCD",
+            Name = "McDonald's Corporation",
+            CommonName = "McDonald's",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 300m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var expected = new StockHistoryResponse
+        {
+            Range = "1y",
+            Interval = "1d",
+            Points =
+            [
+                new StockHistoryPointResponse
+                {
+                    Timestamp = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+                    Interval = "1d",
+                    OpenRaw = 300m,
+                    HighRaw = 305m,
+                    LowRaw = 299m,
+                    CloseRaw = 304m,
+                    OpenNormalized = 300m,
+                    HighNormalized = 305m,
+                    LowNormalized = 299m,
+                    CloseNormalized = 304m,
+                    OpenEur = 300m,
+                    HighEur = 305m,
+                    LowEur = 299m,
+                    CloseEur = 304m,
+                    Volume = 1000
+                }
+            ]
+        };
+        var service = new RecordingStockHistoryService
+        {
+            HistoryResponseFactory = (_, range) => new StockHistoryResponse
+            {
+                Range = range,
+                Interval = expected.Interval,
+                Points = expected.Points
+            }
+        };
+        var controller = CreateController(context, service);
+
+        var result = await controller.GetHistory(stock.Id, "1y");
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var payload = Assert.IsType<StockHistoryResponse>(ok.Value);
+        Assert.Equal("1y", payload.Range);
+        Assert.Single(payload.Points);
+        Assert.Equal((stock.Id, "1y"), Assert.Single(service.GetHistoryCalls));
+        Assert.Equal(1, await context.Stocks.CountAsync());
+        Assert.Empty(await context.StockMarketIndices.ToListAsync());
+        var persisted = await context.Stocks.AsNoTracking().SingleAsync(x => x.Id == stock.Id);
+        Assert.Equal(stock.Id, persisted.Id);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, persisted.TrackingStatus);
+    }
+
+    [Fact]
     public async Task RefreshHistory_MissingStock_ReturnsNotFound()
     {
         await using var context = CreateContext();
@@ -400,15 +506,107 @@ public class StocksControllerTests
             CommonName = "No Ticker",
             Exchange = StockExchanges.Nyse,
             CurrentPrice = 1m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
             UpdatedAt = DateTime.UtcNow
         });
         await context.SaveChangesAsync();
 
-        var controller = CreateController(context);
+        var service = new RecordingStockHistoryService();
+        var controller = CreateController(context, service);
         var result = await controller.RefreshHistory(77);
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.Contains("тикер", Assert.IsType<string>(badRequest.Value), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(service.RefreshHistoryCalls);
+    }
+
+    [Fact]
+    public async Task RefreshHistory_InvalidExchange_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 79,
+            Ticker = "MCD",
+            Name = "McDonald's Corporation",
+            CommonName = "McDonald's",
+            Exchange = "INVALID",
+            CurrentPrice = 1m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var service = new RecordingStockHistoryService();
+        var controller = CreateController(context, service);
+        var result = await controller.RefreshHistory(79);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("биржа", Assert.IsType<string>(badRequest.Value), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(service.RefreshHistoryCalls);
+    }
+
+    [Fact]
+    public async Task RefreshHistory_CatalogOnlyStock_AllowsManualRefreshWithoutIdentityMutation()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var stock = new Stock
+        {
+            Id = 80,
+            Ticker = "MCD",
+            Name = "McDonald's Corporation",
+            CommonName = "McDonald's",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 300m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        };
+        context.Stocks.Add(stock);
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 11,
+            Name = "Dow Jones",
+            NormalizedName = "DOW JONES",
+            Code = "DJI",
+            NormalizedCode = "DJI",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            StockId = stock.Id,
+            MarketIndexId = 11,
+            EffectiveFrom = now,
+            ImportedAt = now,
+            Source = "Test"
+        });
+        await context.SaveChangesAsync();
+
+        var service = new RecordingStockHistoryService
+        {
+            RefreshResponseFactory = stockArg => new StockHistoryRefreshResponse
+            {
+                StockId = stockArg.Id,
+                DeletedPoints = 2,
+                ImportedPoints = 5,
+                RateLimited = true
+            }
+        };
+        var controller = CreateController(context, service);
+
+        var result = await controller.RefreshHistory(stock.Id);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<StockHistoryRefreshResponse>(ok.Value);
+        Assert.Equal(stock.Id, payload.StockId);
+        Assert.True(payload.RateLimited);
+        Assert.Equal((stock.Id, StockExchanges.Nyse), Assert.Single(service.RefreshHistoryCalls));
+        Assert.Equal(1, await context.Stocks.CountAsync());
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == stock.Id));
+        var persisted = await context.Stocks.AsNoTracking().SingleAsync(x => x.Id == stock.Id);
+        Assert.Equal(stock.Id, persisted.Id);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, persisted.TrackingStatus);
     }
 
     [Fact]
@@ -1251,9 +1449,9 @@ public class StocksControllerTests
         return new AppDbContext(options);
     }
 
-    private static StocksController CreateController(AppDbContext context)
+    private static StocksController CreateController(AppDbContext context, IStockHistoryService? stockHistoryService = null)
     {
-        return new StocksController(context, new StubStockHistoryService(), NullLogger<StocksController>.Instance)
+        return new StocksController(context, stockHistoryService ?? new StubStockHistoryService(), NullLogger<StocksController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -1269,6 +1467,40 @@ public class StocksControllerTests
 
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+
+        public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    private sealed class RecordingStockHistoryService : IStockHistoryService
+    {
+        private readonly List<(int StockId, string Range)> _getHistoryCalls = [];
+        private readonly List<(int StockId, string Exchange)> _refreshHistoryCalls = [];
+
+        public Func<Stock, string, StockHistoryResponse>? HistoryResponseFactory { get; init; }
+        public Func<Stock, StockHistoryRefreshResponse>? RefreshResponseFactory { get; init; }
+
+        public IReadOnlyList<(int StockId, string Range)> GetHistoryCalls => _getHistoryCalls;
+        public IReadOnlyList<(int StockId, string Exchange)> RefreshHistoryCalls => _refreshHistoryCalls;
+
+        public Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default)
+        {
+            _getHistoryCalls.Add((stock.Id, range));
+            return Task.FromResult(HistoryResponseFactory?.Invoke(stock, range) ?? new StockHistoryResponse
+            {
+                Range = range,
+                Interval = "1d"
+            });
+        }
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
+        {
+            _refreshHistoryCalls.Add((stock.Id, stock.Exchange));
+            return Task.FromResult(RefreshResponseFactory?.Invoke(stock) ?? new StockHistoryRefreshResponse { StockId = stock.Id });
+        }
 
         public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.CompletedTask;

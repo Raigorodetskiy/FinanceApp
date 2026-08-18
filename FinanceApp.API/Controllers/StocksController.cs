@@ -136,12 +136,6 @@ public class StocksController : ControllerBase
             return NotFound();
         }
 
-        if (stock.TrackingStatus == StockTrackingStatus.CatalogOnly)
-        {
-            return StatusCode(StatusCodes.Status409Conflict,
-                "История цен недоступна для каталожных акций. Добавьте акцию в отслеживаемые.");
-        }
-
         var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
         if (normalizedRange is not ("5y" or "3y" or "1y" or "6m" or "3m" or "1m" or "1w" or "24h" or "today"))
         {
@@ -159,12 +153,6 @@ public class StocksController : ControllerBase
         if (stock == null)
         {
             return NotFound();
-        }
-
-        if (stock.TrackingStatus == StockTrackingStatus.CatalogOnly)
-        {
-            return StatusCode(StatusCodes.Status409Conflict,
-                "Обновление истории недоступно для каталожных акций. Добавьте акцию в отслеживаемые.");
         }
 
         if (string.IsNullOrWhiteSpace(stock.Ticker))

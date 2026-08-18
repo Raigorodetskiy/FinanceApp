@@ -98,10 +98,10 @@ public class StockTrackingStatusTests
         Assert.Equal(StockTrackingStatus.Tracked, stock.TrackingStatus);
     }
 
-    // ── GET history / fundamentals reject CatalogOnly ─────────────────────────
+    // ── GET history / manual refresh allow CatalogOnly without promotion ─────
 
     [Fact]
-    public async Task GetHistory_CatalogOnlyStock_Returns409()
+    public async Task GetHistory_CatalogOnlyStock_ReturnsOkWithoutTrackingMutation()
     {
         await using var context = CreateContext();
         var stock = new Stock
@@ -119,11 +119,12 @@ public class StockTrackingStatusTests
         var controller = CreateController(context);
         var result = await controller.GetHistory(stock.Id, "1y");
 
-        Assert.Equal(StatusCodes.Status409Conflict, (result as ObjectResult)?.StatusCode);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, (await context.Stocks.FindAsync(stock.Id))!.TrackingStatus);
     }
 
     [Fact]
-    public async Task RefreshHistory_CatalogOnlyStock_Returns409()
+    public async Task RefreshHistory_CatalogOnlyStock_ReturnsOkWithoutTrackingMutation()
     {
         await using var context = CreateContext();
         var stock = new Stock
@@ -141,7 +142,10 @@ public class StockTrackingStatusTests
         var controller = CreateController(context);
         var result = await controller.RefreshHistory(stock.Id);
 
-        Assert.Equal(StatusCodes.Status409Conflict, (result.Result as ObjectResult)?.StatusCode);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<StockHistoryRefreshResponse>(ok.Value);
+        Assert.Equal(stock.Id, payload.StockId);
+        Assert.Equal(StockTrackingStatus.CatalogOnly, (await context.Stocks.FindAsync(stock.Id))!.TrackingStatus);
     }
 
     // ── POST /api/stocks/{id}/track ──────────────────────────────────────────
