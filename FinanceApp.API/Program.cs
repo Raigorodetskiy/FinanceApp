@@ -185,6 +185,7 @@ builder.Services.Configure<CatalogStockRefreshJobOptions>(
     builder.Configuration.GetSection("CatalogStockRefreshJob"));
 builder.Services.Configure<CatalogFundamentalsRefreshJobOptions>(
     builder.Configuration.GetSection("CatalogFundamentalsRefreshJob"));
+builder.Services.AddScoped<ITechnicalAnalysisSourceResolver, TechnicalAnalysisSourceResolver>();
 builder.Services.AddSingleton<ICatalogMaintenanceLeaseService, CatalogMaintenanceLeaseService>();
 builder.Services.AddSingleton<CatalogStockRefreshHostedService>();
 builder.Services.AddSingleton<ICatalogStockRefreshStatusService>(sp =>

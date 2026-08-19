@@ -185,7 +185,9 @@ public class StockHistoryService : IStockHistoryService
         if (monthly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var weekly = await FetchCandlesAsync(providerSymbol, "1wk", "1y", cancellationToken);
         if (weekly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
-        var daily = await FetchCandlesAsync(providerSymbol, "1d", "1y", cancellationToken);
+        // Daily history uses a 2-year lookback (≈504 trading days) to support SMA200 (252 obs),
+        // annualized volatility (60-day window), and 12-month return calculations.
+        var daily = await FetchCandlesAsync(providerSymbol, "1d", "2y", cancellationToken);
         if (daily.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
         var hourly = await FetchCandlesAsync(providerSymbol, "1h", "7d", cancellationToken);
         if (hourly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
@@ -639,6 +641,14 @@ public class StockHistoryService : IStockHistoryService
         }
 
         var quote = quoteArray[0];
+        // NOTE: We read from indicators.quote.close (unadjusted raw close price).
+        // The Yahoo Finance v8 chart API also provides indicators.adjclose which contains
+        // split-and-dividend-adjusted closes, but it is intentionally NOT used here.
+        // StockHistoricalPrice.Close therefore stores unadjusted prices.
+        // Phase 1 technical indicators (SMA, EMA, RSI, MACD, volatility, drawdown, ATR) use
+        // unadjusted closes, which is acceptable for trend/momentum signals when splits are
+        // infrequent. Multi-period return calculations may be affected by corporate actions.
+        // Phase 2 should introduce adjusted-close support.
         if (!quote.TryGetProperty("close", out var closeArray))
         {
             return CandleBatch.Empty;

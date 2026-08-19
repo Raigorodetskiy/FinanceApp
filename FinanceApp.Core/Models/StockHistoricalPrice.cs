@@ -19,6 +19,13 @@ public class StockHistoricalPrice
     [Column(TypeName = "decimal(18,4)")]
     public decimal Low { get; set; }
 
+    /// <summary>
+    /// Unadjusted (raw) close price as returned by the Yahoo Finance v8 chart API
+    /// <c>indicators.quote.close</c> field. This value is NOT split-adjusted or
+    /// dividend-adjusted. Phase 1 technical indicators consume this field directly.
+    /// Consumers performing multi-period return calculations should account for the
+    /// potential impact of corporate actions (splits, dividends) on comparability.
+    /// </summary>
     [Column(TypeName = "decimal(18,4)")]
     public decimal Close { get; set; }
 
