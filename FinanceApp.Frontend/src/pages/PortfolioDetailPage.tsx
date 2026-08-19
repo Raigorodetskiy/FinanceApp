@@ -725,6 +725,7 @@ const PortfolioDetailPage: React.FC = () => {
                 finanzenNetSlug={item?.stock?.finanzenNetSlug ?? null}
                 storedPriceEur={item?.stock?.currentPrice ?? null}
                 storedPriceChangeEur={item?.stock?.currentPriceChange ?? null}
+                storedPriceTimestampUtc={item?.stock?.currentPriceAt ?? null}
               />
             ),
             props: { colSpan: TOTAL_POS_COLS },

@@ -21,9 +21,42 @@ export type HistoryChartPoint = {
   chartIndex?: number;
 };
 
+export type CurrentQuoteOverlayPoint = {
+  timestampUtc: string | null | undefined;
+  closeChart: number | null | undefined;
+  rawClose?: number | null | undefined;
+  isStale?: boolean | null;
+};
+
+const DATE_ONLY_HISTORY_RANGE_SET = new Set<StockHistoryRange>(['5y', '3y', '1y', '6m', '3m', '1m']);
+const SHORT_DAILY_HISTORY_RANGE_SET = new Set<StockHistoryRange>(['6m', '3m', '1m']);
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+export const usesUtcDateLabels = (historyRange: StockHistoryRange): boolean =>
+  DATE_ONLY_HISTORY_RANGE_SET.has(historyRange);
+
+export const formatHistoryTimestamp = (
+  timestamp: string | number,
+  historyRange: StockHistoryRange,
+  format: string,
+): string => {
+  const parsed = dayjs.utc(timestamp);
+  return usesUtcDateLabels(historyRange)
+    ? parsed.format(format)
+    : parsed.local().format(format);
+};
+
+const getEffectiveHistoryDateKey = (
+  timestamp: string,
+  historyRange: StockHistoryRange,
+): string => formatHistoryTimestamp(timestamp, historyRange, 'YYYY-MM-DD');
+
 export const buildHistoryChartData = (
   historyData: StockHistoryPoint[],
   historyRange: StockHistoryRange,
+  currentQuoteOverlay?: CurrentQuoteOverlayPoint | null,
 ): HistoryChartPoint[] => {
   const sortedPoints: HistoryChartPoint[] = historyData
     .map((point) => ({
@@ -34,6 +67,30 @@ export const buildHistoryChartData = (
       volumeChart: point.volume,
     }))
     .sort((left, right) => left.timestampMs - right.timestampMs);
+
+  if (SHORT_DAILY_HISTORY_RANGE_SET.has(historyRange) && currentQuoteOverlay?.isStale !== true) {
+    const overlayTimestamp = currentQuoteOverlay?.timestampUtc ?? null;
+    const overlayClose = currentQuoteOverlay?.closeChart ?? null;
+    const overlayTimestampMs = overlayTimestamp ? dayjs.utc(overlayTimestamp).valueOf() : Number.NaN;
+    const latestPoint = sortedPoints[sortedPoints.length - 1];
+
+    if (
+      latestPoint != null
+      && overlayTimestamp != null
+      && Number.isFinite(overlayTimestampMs)
+      && isFiniteNumber(overlayClose)
+      && overlayTimestampMs > latestPoint.timestampMs
+      && getEffectiveHistoryDateKey(overlayTimestamp, historyRange) !== getEffectiveHistoryDateKey(latestPoint.timestamp, historyRange)
+    ) {
+      sortedPoints.push({
+        timestamp: overlayTimestamp,
+        timestampMs: overlayTimestampMs,
+        closeChart: overlayClose,
+        rawClose: currentQuoteOverlay?.rawClose ?? overlayClose,
+        volumeChart: null,
+      });
+    }
+  }
 
   if (historyRange === '1w') {
     return sortedPoints.map((pt, idx) => ({ ...pt, chartIndex: idx }));
