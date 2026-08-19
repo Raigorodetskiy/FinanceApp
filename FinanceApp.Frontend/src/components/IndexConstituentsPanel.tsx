@@ -53,6 +53,7 @@ import StockPriceChart from './StockPriceChart';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 import { isQuoteDelayed } from '../utils/quote';
 import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
+import { resolveNewestCurrentPriceSnapshot } from '../utils/currentPriceSnapshot';
 import type {
   IndexConstituentDto,
   IndexConstituentHistoryRefreshBatchResponse,
@@ -1008,7 +1009,15 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       width: SAVED_PRICE_COL_WIDTH,
       render: (_: unknown, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        return <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>{fmtCur(record.currentPrice, '€')}</span>;
+        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(
+          record,
+          livePrices[record.stockId]?.quote ?? null,
+        );
+        return (
+          <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+            {fmtCur(selectedSnapshot.currentPrice, '€')}
+          </span>
+        );
       },
     },
     {
@@ -1019,7 +1028,11 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       align: 'right',
       render: (_: unknown, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const change = record.currentPriceChange ?? null;
+        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(
+          record,
+          livePrices[record.stockId]?.quote ?? null,
+        );
+        const change = selectedSnapshot.currentPriceChange ?? null;
         const color = change == null
           ? '#8c8c8c'
           : change > 0
@@ -1041,7 +1054,11 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       className: 'stock-change-compact-col',
       render: (_: unknown, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const pct = record.currentPriceChangePercent ?? null;
+        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(
+          record,
+          livePrices[record.stockId]?.quote ?? null,
+        );
+        const pct = selectedSnapshot.currentPriceChangePercent ?? null;
         const color = pct == null
           ? '#8c8c8c'
           : pct > 0
@@ -1135,7 +1152,11 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       className: 'stock-api-area-compact-col',
       render: (_: unknown, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
-        const ts = record.currentPriceAt ?? null;
+        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(
+          record,
+          livePrices[record.stockId]?.quote ?? null,
+        );
+        const ts = selectedSnapshot.currentPriceAt ?? null;
         if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
         return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;
       },

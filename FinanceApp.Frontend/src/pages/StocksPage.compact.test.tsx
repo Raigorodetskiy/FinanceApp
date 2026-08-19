@@ -27,6 +27,8 @@ import {
 import type { Stock, StockQuoteResponse } from '../types';
 
 dayjs.extend(utc);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pageSource = readFileSync(join(__dirname, 'StocksPage.tsx'), 'utf-8');
 
 const makeQuote = (overrides: Partial<StockQuoteResponse> = {}): StockQuoteResponse => ({
   symbol: 'AAPL',
@@ -143,6 +145,14 @@ describe('Stocks table – timestamp format', () => {
     expect(formatted).toContain('26');
   });
 
+  describe('Stocks table – current snapshot source selection', () => {
+    it('uses shared newest-snapshot resolver for current price/change/time rendering', () => {
+      expect(pageSource).toContain('resolveNewestCurrentPriceSnapshot');
+      expect(pageSource).toContain('const selectedSnapshot = resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);');
+      expect(pageSource).toContain('const ts = selectedSnapshot.currentPriceAt;');
+    });
+  });
+
   it('falls back to em dash when timestamp is unavailable', () => {
     const ts: string | null = null;
     const result = ts ? dayjs.utc(ts).local().format(PRICE_TIME_FORMAT) : '—';
@@ -181,7 +191,6 @@ describe('Stocks table – market status helper (getMarketStatus)', () => {
 });
 
 describe('Stocks table – index.css scoped nowrap rule for change headers', () => {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
   const cssText = readFileSync(join(__dirname, '../index.css'), 'utf-8');
 
   it('has a scoped white-space: nowrap rule for stocks-table change headers', () => {
@@ -197,7 +206,6 @@ describe('Stocks table – index.css scoped nowrap rule for change headers', () 
 
 
 describe('index.css – table grid (растр) vertical dividers', () => {
-  const __dirname = dirname(fileURLToPath(import.meta.url));
   const cssText = readFileSync(join(__dirname, '../index.css'), 'utf-8');
 
   it('adds a border-right rule for thead th (excluding last child)', () => {
