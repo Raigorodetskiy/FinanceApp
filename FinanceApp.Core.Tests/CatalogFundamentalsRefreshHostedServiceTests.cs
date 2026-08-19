@@ -46,7 +46,7 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     public async Task Run_ProcessesTrackedAndCatalogOnly_ExactlyOnce_For600Plus()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var fundamentals = new RecordingFundamentalsService();
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime);
         await using var harness = await Harness.CreateAsync(clock, fundamentals, new CatalogFundamentalsRefreshJobOptions
         {
             BatchSize = 37,
@@ -74,7 +74,7 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     public async Task Run_DoesNotDuplicate_WhenSameBusinessWeekAlreadyCompleted()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var fundamentals = new RecordingFundamentalsService();
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime);
         await using var harness = await Harness.CreateAsync(clock, fundamentals);
         await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
         var businessWeek = DateOnly.FromDateTime(new DateTime(2026, 8, 23));
@@ -90,7 +90,7 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     public async Task Run_FreshFundamentals_AreSkippedWithoutProviderCall()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var fundamentals = new RecordingFundamentalsService();
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime);
         await using var harness = await Harness.CreateAsync(clock, fundamentals, new CatalogFundamentalsRefreshJobOptions
         {
             FreshnessThreshold = TimeSpan.FromDays(7),
@@ -113,7 +113,7 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     public async Task Run_InvalidMetadata_IsSkipped_AndFollowingStocksContinue()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var fundamentals = new RecordingFundamentalsService();
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime);
         await using var harness = await Harness.CreateAsync(clock, fundamentals, new CatalogFundamentalsRefreshJobOptions
         {
             InterRequestDelay = TimeSpan.Zero,
@@ -140,7 +140,7 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     public async Task Run_RateLimited_PausesAndKeepsSnapshotData()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var fundamentals = new RecordingFundamentalsService
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime)
         {
             Behavior = id => id == 1
                 ? FundamentalsResult.FromSnapshot(
@@ -194,7 +194,7 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     public async Task Run_RecoversExpiredLease()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
-        var fundamentals = new RecordingFundamentalsService();
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime);
         await using var harness = await Harness.CreateAsync(clock, fundamentals, new CatalogFundamentalsRefreshJobOptions
         {
             RetryLimit = 0,
@@ -234,17 +234,22 @@ public class CatalogFundamentalsRefreshHostedServiceTests
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero));
         var quoteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var quote = new BlockingQuoteService(quoteGate.Task);
+        var quoteStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var quote = new BlockingQuoteService(quoteGate.Task, quoteStarted);
         var history = new RecordingHistoryService();
-        var fundamentals = new RecordingFundamentalsService();
+        var fundamentals = new RecordingFundamentalsService(() => clock.GetUtcNow().UtcDateTime);
         await using var harness = await Harness.CreateSharedAsync(clock, quote, history, fundamentals);
         await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
 
         var nightlyTask = harness.CatalogService!.TriggerRunAsync(DateOnly.FromDateTime(new DateTime(2026, 8, 23)), clock.GetUtcNow().UtcDateTime, "nightly");
-        await Task.Delay(25);
+        await quoteStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         var weeklyTask = harness.FundamentalsService.TriggerRunAsync(DateOnly.FromDateTime(new DateTime(2026, 8, 23)), clock.GetUtcNow().UtcDateTime, "weekly");
-        await Task.Delay(25);
+        await harness.WaitForConditionAsync(async sp =>
+        {
+            var db = sp.GetRequiredService<AppDbContext>();
+            return await db.CatalogFundamentalsRefreshRuns.AnyAsync();
+        }, TimeSpan.FromSeconds(2));
         Assert.Empty(fundamentals.Calls);
 
         quoteGate.SetResult();
@@ -419,9 +424,26 @@ public class CatalogFundamentalsRefreshHostedServiceTests
         {
             await Services.DisposeAsync();
         }
+
+        public async Task WaitForConditionAsync(Func<IServiceProvider, Task<bool>> condition, TimeSpan timeout)
+        {
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < timeout)
+            {
+                await using var scope = Services.CreateAsyncScope();
+                if (await condition(scope.ServiceProvider))
+                {
+                    return;
+                }
+
+                await Task.Delay(10);
+            }
+
+            throw new TimeoutException("Condition was not met within the allotted timeout.");
+        }
     }
 
-    private sealed class RecordingFundamentalsService : IFundamentalsService
+    private sealed class RecordingFundamentalsService(Func<DateTime> nowUtcFactory) : IFundamentalsService
     {
         public List<int> Calls { get; } = [];
         public Func<int, FundamentalsResult>? Behavior { get; set; }
@@ -445,17 +467,18 @@ public class CatalogFundamentalsRefreshHostedServiceTests
                     MarketCap = 100m + stockId,
                     Currency = "USD",
                     Source = "Yahoo Finance",
-                    AsOfDate = DateTime.UtcNow.Date,
-                    FetchedAtUtc = DateTime.UtcNow
+                    AsOfDate = nowUtcFactory().Date,
+                    FetchedAtUtc = nowUtcFactory()
                 },
                 FundamentalsState.Fresh));
         }
     }
 
-    private sealed class BlockingQuoteService(Task gate) : IStockQuoteFetchService
+    private sealed class BlockingQuoteService(Task gate, TaskCompletionSource started) : IStockQuoteFetchService
     {
         public async Task<StockQuoteFetchResult> FetchAsync(string ticker, string exchange, string? finanzenNetSlug, CancellationToken cancellationToken = default)
         {
+            started.TrySetResult();
             await gate.WaitAsync(cancellationToken);
             return StockQuoteFetchResult.Success(new StockQuoteResponse
             {

@@ -20,6 +20,7 @@ public sealed class CatalogStockRefreshJobOptions
     public TimeSpan RetryBaseDelay { get; init; } = TimeSpan.FromSeconds(2);
     public TimeSpan LeaseDuration { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan LeaseRenewInterval { get; init; } = TimeSpan.FromMinutes(2);
+    public TimeSpan SharedLeaseRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
     public int ProgressLogEveryStocks { get; init; } = 25;
 }
 
@@ -155,6 +156,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             RetryBaseDelay = raw.RetryBaseDelay > TimeSpan.Zero ? raw.RetryBaseDelay : TimeSpan.FromSeconds(2),
             LeaseDuration = raw.LeaseDuration > TimeSpan.Zero ? raw.LeaseDuration : TimeSpan.FromMinutes(10),
             LeaseRenewInterval = raw.LeaseRenewInterval > TimeSpan.Zero ? raw.LeaseRenewInterval : TimeSpan.FromMinutes(2),
+            SharedLeaseRetryDelay = raw.SharedLeaseRetryDelay > TimeSpan.Zero ? raw.SharedLeaseRetryDelay : TimeSpan.FromSeconds(30),
             ProgressLogEveryStocks = raw.ProgressLogEveryStocks > 0 ? raw.ProgressLogEveryStocks : 25,
         };
     }
@@ -248,7 +250,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
                 return;
             }
 
-            await _delayAsync(_options.RateLimitCooldown, cancellationToken);
+            await _delayAsync(_options.SharedLeaseRetryDelay, cancellationToken);
         }
     }
 

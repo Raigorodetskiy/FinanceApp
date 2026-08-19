@@ -22,6 +22,7 @@ public sealed class CatalogFundamentalsRefreshJobOptions
     public TimeSpan ProviderRateLimitCooldown { get; init; } = TimeSpan.FromMinutes(2);
     public TimeSpan LeaseDuration { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan LeaseRenewInterval { get; init; } = TimeSpan.FromMinutes(2);
+    public TimeSpan SharedLeaseRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
     public int ProgressLogEveryStocks { get; init; } = 25;
 }
 
@@ -74,6 +75,7 @@ public sealed class CatalogFundamentalsRefreshHostedService : BackgroundService,
             ProviderRateLimitCooldown = raw.ProviderRateLimitCooldown > TimeSpan.Zero ? raw.ProviderRateLimitCooldown : TimeSpan.FromMinutes(2),
             LeaseDuration = raw.LeaseDuration > TimeSpan.Zero ? raw.LeaseDuration : TimeSpan.FromMinutes(10),
             LeaseRenewInterval = raw.LeaseRenewInterval > TimeSpan.Zero ? raw.LeaseRenewInterval : TimeSpan.FromMinutes(2),
+            SharedLeaseRetryDelay = raw.SharedLeaseRetryDelay > TimeSpan.Zero ? raw.SharedLeaseRetryDelay : TimeSpan.FromSeconds(30),
             ProgressLogEveryStocks = raw.ProgressLogEveryStocks > 0 ? raw.ProgressLogEveryStocks : 25
         };
     }
@@ -189,7 +191,7 @@ public sealed class CatalogFundamentalsRefreshHostedService : BackgroundService,
                 return;
             }
 
-            await _delayAsync(_options.ProviderRateLimitCooldown, cancellationToken);
+            await _delayAsync(_options.SharedLeaseRetryDelay, cancellationToken);
         }
     }
 
@@ -437,9 +439,9 @@ public sealed class CatalogFundamentalsRefreshHostedService : BackgroundService,
         var stock = await db.Stocks
             .AsNoTracking()
             .Where(s => s.Id == stockId && (s.TrackingStatus == StockTrackingStatus.Tracked || s.TrackingStatus == StockTrackingStatus.CatalogOnly))
-            .Select(s => new RefreshStockCandidate(s.Id, s.Ticker, s.Exchange))
+            .Select(s => (RefreshStockCandidate?)new RefreshStockCandidate(s.Id, s.Ticker, s.Exchange))
             .FirstOrDefaultAsync(cancellationToken);
-        return stock.StockId == 0 ? null : stock;
+        return stock;
     }
 
     private async Task<StepOutcome> ExecuteWithRetriesAsync(

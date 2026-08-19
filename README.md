@@ -96,6 +96,7 @@ Configuration (`CatalogStockRefreshJob` in `appsettings`):
 | `RetryBaseDelay` | `00:00:02` | Exponential retry base delay (with jitter). |
 | `LeaseDuration` | `00:10:00` | Durable run lease duration for cross-instance safety. |
 | `LeaseRenewInterval` | `00:02:00` | Lease renewal interval while run is active. |
+| `SharedLeaseRetryDelay` | `00:00:30` | Delay before retrying when shared all-catalog maintenance lease is busy. |
 | `ProgressLogEveryStocks` | `25` | Periodic progress logging cadence. |
 
 Operational status endpoint (authenticated): `GET /api/catalog-refresh/status`
@@ -132,6 +133,7 @@ Configuration (`CatalogFundamentalsRefreshJob` in `appsettings`):
 | `ProviderRateLimitCooldown` | `00:02:00` | Cooldown pause after provider rate-limit responses. |
 | `LeaseDuration` | `00:10:00` | Durable weekly run lease duration. |
 | `LeaseRenewInterval` | `00:02:00` | Lease renewal interval while running. |
+| `SharedLeaseRetryDelay` | `00:00:30` | Delay before retrying when shared all-catalog maintenance lease is busy. |
 | `ProgressLogEveryStocks` | `25` | Progress logging cadence. |
 
 Operational status endpoint (authenticated): `GET /api/catalog-fundamentals-refresh/status`
