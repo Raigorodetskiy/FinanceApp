@@ -22,6 +22,7 @@ import {
   StarOutlined,
   SortAscendingOutlined,
   SortDescendingOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -1038,8 +1039,9 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     if (groupStocks.length === 0) return null;
     return (
       <div key={groupTitle} style={{ marginBottom: 24, border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid #d9d9d9', background: '#fafafa', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Title level={5} style={{ margin: 0 }}>{groupTitle}</Title>
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid #91caff', background: '#e6f4ff', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <InfoCircleOutlined aria-hidden="true" style={{ color: '#1677ff', flexShrink: 0 }} />
+          <Title level={5} style={{ margin: 0, color: '#1677ff', fontWeight: 500 }}>{groupTitle}</Title>
           <Tag>{groupStocks.length}</Tag>
         </div>
         <Table
@@ -1170,8 +1172,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
             ) : (
               <>
                 {renderGroup('Портфель', portfolioGroup, portfolioRows)}
-                {renderGroup('FRA', fraGroup, fraRows)}
-                {renderGroup('NYSE', nyseGroup, nyseRows)}
+                {renderGroup('Акции и цены на франкфуртской бирже', fraGroup, fraRows)}
+                {renderGroup('Акции и цены на нью-йоркской бирже', nyseGroup, nyseRows)}
               </>
             )}
           </>
