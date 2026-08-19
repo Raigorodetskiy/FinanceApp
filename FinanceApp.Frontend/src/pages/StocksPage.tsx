@@ -1039,9 +1039,9 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     if (groupStocks.length === 0) return null;
     return (
       <div key={groupTitle} style={{ marginBottom: 24, border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #91caff', background: '#e6f4ff', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <InfoCircleOutlined aria-hidden="true" style={{ color: '#1677ff', flexShrink: 0 }} />
-          <Title level={5} style={{ margin: 0, color: '#1677ff', fontWeight: 500 }}>{groupTitle}</Title>
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid #A9C3D6', background: '#A9C3D6', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <InfoCircleOutlined aria-hidden="true" style={{ color: '#ffffff', flexShrink: 0 }} />
+          <Title level={5} style={{ margin: 0, color: '#ffffff', fontWeight: 600 }}>{groupTitle}</Title>
           <Tag>{groupStocks.length}</Tag>
         </div>
         <Table
