@@ -32,6 +32,11 @@ public sealed class StockQuoteSnapshotPersistenceService
 {
     internal const int DelayWarningMaxLength = 300;
 
+    // The application refreshes a finite stock catalog in a single process; keeping one
+    // per-stock gate for the process lifetime prevents concurrent refresh paths from
+    // interleaving stale/newer writes for the same row without adding cross-service
+    // plumbing. The dictionary therefore grows only with distinct stock ids seen by the
+    // process, which is an acceptable bounded trade-off for this deployment model.
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> StockLocks = new();
 
     private readonly AppDbContext _context;

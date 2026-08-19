@@ -44,7 +44,16 @@ public class Stock
     /// which records when the row was last written to the database.
     /// </summary>
     public DateTime? CurrentPriceAt { get; set; }
+
+    /// <summary>
+    /// True when the persisted current-price snapshot was sourced from a delayed quote.
+    /// </summary>
     public bool CurrentPriceIsDelayed { get; set; }
+
+    /// <summary>
+    /// Provider-supplied human-readable warning describing why the persisted quote is delayed.
+    /// Cleared whenever a non-delayed snapshot supersedes the stored one.
+    /// </summary>
     [MaxLength(300)]
     public string? CurrentPriceDelayWarning { get; set; }
     public int? IndustryId { get; set; }
