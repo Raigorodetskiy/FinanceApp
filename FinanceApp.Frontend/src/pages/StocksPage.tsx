@@ -1172,8 +1172,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
             ) : (
               <>
                 {renderGroup('Портфель', portfolioGroup, portfolioRows)}
-                {renderGroup('Акции и цены на франкфуртской бирже', fraGroup, fraRows)}
-                {renderGroup('Акции и цены на нью-йоркской бирже', nyseGroup, nyseRows)}
+                {renderGroup('Цены на франкфуртской бирже', fraGroup, fraRows)}
+                {renderGroup('Цены на нью-йоркской бирже', nyseGroup, nyseRows)}
               </>
             )}
           </>

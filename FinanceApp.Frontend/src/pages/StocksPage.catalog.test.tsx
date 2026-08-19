@@ -262,8 +262,8 @@ describe('StocksPage catalog mode', () => {
       expect(screen.getAllByText('BMW').length).toBeGreaterThan(0);
     });
     // No exchange-group headings (tracked mode uses h5 headings)
-    expect(screen.queryByRole('heading', { name: 'Акции и цены на франкфуртской бирже' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Акции и цены на нью-йоркской бирже' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Цены на франкфуртской бирже' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Цены на нью-йоркской бирже' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Портфель' })).not.toBeInTheDocument();
   });
 
