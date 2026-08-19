@@ -148,7 +148,9 @@ describe('Stocks table – timestamp format', () => {
   describe('Stocks table – current snapshot source selection', () => {
     it('uses shared newest-snapshot resolver for current price/change/time rendering', () => {
       expect(pageSource).toContain('resolveNewestCurrentPriceSnapshot');
-      expect(pageSource).toContain('const selectedSnapshot = resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);');
+      expect(pageSource).toContain('const selectedSnapshotByStockId = useMemo(() => {');
+      expect(pageSource).toContain('const getSelectedSnapshot = useCallback((stock: Stock) => {');
+      expect(pageSource).toContain('const selectedSnapshot = getSelectedSnapshot(stock);');
       expect(pageSource).toContain('const ts = selectedSnapshot.currentPriceAt;');
     });
   });

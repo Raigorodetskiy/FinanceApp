@@ -378,6 +378,18 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     () => groupStocks(filteredStocks, portfolioStockIds),
     [filteredStocks, portfolioStockIds],
   );
+  const selectedSnapshotByStockId = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof resolveNewestCurrentPriceSnapshot>>();
+    for (const stock of stocks) {
+      map.set(stock.id, resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null));
+    }
+    return map;
+  }, [livePrices, stocks]);
+  const getSelectedSnapshot = useCallback((stock: Stock) => {
+    const fromMap = selectedSnapshotByStockId.get(stock.id);
+    if (fromMap) return fromMap;
+    return resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);
+  }, [livePrices, selectedSnapshotByStockId]);
 
   useEffect(() => {
     if (!isCatalogMode) {
@@ -850,7 +862,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);
+        const selectedSnapshot = getSelectedSnapshot(stock);
         return (
           <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
             {formatEur(selectedSnapshot.currentPrice)}
@@ -867,7 +879,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);
+        const selectedSnapshot = getSelectedSnapshot(stock);
         const change = selectedSnapshot.currentPriceChange ?? null;
         const color =
           change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
@@ -886,7 +898,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);
+        const selectedSnapshot = getSelectedSnapshot(stock);
         const pct = selectedSnapshot.currentPriceChangePercent ?? null;
         const color =
           pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
@@ -948,7 +960,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const selectedSnapshot = resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);
+        const selectedSnapshot = getSelectedSnapshot(stock);
         const ts = selectedSnapshot.currentPriceAt;
         if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
         return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;

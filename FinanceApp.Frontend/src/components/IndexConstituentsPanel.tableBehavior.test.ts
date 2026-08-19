@@ -111,7 +111,9 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
 
   it('uses shared newest-snapshot resolver for price/change/time fields', () => {
     expect(panelSource).toContain('resolveNewestCurrentPriceSnapshot');
-    expect(panelSource).toContain('const selectedSnapshot = resolveNewestCurrentPriceSnapshot(');
+    expect(panelSource).toContain('const selectedSnapshotByStockId = useMemo(() => {');
+    expect(panelSource).toContain('const getSelectedSnapshot = useCallback((record: IndexConstituentDto) => {');
+    expect(panelSource).toContain('const selectedSnapshot = getSelectedSnapshot(record);');
     expect(panelSource).toContain('const ts = selectedSnapshot.currentPriceAt ?? null;');
   });
 

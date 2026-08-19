@@ -351,7 +351,12 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       };
     }
 
-    if (liveQuote?.isStale !== true && liveQuote?.priceTimestampUtc && currentPriceDisplayValue != null) {
+    if (
+      !historyHasEurConversion
+      && liveQuote?.isStale !== true
+      && liveQuote?.priceTimestampUtc
+      && currentPriceDisplayValue != null
+    ) {
       return {
         timestampUtc: liveQuote.priceTimestampUtc,
         closeChart: currentPriceDisplayValue,
@@ -395,10 +400,10 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       liveQuote: selectedSessionSnapshot.source === 'live' ? selectedSessionSnapshot.liveQuote : null,
       storedPriceEur: selectedSessionSnapshot.source === 'persisted'
         ? selectedSessionSnapshot.currentPrice
-        : storedPriceEur,
+        : null,
       storedPriceChangeEur: selectedSessionSnapshot.source === 'persisted'
         ? selectedSessionSnapshot.currentPriceChange
-        : storedPriceChangeEur,
+        : null,
     }),
     [
       currentPriceDisplayValue,
@@ -406,8 +411,6 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       historyHasEurConversion,
       historyRange,
       selectedSessionSnapshot,
-      storedPriceChangeEur,
-      storedPriceEur,
     ],
   );
   const periodChangeValue = periodSummary.changeValue;
