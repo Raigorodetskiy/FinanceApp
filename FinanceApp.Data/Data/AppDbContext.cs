@@ -462,6 +462,8 @@ public class AppDbContext : DbContext
     public DbSet<StockMarketIndex> StockMarketIndices { get; set; } = null!;
     public DbSet<MarketIndexHistoricalPrice> MarketIndexHistoricalPrices { get; set; } = null!;
     public DbSet<CatalogStockRefreshRun> CatalogStockRefreshRuns { get; set; } = null!;
+    public DbSet<CatalogFundamentalsRefreshRun> CatalogFundamentalsRefreshRuns { get; set; } = null!;
+    public DbSet<CatalogMaintenanceLease> CatalogMaintenanceLeases { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -602,6 +604,29 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => x.RunKey).IsUnique();
             entity.HasIndex(x => new { x.BusinessDate, x.TimeZoneId }).IsUnique();
             entity.HasIndex(x => new { x.Status, x.LeaseExpiresAtUtc });
+        });
+
+        modelBuilder.Entity<CatalogFundamentalsRefreshRun>(entity =>
+        {
+            entity.Property(x => x.RunKey).HasMaxLength(64);
+            entity.Property(x => x.TimeZoneId).HasMaxLength(64);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(128);
+            entity.Property(x => x.LastError).HasMaxLength(1000);
+            entity.Property(x => x.FailureSummary).HasMaxLength(4000);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+
+            entity.HasIndex(x => x.RunKey).IsUnique();
+            entity.HasIndex(x => new { x.BusinessWeek, x.TimeZoneId }).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.LeaseExpiresAtUtc });
+        });
+
+        modelBuilder.Entity<CatalogMaintenanceLease>(entity =>
+        {
+            entity.Property(x => x.LeaseName).HasMaxLength(64);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(128);
+
+            entity.HasIndex(x => x.LeaseName).IsUnique();
+            entity.HasIndex(x => x.LeaseExpiresAtUtc);
         });
 
         modelBuilder.Entity<CompanyFundamentalsSnapshot>(entity =>

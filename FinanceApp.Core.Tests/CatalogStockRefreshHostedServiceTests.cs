@@ -300,6 +300,7 @@ public class CatalogStockRefreshHostedServiceTests
                 clock,
                 Options.Create(opts),
                 NullLogger<CatalogStockRefreshHostedService>.Instance,
+                new CatalogMaintenanceLeaseService(provider.GetRequiredService<IServiceScopeFactory>(), clock),
                 (_, _) => Task.CompletedTask);
 
             return new Harness(provider, service, clock, opts);
@@ -311,6 +312,7 @@ public class CatalogStockRefreshHostedServiceTests
                 Clock,
                 Options.Create(JobOptions),
                 NullLogger<CatalogStockRefreshHostedService>.Instance,
+                new CatalogMaintenanceLeaseService(Services.GetRequiredService<IServiceScopeFactory>(), Clock),
                 (_, _) => Task.CompletedTask);
 
         public async Task SeedManyStocksAsync(int count)

@@ -67,6 +67,38 @@ public static class CatalogStockRefreshScheduleCalculator
 
         return new DateTimeOffset(localDateTime, offset).ToUniversalTime();
     }
+
+    public static CatalogStockWeeklyScheduleSnapshot WeeklySnapshot(
+        DateTimeOffset nowUtc,
+        TimeZoneInfo timeZone,
+        DayOfWeek scheduledWeekday,
+        TimeSpan localScheduleTime)
+    {
+        if (localScheduleTime < TimeSpan.Zero || localScheduleTime >= TimeSpan.FromDays(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(localScheduleTime), "Local schedule time must be within [00:00, 24:00).");
+        }
+
+        var localNow = TimeZoneInfo.ConvertTime(nowUtc, timeZone);
+        var localDate = DateOnly.FromDateTime(localNow.DateTime);
+        var currentWeekScheduledDate = GetScheduledDateForWeek(localDate, scheduledWeekday);
+        var currentWeekScheduledRunUtc = ToUtc(currentWeekScheduledDate, localScheduleTime, timeZone);
+        var nextScheduledRunUtc = nowUtc < currentWeekScheduledRunUtc
+            ? currentWeekScheduledRunUtc
+            : ToUtc(currentWeekScheduledDate.AddDays(7), localScheduleTime, timeZone);
+
+        return new CatalogStockWeeklyScheduleSnapshot(
+            localNow,
+            currentWeekScheduledDate,
+            currentWeekScheduledRunUtc,
+            nextScheduledRunUtc);
+    }
+
+    private static DateOnly GetScheduledDateForWeek(DateOnly localDate, DayOfWeek scheduledWeekday)
+    {
+        var dayDiff = ((int)localDate.DayOfWeek - (int)scheduledWeekday + 7) % 7;
+        return localDate.AddDays(-dayDiff);
+    }
 }
 
 public sealed record CatalogStockRefreshScheduleSnapshot(
@@ -75,12 +107,19 @@ public sealed record CatalogStockRefreshScheduleSnapshot(
     DateTimeOffset TodayScheduledRunUtc,
     DateTimeOffset NextScheduledRunUtc);
 
+public sealed record CatalogStockWeeklyScheduleSnapshot(
+    DateTimeOffset LocalNow,
+    DateOnly CurrentWeekScheduledDate,
+    DateTimeOffset CurrentWeekScheduledRunUtc,
+    DateTimeOffset NextScheduledRunUtc);
+
 public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatalogStockRefreshStatusService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
     private readonly CatalogStockRefreshJobOptions _options;
     private readonly ILogger<CatalogStockRefreshHostedService> _logger;
+    private readonly ICatalogMaintenanceLeaseService _maintenanceLeaseService;
     private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
     private readonly SemaphoreSlim _runGate = new(1, 1);
     private readonly string _instanceId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
@@ -90,11 +129,13 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         TimeProvider timeProvider,
         IOptions<CatalogStockRefreshJobOptions> options,
         ILogger<CatalogStockRefreshHostedService> logger,
+        ICatalogMaintenanceLeaseService maintenanceLeaseService,
         Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
     {
         _scopeFactory = scopeFactory;
         _timeProvider = timeProvider;
         _logger = logger;
+        _maintenanceLeaseService = maintenanceLeaseService;
         _delayAsync = delayAsync ?? ((delay, cancellationToken) => Task.Delay(delay, cancellationToken));
 
         var raw = options.Value;
@@ -140,7 +181,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
                 startupCheckCompleted = true;
                 if (_options.RunCatchUpOnStartup && nowUtc >= snapshot.TodayScheduledRunUtc)
                 {
-                    await TryRunBusinessDateAsync(snapshot.BusinessDate, snapshot.TodayScheduledRunUtc.UtcDateTime, "startup-catch-up", stoppingToken);
+                    await RunUntilNotDeferredAsync(snapshot.BusinessDate, snapshot.TodayScheduledRunUtc.UtcDateTime, "startup-catch-up", stoppingToken);
                 }
             }
 
@@ -157,7 +198,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             }
 
             var runSnapshot = CatalogStockRefreshScheduleCalculator.Snapshot(_timeProvider.GetUtcNow(), timeZone, _options.LocalScheduleTime);
-            await TryRunBusinessDateAsync(runSnapshot.BusinessDate, runSnapshot.TodayScheduledRunUtc.UtcDateTime, "scheduled", stoppingToken);
+            await RunUntilNotDeferredAsync(runSnapshot.BusinessDate, runSnapshot.TodayScheduledRunUtc.UtcDateTime, "scheduled", stoppingToken);
         }
     }
 
@@ -166,7 +207,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         DateTime scheduledAtUtc,
         string trigger,
         CancellationToken cancellationToken = default)
-        => TryRunBusinessDateAsync(businessDate, scheduledAtUtc, trigger, cancellationToken);
+        => RunUntilNotDeferredAsync(businessDate, scheduledAtUtc, trigger, cancellationToken);
 
     public async Task<CatalogStockRefreshStatusResponse> GetStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -193,7 +234,25 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         };
     }
 
-    private async Task TryRunBusinessDateAsync(
+    private async Task RunUntilNotDeferredAsync(
+        DateOnly businessDate,
+        DateTime scheduledAtUtc,
+        string trigger,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var outcome = await TryRunBusinessDateAsync(businessDate, scheduledAtUtc, trigger, cancellationToken);
+            if (outcome != RunAttemptOutcome.DeferredForSharedLease)
+            {
+                return;
+            }
+
+            await _delayAsync(_options.RateLimitCooldown, cancellationToken);
+        }
+    }
+
+    private async Task<RunAttemptOutcome> TryRunBusinessDateAsync(
         DateOnly businessDate,
         DateTime scheduledAtUtc,
         string trigger,
@@ -201,9 +260,12 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
     {
         if (!_runGate.Wait(0))
         {
-            return;
+            return RunAttemptOutcome.NotStarted;
         }
 
+        var hasRunLease = false;
+        var hasSharedLease = false;
+        var runId = 0;
         try
         {
             var timeZone = ResolveTimeZone();
@@ -211,21 +273,35 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             var run = await GetOrCreateRunAsync(runKey, businessDate, timeZone.Id, scheduledAtUtc, cancellationToken);
             if (run is null)
             {
-                return;
+                return RunAttemptOutcome.NotStarted;
             }
 
+            runId = run.Id;
             if (run.Status is CatalogStockRefreshRunStatus.Completed or CatalogStockRefreshRunStatus.CompletedWithErrors)
             {
-                return;
+                return RunAttemptOutcome.NotStarted;
             }
 
-            if (!await TryAcquireLeaseAsync(run.Id, cancellationToken))
+            if (!await TryAcquireLeaseAsync(runId, cancellationToken))
             {
-                return;
+                return RunAttemptOutcome.NotStarted;
             }
+
+            hasRunLease = true;
+            if (!await _maintenanceLeaseService.TryAcquireAsync(
+                    CatalogMaintenanceLeaseNames.AllCatalogDataRefresh,
+                    _instanceId,
+                    _options.LeaseDuration,
+                    cancellationToken))
+            {
+                await ReleaseRunLeaseAsync(runId, cancellationToken);
+                return RunAttemptOutcome.DeferredForSharedLease;
+            }
+
+            hasSharedLease = true;
 
             var startedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            await UpdateRunAsync(run.Id, dbRun =>
+            await UpdateRunAsync(runId, dbRun =>
             {
                 dbRun.Status = CatalogStockRefreshRunStatus.Running;
                 dbRun.StartedAtUtc ??= startedAtUtc;
@@ -240,19 +316,35 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
                 _options.LocalScheduleTime,
                 timeZone.Id);
 
-            await ProcessRunAsync(run.Id, cancellationToken);
+            await ProcessRunAsync(runId, cancellationToken);
 
-            await FinalizeRunAsync(run.Id, cancellationToken);
+            await FinalizeRunAsync(runId, cancellationToken);
+            return RunAttemptOutcome.Completed;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            return RunAttemptOutcome.NotStarted;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Nightly catalog refresh failed for businessDate={BusinessDate}", businessDate);
+            return RunAttemptOutcome.NotStarted;
         }
         finally
         {
+            if (hasSharedLease)
+            {
+                await _maintenanceLeaseService.ReleaseAsync(
+                    CatalogMaintenanceLeaseNames.AllCatalogDataRefresh,
+                    _instanceId,
+                    CancellationToken.None);
+            }
+
+            if (hasRunLease && runId != 0)
+            {
+                await ReleaseRunLeaseAsync(runId, CancellationToken.None);
+            }
+
             _runGate.Release();
         }
     }
@@ -260,6 +352,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
     private async Task ProcessRunAsync(int runId, CancellationToken cancellationToken)
     {
         var lastLeaseRenewedAtUtc = DateTime.MinValue;
+        var lastSharedLeaseRenewedAtUtc = DateTime.MinValue;
 
         await EnsureTotalDiscoveredAsync(runId, cancellationToken);
         await TryProcessPendingStockAsync(runId, cancellationToken);
@@ -276,6 +369,19 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
                 {
                     run.Status = CatalogStockRefreshRunStatus.Failed;
                     run.LastError = "Lease was lost to another instance.";
+                    run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                }, cancellationToken);
+                return;
+            }
+
+            var sharedLeaseRenewal = await TryRenewSharedLeaseIfNeededAsync(lastSharedLeaseRenewedAtUtc, cancellationToken);
+            lastSharedLeaseRenewedAtUtc = sharedLeaseRenewal.LastRenewedAtUtc;
+            if (!sharedLeaseRenewal.Success)
+            {
+                await UpdateRunAsync(runId, run =>
+                {
+                    run.Status = CatalogStockRefreshRunStatus.Failed;
+                    run.LastError = "Shared maintenance lease was lost to another instance.";
                     run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
                 }, cancellationToken);
                 return;
@@ -767,13 +873,61 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         return (false, lastLeaseRenewedAtUtc);
     }
 
+    private async Task<(bool Success, DateTime LastRenewedAtUtc)> TryRenewSharedLeaseIfNeededAsync(
+        DateTime lastLeaseRenewedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        if (lastLeaseRenewedAtUtc != DateTime.MinValue &&
+            now - lastLeaseRenewedAtUtc < _options.LeaseRenewInterval)
+        {
+            return (true, lastLeaseRenewedAtUtc);
+        }
+
+        var renewed = await _maintenanceLeaseService.TryRenewAsync(
+            CatalogMaintenanceLeaseNames.AllCatalogDataRefresh,
+            _instanceId,
+            _options.LeaseDuration,
+            cancellationToken);
+        return renewed ? (true, now) : (false, lastLeaseRenewedAtUtc);
+    }
+
+    private async Task ReleaseRunLeaseAsync(int runId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        if (!db.Database.IsRelational())
+        {
+            var run = await db.CatalogStockRefreshRuns.FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
+            if (run is null || !string.Equals(run.LeaseOwner, _instanceId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            run.LeaseOwner = null;
+            run.LeaseExpiresAtUtc = null;
+            run.UpdatedAtUtc = now;
+            await db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE CatalogStockRefreshRuns
+            SET LeaseOwner = NULL,
+                LeaseExpiresAtUtc = NULL,
+                UpdatedAtUtc = {now}
+            WHERE Id = {runId}
+              AND LeaseOwner = {_instanceId}
+            """, cancellationToken);
+    }
+
     private async Task FinalizeRunAsync(int runId, CancellationToken cancellationToken)
     {
         await UpdateRunAsync(runId, run =>
         {
             run.CompletedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            run.LeaseOwner = null;
-            run.LeaseExpiresAtUtc = null;
             run.PendingStockId = null;
             run.PendingQuoteCompleted = false;
             run.PendingHistoryCompleted = false;
@@ -905,6 +1059,13 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
     {
         public static StockProcessResult None => new(TimeSpan.Zero, TimeSpan.Zero);
         public TimeSpan CooldownDelay => QuoteCooldownDelay > HistoryCooldownDelay ? QuoteCooldownDelay : HistoryCooldownDelay;
+    }
+
+    private enum RunAttemptOutcome
+    {
+        NotStarted,
+        DeferredForSharedLease,
+        Completed
     }
 
     private enum StepOutcomeKind
