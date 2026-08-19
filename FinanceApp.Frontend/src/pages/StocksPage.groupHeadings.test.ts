@@ -11,12 +11,12 @@ describe('tracked-stocks group heading labels', () => {
     expect(pageSource).toContain("renderGroup('Портфель',");
   });
 
-  it('uses exact "Акции и цены на франкфуртской бирже" heading for FRA group', () => {
-    expect(pageSource).toContain("renderGroup('Акции и цены на франкфуртской бирже',");
+  it('uses exact "Цены на франкфуртской бирже" heading for FRA group', () => {
+    expect(pageSource).toContain("renderGroup('Цены на франкфуртской бирже',");
   });
 
-  it('uses exact "Акции и цены на нью-йоркской бирже" heading for NYSE group', () => {
-    expect(pageSource).toContain("renderGroup('Акции и цены на нью-йоркской бирже',");
+  it('uses exact "Цены на нью-йоркской бирже" heading for NYSE group', () => {
+    expect(pageSource).toContain("renderGroup('Цены на нью-йоркской бирже',");
   });
 
   it('does not use old FRA or NYSE short heading labels', () => {
