@@ -27,4 +27,11 @@ describe('tracked-stocks group heading labels', () => {
   it('renders InfoCircleOutlined icon in group header', () => {
     expect(pageSource).toContain('InfoCircleOutlined');
   });
+
+  it('uses the updated tracked-group header colors and heading weight', () => {
+    expect(pageSource).toMatch(/borderBottom:\s*'1px solid #A9C3D6'/);
+    expect(pageSource).toMatch(/background:\s*'#A9C3D6'/);
+    expect(pageSource).toMatch(/style=\{\{\s*color:\s*'#ffffff'/);
+    expect(pageSource).toMatch(/color:\s*'#ffffff',\s*fontWeight:\s*600/);
+  });
 });
