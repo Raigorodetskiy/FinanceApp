@@ -1,0 +1,942 @@
+using FinanceApp.API.Models;
+using FinanceApp.Core.Models;
+using FinanceApp.Data.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace FinanceApp.API.Services;
+
+public sealed class CatalogStockRefreshJobOptions
+{
+    public bool Enabled { get; init; } = true;
+    public bool RunCatchUpOnStartup { get; init; } = true;
+    public string TimeZoneId { get; init; } = "Europe/Berlin";
+    public TimeSpan LocalScheduleTime { get; init; } = new(22, 30, 0);
+    public int BatchSize { get; init; } = 40;
+    public int MaxConcurrency { get; init; } = 1;
+    public TimeSpan InterRequestDelay { get; init; } = TimeSpan.FromMilliseconds(250);
+    public TimeSpan RateLimitCooldown { get; init; } = TimeSpan.FromMinutes(2);
+    public int RetryLimit { get; init; } = 2;
+    public TimeSpan RetryBaseDelay { get; init; } = TimeSpan.FromSeconds(2);
+    public TimeSpan LeaseDuration { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan LeaseRenewInterval { get; init; } = TimeSpan.FromMinutes(2);
+    public int ProgressLogEveryStocks { get; init; } = 25;
+}
+
+public interface ICatalogStockRefreshStatusService
+{
+    Task<CatalogStockRefreshStatusResponse> GetStatusAsync(CancellationToken cancellationToken = default);
+}
+
+public static class CatalogStockRefreshScheduleCalculator
+{
+    public static CatalogStockRefreshScheduleSnapshot Snapshot(DateTimeOffset nowUtc, TimeZoneInfo timeZone, TimeSpan localScheduleTime)
+    {
+        if (localScheduleTime < TimeSpan.Zero || localScheduleTime >= TimeSpan.FromDays(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(localScheduleTime), "Local schedule time must be within [00:00, 24:00).");
+        }
+
+        var localNow = TimeZoneInfo.ConvertTime(nowUtc, timeZone);
+        var businessDate = DateOnly.FromDateTime(localNow.DateTime);
+        var todayScheduledUtc = ToUtc(businessDate, localScheduleTime, timeZone);
+        var nextScheduledUtc = nowUtc < todayScheduledUtc
+            ? todayScheduledUtc
+            : ToUtc(businessDate.AddDays(1), localScheduleTime, timeZone);
+
+        return new CatalogStockRefreshScheduleSnapshot(businessDate, localNow, todayScheduledUtc, nextScheduledUtc);
+    }
+
+    public static DateTimeOffset ToUtc(DateOnly businessDate, TimeSpan localScheduleTime, TimeZoneInfo timeZone)
+    {
+        var localDateTime = businessDate.ToDateTime(TimeOnly.FromTimeSpan(localScheduleTime), DateTimeKind.Unspecified);
+        while (timeZone.IsInvalidTime(localDateTime))
+        {
+            localDateTime = localDateTime.AddMinutes(1);
+        }
+
+        TimeSpan offset;
+        if (timeZone.IsAmbiguousTime(localDateTime))
+        {
+            offset = timeZone.GetAmbiguousTimeOffsets(localDateTime).Max();
+        }
+        else
+        {
+            offset = timeZone.GetUtcOffset(localDateTime);
+        }
+
+        return new DateTimeOffset(localDateTime, offset).ToUniversalTime();
+    }
+}
+
+public sealed record CatalogStockRefreshScheduleSnapshot(
+    DateOnly BusinessDate,
+    DateTimeOffset LocalNow,
+    DateTimeOffset TodayScheduledRunUtc,
+    DateTimeOffset NextScheduledRunUtc);
+
+public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatalogStockRefreshStatusService
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly TimeProvider _timeProvider;
+    private readonly CatalogStockRefreshJobOptions _options;
+    private readonly ILogger<CatalogStockRefreshHostedService> _logger;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
+    private readonly SemaphoreSlim _runGate = new(1, 1);
+    private readonly string _instanceId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
+
+    public CatalogStockRefreshHostedService(
+        IServiceScopeFactory scopeFactory,
+        TimeProvider timeProvider,
+        IOptions<CatalogStockRefreshJobOptions> options,
+        ILogger<CatalogStockRefreshHostedService> logger,
+        Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
+    {
+        _scopeFactory = scopeFactory;
+        _timeProvider = timeProvider;
+        _logger = logger;
+        _delayAsync = delayAsync ?? ((delay, cancellationToken) => Task.Delay(delay, cancellationToken));
+
+        var raw = options.Value;
+        _options = new CatalogStockRefreshJobOptions
+        {
+            Enabled = raw.Enabled,
+            RunCatchUpOnStartup = raw.RunCatchUpOnStartup,
+            TimeZoneId = string.IsNullOrWhiteSpace(raw.TimeZoneId) ? "Europe/Berlin" : raw.TimeZoneId.Trim(),
+            LocalScheduleTime = raw.LocalScheduleTime >= TimeSpan.Zero && raw.LocalScheduleTime < TimeSpan.FromDays(1)
+                ? raw.LocalScheduleTime
+                : new TimeSpan(22, 30, 0),
+            BatchSize = raw.BatchSize > 0 ? raw.BatchSize : 40,
+            MaxConcurrency = raw.MaxConcurrency > 0 ? raw.MaxConcurrency : 1,
+            InterRequestDelay = raw.InterRequestDelay >= TimeSpan.Zero ? raw.InterRequestDelay : TimeSpan.FromMilliseconds(250),
+            RateLimitCooldown = raw.RateLimitCooldown > TimeSpan.Zero ? raw.RateLimitCooldown : TimeSpan.FromMinutes(2),
+            RetryLimit = raw.RetryLimit >= 0 ? raw.RetryLimit : 2,
+            RetryBaseDelay = raw.RetryBaseDelay > TimeSpan.Zero ? raw.RetryBaseDelay : TimeSpan.FromSeconds(2),
+            LeaseDuration = raw.LeaseDuration > TimeSpan.Zero ? raw.LeaseDuration : TimeSpan.FromMinutes(10),
+            LeaseRenewInterval = raw.LeaseRenewInterval > TimeSpan.Zero ? raw.LeaseRenewInterval : TimeSpan.FromMinutes(2),
+            ProgressLogEveryStocks = raw.ProgressLogEveryStocks > 0 ? raw.ProgressLogEveryStocks : 25,
+        };
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var startupCheckCompleted = false;
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            if (!_options.Enabled)
+            {
+                await _delayAsync(TimeSpan.FromMinutes(5), stoppingToken);
+                startupCheckCompleted = true;
+                continue;
+            }
+
+            var timeZone = ResolveTimeZone();
+            var nowUtc = _timeProvider.GetUtcNow();
+            var snapshot = CatalogStockRefreshScheduleCalculator.Snapshot(nowUtc, timeZone, _options.LocalScheduleTime);
+
+            if (!startupCheckCompleted)
+            {
+                startupCheckCompleted = true;
+                if (_options.RunCatchUpOnStartup && nowUtc >= snapshot.TodayScheduledRunUtc)
+                {
+                    await TryRunBusinessDateAsync(snapshot.BusinessDate, snapshot.TodayScheduledRunUtc.UtcDateTime, "startup-catch-up", stoppingToken);
+                }
+            }
+
+            var delay = snapshot.NextScheduledRunUtc - _timeProvider.GetUtcNow();
+            if (delay < TimeSpan.Zero)
+            {
+                delay = TimeSpan.Zero;
+            }
+
+            await _delayAsync(delay, stoppingToken);
+            if (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            var runSnapshot = CatalogStockRefreshScheduleCalculator.Snapshot(_timeProvider.GetUtcNow(), timeZone, _options.LocalScheduleTime);
+            await TryRunBusinessDateAsync(runSnapshot.BusinessDate, runSnapshot.TodayScheduledRunUtc.UtcDateTime, "scheduled", stoppingToken);
+        }
+    }
+
+    internal Task TriggerRunAsync(
+        DateOnly businessDate,
+        DateTime scheduledAtUtc,
+        string trigger,
+        CancellationToken cancellationToken = default)
+        => TryRunBusinessDateAsync(businessDate, scheduledAtUtc, trigger, cancellationToken);
+
+    public async Task<CatalogStockRefreshStatusResponse> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var nowUtc = _timeProvider.GetUtcNow();
+        var timeZone = ResolveTimeZone();
+        var schedule = CatalogStockRefreshScheduleCalculator.Snapshot(nowUtc, timeZone, _options.LocalScheduleTime);
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var latest = await db.CatalogStockRefreshRuns
+            .AsNoTracking()
+            .OrderByDescending(x => x.BusinessDate)
+            .ThenByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new CatalogStockRefreshStatusResponse
+        {
+            GeneratedAtUtc = nowUtc.UtcDateTime,
+            Enabled = _options.Enabled,
+            TimeZoneId = timeZone.Id,
+            LocalScheduleTime = _options.LocalScheduleTime,
+            NextScheduledRunUtc = schedule.NextScheduledRunUtc.UtcDateTime,
+            CurrentOrLatestRun = latest is null ? null : MapRun(latest),
+        };
+    }
+
+    private async Task TryRunBusinessDateAsync(
+        DateOnly businessDate,
+        DateTime scheduledAtUtc,
+        string trigger,
+        CancellationToken cancellationToken)
+    {
+        if (!_runGate.Wait(0))
+        {
+            return;
+        }
+
+        try
+        {
+            var timeZone = ResolveTimeZone();
+            var runKey = BuildRunKey(businessDate, timeZone.Id);
+            var run = await GetOrCreateRunAsync(runKey, businessDate, timeZone.Id, scheduledAtUtc, cancellationToken);
+            if (run is null)
+            {
+                return;
+            }
+
+            if (run.Status is CatalogStockRefreshRunStatus.Completed or CatalogStockRefreshRunStatus.CompletedWithErrors)
+            {
+                return;
+            }
+
+            if (!await TryAcquireLeaseAsync(run.Id, cancellationToken))
+            {
+                return;
+            }
+
+            var startedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            await UpdateRunAsync(run.Id, dbRun =>
+            {
+                dbRun.Status = CatalogStockRefreshRunStatus.Running;
+                dbRun.StartedAtUtc ??= startedAtUtc;
+                dbRun.UpdatedAtUtc = startedAtUtc;
+            }, cancellationToken);
+
+            _logger.LogInformation(
+                "Nightly catalog refresh started: runKey={RunKey} businessDate={BusinessDate} trigger={Trigger} localTime={LocalScheduleTime} timeZone={TimeZoneId}",
+                runKey,
+                businessDate,
+                trigger,
+                _options.LocalScheduleTime,
+                timeZone.Id);
+
+            await ProcessRunAsync(run.Id, cancellationToken);
+
+            await FinalizeRunAsync(run.Id, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Nightly catalog refresh failed for businessDate={BusinessDate}", businessDate);
+        }
+        finally
+        {
+            _runGate.Release();
+        }
+    }
+
+    private async Task ProcessRunAsync(int runId, CancellationToken cancellationToken)
+    {
+        var lastLeaseRenewedAtUtc = DateTime.MinValue;
+
+        await EnsureTotalDiscoveredAsync(runId, cancellationToken);
+        await TryProcessPendingStockAsync(runId, cancellationToken);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var leaseRenewal = await TryRenewLeaseIfNeededAsync(runId, lastLeaseRenewedAtUtc, cancellationToken);
+            lastLeaseRenewedAtUtc = leaseRenewal.LastRenewedAtUtc;
+            if (!leaseRenewal.Success)
+            {
+                await UpdateRunAsync(runId, run =>
+                {
+                    run.Status = CatalogStockRefreshRunStatus.Failed;
+                    run.LastError = "Lease was lost to another instance.";
+                    run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                }, cancellationToken);
+                return;
+            }
+
+            var cursor = await GetLastProcessedStockIdAsync(runId, cancellationToken);
+            var batch = await LoadBatchAsync(cursor, cancellationToken);
+            if (batch.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var stock in batch)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await ProcessSingleStockAsync(runId, stock, cancellationToken);
+
+                if (result.CooldownDelay > TimeSpan.Zero)
+                {
+                    await _delayAsync(result.CooldownDelay, cancellationToken);
+                }
+                else if (_options.InterRequestDelay > TimeSpan.Zero)
+                {
+                    await _delayAsync(_options.InterRequestDelay, cancellationToken);
+                }
+            }
+        }
+    }
+
+    private async Task<List<RefreshStockCandidate>> LoadBatchAsync(int lastProcessedStockId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.Stocks
+            .AsNoTracking()
+            .Where(s =>
+                s.Id > lastProcessedStockId &&
+                (s.TrackingStatus == StockTrackingStatus.Tracked || s.TrackingStatus == StockTrackingStatus.CatalogOnly))
+            .OrderBy(s => s.Id)
+            .Select(s => new RefreshStockCandidate(s.Id, s.Ticker, s.Exchange, s.FinanzenNetSlug))
+            .Take(_options.BatchSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<StockProcessResult> ProcessSingleStockAsync(int runId, RefreshStockCandidate stock, CancellationToken cancellationToken)
+    {
+        await UpdateRunAsync(runId, run =>
+        {
+            run.PendingStockId = stock.StockId;
+            run.PendingHistoryCompleted = false;
+            run.PendingQuoteCompleted = false;
+            run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        }, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(stock.Ticker))
+        {
+            await ApplyResultAsync(runId, stock.StockId, StepOutcome.Skipped("Missing ticker."), StepOutcome.Skipped("Missing ticker."), cancellationToken);
+            return StockProcessResult.None;
+        }
+
+        if (!StockExchanges.TryNormalize(stock.Exchange, out var normalizedExchange))
+        {
+            await ApplyResultAsync(
+                runId,
+                stock.StockId,
+                StepOutcome.Skipped("Invalid exchange."),
+                StepOutcome.Skipped("Invalid exchange."),
+                cancellationToken);
+            return StockProcessResult.None;
+        }
+
+        var normalized = stock with { Exchange = normalizedExchange };
+
+        var quoteOutcome = await ExecuteWithRetriesAsync(
+            () => RefreshQuoteAsync(normalized, cancellationToken),
+            cancellationToken);
+        await UpdateRunAsync(runId, run =>
+        {
+            run.PendingQuoteCompleted = true;
+            run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        }, cancellationToken);
+
+        StepOutcome historyOutcome;
+        if (quoteOutcome.Kind == StepOutcomeKind.RateLimited)
+        {
+            historyOutcome = StepOutcome.Skipped("Quote was rate-limited.");
+        }
+        else
+        {
+            historyOutcome = await ExecuteWithRetriesAsync(
+                () => RefreshHistoryAsync(normalized, cancellationToken),
+                cancellationToken);
+        }
+
+        await UpdateRunAsync(runId, run =>
+        {
+            run.PendingHistoryCompleted = true;
+            run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        }, cancellationToken);
+
+        await ApplyResultAsync(runId, stock.StockId, quoteOutcome, historyOutcome, cancellationToken);
+
+        return new StockProcessResult(quoteOutcome.GetCooldown(_options.RateLimitCooldown), historyOutcome.GetCooldown(_options.RateLimitCooldown));
+    }
+
+    private async Task TryProcessPendingStockAsync(int runId, CancellationToken cancellationToken)
+    {
+        var pending = await GetPendingStateAsync(runId, cancellationToken);
+        if (pending.PendingStockId is null)
+        {
+            return;
+        }
+
+        var stock = await LoadStockByIdAsync(pending.PendingStockId.Value, cancellationToken);
+        if (stock is null)
+        {
+            await ApplyResultAsync(
+                runId,
+                pending.PendingStockId.Value,
+                pending.PendingQuoteCompleted ? StepOutcome.Skipped("Stock no longer exists.") : StepOutcome.Skipped("Stock no longer exists."),
+                pending.PendingHistoryCompleted ? StepOutcome.Skipped("Stock no longer exists.") : StepOutcome.Skipped("Stock no longer exists."),
+                cancellationToken);
+            return;
+        }
+
+        StepOutcome quoteOutcome = pending.PendingQuoteCompleted
+            ? StepOutcome.AlreadyCompleted()
+            : await ExecuteWithRetriesAsync(() => RefreshQuoteAsync(stock.Value, cancellationToken), cancellationToken);
+
+        if (!pending.PendingQuoteCompleted)
+        {
+            await UpdateRunAsync(runId, run =>
+            {
+                run.PendingQuoteCompleted = true;
+                run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            }, cancellationToken);
+        }
+
+        StepOutcome historyOutcome = pending.PendingHistoryCompleted
+            ? StepOutcome.AlreadyCompleted()
+            : quoteOutcome.Kind == StepOutcomeKind.RateLimited
+                ? StepOutcome.Skipped("Quote was rate-limited.")
+                : await ExecuteWithRetriesAsync(() => RefreshHistoryAsync(stock.Value, cancellationToken), cancellationToken);
+
+        if (!pending.PendingHistoryCompleted)
+        {
+            await UpdateRunAsync(runId, run =>
+            {
+                run.PendingHistoryCompleted = true;
+                run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            }, cancellationToken);
+        }
+
+        await ApplyResultAsync(runId, stock.Value.StockId, quoteOutcome, historyOutcome, cancellationToken);
+    }
+
+    private async Task<RefreshStockCandidate?> LoadStockByIdAsync(int stockId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stock = await db.Stocks
+            .AsNoTracking()
+            .Where(s => s.Id == stockId && (s.TrackingStatus == StockTrackingStatus.Tracked || s.TrackingStatus == StockTrackingStatus.CatalogOnly))
+            .Select(s => new RefreshStockCandidate(s.Id, s.Ticker, s.Exchange, s.FinanzenNetSlug))
+            .FirstOrDefaultAsync(cancellationToken);
+        return stock.StockId == 0 ? null : stock;
+    }
+
+    private async Task<StepOutcome> RefreshQuoteAsync(RefreshStockCandidate stock, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var quoteFetchService = scope.ServiceProvider.GetRequiredService<IStockQuoteFetchService>();
+        var fetchResult = await quoteFetchService.FetchAsync(stock.Ticker, stock.Exchange, stock.FinanzenNetSlug, cancellationToken);
+
+        if (fetchResult.IsRateLimited)
+        {
+            return StepOutcome.RateLimited(fetchResult.ErrorMessage, fetchResult.RetryAfterDelay);
+        }
+
+        if (!fetchResult.IsSuccess || fetchResult.Quote is null)
+        {
+            return StepOutcome.Failed(fetchResult.ErrorMessage ?? "Quote fetch failed.");
+        }
+
+        var quote = fetchResult.Quote;
+        if (quote.IsStale || !string.IsNullOrWhiteSpace(quote.DelayWarning) || quote.CurrentPriceEur is null)
+        {
+            return StepOutcome.Skipped("Quote is stale or missing EUR conversion.");
+        }
+
+        var incomingPrice = Math.Round(quote.CurrentPriceEur.Value, 2);
+        var incomingChange = quote.ChangeEur.HasValue ? Math.Round(quote.ChangeEur.Value, 4) : (decimal?)null;
+        var incomingPercent = Math.Round(quote.PercentChange, 4);
+        var incomingAt = quote.PriceTimestampUtc;
+
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var existing = await db.Stocks.FindAsync([stock.StockId], cancellationToken);
+        if (existing is null)
+        {
+            return StepOutcome.Skipped("Stock record not found.");
+        }
+
+        if (incomingAt.HasValue &&
+            existing.CurrentPriceAt.HasValue &&
+            incomingAt.Value < existing.CurrentPriceAt.Value)
+        {
+            return StepOutcome.Skipped("Quote timestamp is stale.");
+        }
+
+        existing.CurrentPrice = incomingPrice;
+        existing.CurrentPriceChange = incomingChange;
+        existing.CurrentPriceChangePercent = incomingPercent;
+        existing.CurrentPriceAt = incomingAt;
+        existing.UpdatedAt = _timeProvider.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(cancellationToken);
+        return StepOutcome.Succeeded();
+    }
+
+    private async Task<StepOutcome> RefreshHistoryAsync(RefreshStockCandidate stock, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var historyService = scope.ServiceProvider.GetRequiredService<IStockHistoryService>();
+
+        var historyResult = await historyService.RefreshHistoryAsync(new Stock
+        {
+            Id = stock.StockId,
+            Ticker = stock.Ticker,
+            Exchange = stock.Exchange
+        }, cancellationToken);
+
+        if (historyResult.RateLimited)
+        {
+            return StepOutcome.RateLimited("History provider rate-limited.");
+        }
+
+        return StepOutcome.Succeeded();
+    }
+
+    private async Task<StepOutcome> ExecuteWithRetriesAsync(
+        Func<Task<StepOutcome>> action,
+        CancellationToken cancellationToken)
+    {
+        var attempt = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StepOutcome outcome;
+            try
+            {
+                outcome = await action();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                outcome = StepOutcome.Failed(ex.Message);
+            }
+
+            if (outcome.Kind is StepOutcomeKind.Succeeded or StepOutcomeKind.Skipped or StepOutcomeKind.AlreadyCompleted)
+            {
+                return outcome;
+            }
+
+            if (outcome.Kind == StepOutcomeKind.RateLimited)
+            {
+                return outcome;
+            }
+
+            if (attempt >= _options.RetryLimit)
+            {
+                return outcome;
+            }
+
+            attempt++;
+            var baseDelay = _options.RetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt - 1);
+            var jitterMs = Random.Shared.Next(0, 250);
+            var retryDelay = TimeSpan.FromMilliseconds(baseDelay + jitterMs);
+            await _delayAsync(retryDelay, cancellationToken);
+        }
+    }
+
+    private async Task ApplyResultAsync(
+        int runId,
+        int stockId,
+        StepOutcome quoteOutcome,
+        StepOutcome historyOutcome,
+        CancellationToken cancellationToken)
+    {
+        await UpdateRunAsync(runId, run =>
+        {
+            ApplyStep(run, quoteOutcome, isQuote: true, stockId);
+            ApplyStep(run, historyOutcome, isQuote: false, stockId);
+
+            run.LastProcessedStockId = stockId;
+            run.PendingStockId = null;
+            run.PendingQuoteCompleted = false;
+            run.PendingHistoryCompleted = false;
+            run.Processed++;
+            run.Remaining = Math.Max(0, run.TotalDiscovered - run.Processed);
+            run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        }, cancellationToken);
+    }
+
+    private static void ApplyStep(CatalogStockRefreshRun run, StepOutcome outcome, bool isQuote, int stockId)
+    {
+        switch (outcome.Kind)
+        {
+            case StepOutcomeKind.Succeeded:
+            case StepOutcomeKind.AlreadyCompleted:
+                if (isQuote) run.QuoteSucceeded++;
+                else run.HistorySucceeded++;
+                return;
+            case StepOutcomeKind.Skipped:
+                if (isQuote) run.QuoteSkipped++;
+                else run.HistorySkipped++;
+                if (!string.IsNullOrWhiteSpace(outcome.Reason))
+                {
+                    AppendFailure(run, $"stockId={stockId} {(isQuote ? "quote" : "history")} skipped: {outcome.Reason}");
+                }
+                return;
+            case StepOutcomeKind.RateLimited:
+                run.RateLimited++;
+                if (isQuote) run.QuoteSkipped++;
+                else run.HistorySkipped++;
+                run.Status = CatalogStockRefreshRunStatus.PausedRateLimited;
+                AppendFailure(run, $"stockId={stockId} {(isQuote ? "quote" : "history")} rate-limited");
+                return;
+            case StepOutcomeKind.Failed:
+                if (isQuote) run.QuoteFailed++;
+                else run.HistoryFailed++;
+                AppendFailure(run, $"stockId={stockId} {(isQuote ? "quote" : "history")} failed: {outcome.Reason}");
+                return;
+            default:
+                return;
+        }
+    }
+
+    private static void AppendFailure(CatalogStockRefreshRun run, string message)
+    {
+        var safe = message.Trim();
+        if (safe.Length > 400)
+        {
+            safe = safe[..400];
+        }
+
+        run.LastError = safe;
+        var current = string.IsNullOrWhiteSpace(run.FailureSummary)
+            ? string.Empty
+            : run.FailureSummary + Environment.NewLine;
+        var combined = current + safe;
+        if (combined.Length > 4000)
+        {
+            combined = combined[^4000..];
+        }
+
+        run.FailureSummary = combined;
+    }
+
+    private async Task EnsureTotalDiscoveredAsync(int runId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var run = await db.CatalogStockRefreshRuns.FirstAsync(x => x.Id == runId, cancellationToken);
+        if (run.TotalDiscovered > 0)
+        {
+            return;
+        }
+
+        run.TotalDiscovered = await db.Stocks
+            .Where(s => s.TrackingStatus == StockTrackingStatus.Tracked || s.TrackingStatus == StockTrackingStatus.CatalogOnly)
+            .CountAsync(cancellationToken);
+        run.Remaining = Math.Max(0, run.TotalDiscovered - run.Processed);
+        run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<int> GetLastProcessedStockIdAsync(int runId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var run = await db.CatalogStockRefreshRuns
+            .AsNoTracking()
+            .Where(x => x.Id == runId)
+            .Select(x => new { x.LastProcessedStockId })
+            .FirstAsync(cancellationToken);
+        return run.LastProcessedStockId ?? 0;
+    }
+
+    private async Task<(int? PendingStockId, bool PendingQuoteCompleted, bool PendingHistoryCompleted)> GetPendingStateAsync(
+        int runId,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var run = await db.CatalogStockRefreshRuns
+            .AsNoTracking()
+            .Where(x => x.Id == runId)
+            .Select(x => new { x.PendingStockId, x.PendingQuoteCompleted, x.PendingHistoryCompleted })
+            .FirstAsync(cancellationToken);
+        return (run.PendingStockId, run.PendingQuoteCompleted, run.PendingHistoryCompleted);
+    }
+
+    private async Task<bool> TryAcquireLeaseAsync(int runId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var leaseUntil = now.Add(_options.LeaseDuration);
+
+        if (!db.Database.IsRelational())
+        {
+            var run = await db.CatalogStockRefreshRuns.FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
+            if (run is null)
+            {
+                return false;
+            }
+
+            var leaseAvailable = string.IsNullOrWhiteSpace(run.LeaseOwner)
+                                 || string.Equals(run.LeaseOwner, _instanceId, StringComparison.Ordinal)
+                                 || !run.LeaseExpiresAtUtc.HasValue
+                                 || run.LeaseExpiresAtUtc.Value < now;
+            if (!leaseAvailable)
+            {
+                return false;
+            }
+
+            run.LeaseOwner = _instanceId;
+            run.LeaseExpiresAtUtc = leaseUntil;
+            run.UpdatedAtUtc = now;
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
+        var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE CatalogStockRefreshRuns
+            SET LeaseOwner = {_instanceId},
+                LeaseExpiresAtUtc = {leaseUntil},
+                UpdatedAtUtc = {now}
+            WHERE Id = {runId}
+              AND (LeaseOwner IS NULL OR LeaseOwner = {_instanceId} OR LeaseExpiresAtUtc IS NULL OR LeaseExpiresAtUtc < {now})
+            """, cancellationToken);
+        return affected == 1;
+    }
+
+    private async Task<(bool Success, DateTime LastRenewedAtUtc)> TryRenewLeaseIfNeededAsync(
+        int runId,
+        DateTime lastLeaseRenewedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        if (lastLeaseRenewedAtUtc != DateTime.MinValue &&
+            now - lastLeaseRenewedAtUtc < _options.LeaseRenewInterval)
+        {
+            return (true, lastLeaseRenewedAtUtc);
+        }
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var newLeaseExpiresAt = now.Add(_options.LeaseDuration);
+
+        if (!db.Database.IsRelational())
+        {
+            var run = await db.CatalogStockRefreshRuns.FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
+            if (run is null || !string.Equals(run.LeaseOwner, _instanceId, StringComparison.Ordinal))
+            {
+                return (false, lastLeaseRenewedAtUtc);
+            }
+
+            run.LeaseExpiresAtUtc = newLeaseExpiresAt;
+            run.UpdatedAtUtc = now;
+            await db.SaveChangesAsync(cancellationToken);
+            return (true, now);
+        }
+
+        var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE CatalogStockRefreshRuns
+            SET LeaseExpiresAtUtc = {newLeaseExpiresAt},
+                UpdatedAtUtc = {now}
+            WHERE Id = {runId}
+              AND LeaseOwner = {_instanceId}
+            """, cancellationToken);
+        if (affected == 1)
+        {
+            return (true, now);
+        }
+
+        return (false, lastLeaseRenewedAtUtc);
+    }
+
+    private async Task FinalizeRunAsync(int runId, CancellationToken cancellationToken)
+    {
+        await UpdateRunAsync(runId, run =>
+        {
+            run.CompletedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            run.LeaseOwner = null;
+            run.LeaseExpiresAtUtc = null;
+            run.PendingStockId = null;
+            run.PendingQuoteCompleted = false;
+            run.PendingHistoryCompleted = false;
+            run.Remaining = Math.Max(0, run.TotalDiscovered - run.Processed);
+            run.Status = run.QuoteFailed > 0 || run.HistoryFailed > 0 || run.RateLimited > 0
+                ? CatalogStockRefreshRunStatus.CompletedWithErrors
+                : CatalogStockRefreshRunStatus.Completed;
+            run.UpdatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        }, cancellationToken);
+
+        var final = await GetRunAsync(runId, cancellationToken);
+        _logger.LogInformation(
+            "Nightly catalog refresh completed: runKey={RunKey} status={Status} total={Total} processed={Processed} quoteOk={QuoteSucceeded} quoteFailed={QuoteFailed} quoteSkipped={QuoteSkipped} historyOk={HistorySucceeded} historyFailed={HistoryFailed} historySkipped={HistorySkipped} rateLimited={RateLimited}",
+            final?.RunKey,
+            final?.Status,
+            final?.TotalDiscovered,
+            final?.Processed,
+            final?.QuoteSucceeded,
+            final?.QuoteFailed,
+            final?.QuoteSkipped,
+            final?.HistorySucceeded,
+            final?.HistoryFailed,
+            final?.HistorySkipped,
+            final?.RateLimited);
+    }
+
+    private async Task<CatalogStockRefreshRun?> GetRunAsync(int runId, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.CatalogStockRefreshRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
+    }
+
+    private async Task<CatalogStockRefreshRun?> GetOrCreateRunAsync(
+        string runKey,
+        DateOnly businessDate,
+        string timeZoneId,
+        DateTime scheduledAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var existing = await db.CatalogStockRefreshRuns.FirstOrDefaultAsync(x => x.RunKey == runKey, cancellationToken);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var run = new CatalogStockRefreshRun
+        {
+            RunKey = runKey,
+            BusinessDate = businessDate,
+            TimeZoneId = timeZoneId,
+            ScheduledAtUtc = scheduledAtUtc,
+            Status = CatalogStockRefreshRunStatus.Pending,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        db.CatalogStockRefreshRuns.Add(run);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return run;
+        }
+        catch (DbUpdateException)
+        {
+            return await db.CatalogStockRefreshRuns.FirstOrDefaultAsync(x => x.RunKey == runKey, cancellationToken);
+        }
+    }
+
+    private async Task UpdateRunAsync(int runId, Action<CatalogStockRefreshRun> update, CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var run = await db.CatalogStockRefreshRuns.FirstAsync(x => x.Id == runId, cancellationToken);
+        update(run);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private TimeZoneInfo ResolveTimeZone()
+    {
+        var configuredId = _options.TimeZoneId;
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(configuredId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            _logger.LogWarning("Configured timezone {TimeZoneId} not found. Falling back to Europe/Berlin.", configuredId);
+        }
+        catch (InvalidTimeZoneException)
+        {
+            _logger.LogWarning("Configured timezone {TimeZoneId} is invalid. Falling back to Europe/Berlin.", configuredId);
+        }
+
+        return TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+    }
+
+    private static string BuildRunKey(DateOnly businessDate, string timeZoneId)
+        => $"{timeZoneId}:{businessDate:yyyy-MM-dd}";
+
+    private static CatalogStockRefreshRunDetails MapRun(CatalogStockRefreshRun run)
+        => new()
+        {
+            RunKey = run.RunKey,
+            BusinessDate = run.BusinessDate,
+            Status = run.Status,
+            ScheduledAtUtc = run.ScheduledAtUtc,
+            StartedAtUtc = run.StartedAtUtc,
+            CompletedAtUtc = run.CompletedAtUtc,
+            LastProcessedStockId = run.LastProcessedStockId ?? 0,
+            TotalDiscovered = run.TotalDiscovered,
+            Processed = run.Processed,
+            Remaining = run.Remaining,
+            QuoteSucceeded = run.QuoteSucceeded,
+            QuoteFailed = run.QuoteFailed,
+            QuoteSkipped = run.QuoteSkipped,
+            HistorySucceeded = run.HistorySucceeded,
+            HistoryFailed = run.HistoryFailed,
+            HistorySkipped = run.HistorySkipped,
+            RateLimited = run.RateLimited,
+            LastError = run.LastError,
+            FailureSummary = run.FailureSummary
+        };
+
+    private readonly record struct RefreshStockCandidate(int StockId, string Ticker, string Exchange, string? FinanzenNetSlug);
+    private readonly record struct StockProcessResult(TimeSpan QuoteCooldownDelay, TimeSpan HistoryCooldownDelay)
+    {
+        public static StockProcessResult None => new(TimeSpan.Zero, TimeSpan.Zero);
+        public TimeSpan CooldownDelay => QuoteCooldownDelay > HistoryCooldownDelay ? QuoteCooldownDelay : HistoryCooldownDelay;
+    }
+
+    private enum StepOutcomeKind
+    {
+        Succeeded,
+        Failed,
+        Skipped,
+        RateLimited,
+        AlreadyCompleted
+    }
+
+    private readonly record struct StepOutcome(StepOutcomeKind Kind, string? Reason, TimeSpan? RetryAfter)
+    {
+        public static StepOutcome Succeeded() => new(StepOutcomeKind.Succeeded, null, null);
+        public static StepOutcome Failed(string? reason) => new(StepOutcomeKind.Failed, reason, null);
+        public static StepOutcome Skipped(string? reason) => new(StepOutcomeKind.Skipped, reason, null);
+        public static StepOutcome RateLimited(string? reason, TimeSpan? retryAfter = null) => new(StepOutcomeKind.RateLimited, reason, retryAfter);
+        public static StepOutcome AlreadyCompleted() => new(StepOutcomeKind.AlreadyCompleted, null, null);
+
+        public TimeSpan GetCooldown(TimeSpan defaultDelay)
+        {
+            if (Kind != StepOutcomeKind.RateLimited)
+            {
+                return TimeSpan.Zero;
+            }
+
+            if (RetryAfter is { } retryAfter && retryAfter > TimeSpan.Zero)
+            {
+                return retryAfter;
+            }
+
+            return defaultDelay;
+        }
+    }
+}

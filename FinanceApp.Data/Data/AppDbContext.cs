@@ -461,6 +461,7 @@ public class AppDbContext : DbContext
     public DbSet<MarketIndex> MarketIndices { get; set; } = null!;
     public DbSet<StockMarketIndex> StockMarketIndices { get; set; } = null!;
     public DbSet<MarketIndexHistoricalPrice> MarketIndexHistoricalPrices { get; set; } = null!;
+    public DbSet<CatalogStockRefreshRun> CatalogStockRefreshRuns { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -587,6 +588,20 @@ public class AppDbContext : DbContext
             // Historical rows are distinguished by EffectiveFrom / EffectiveTo.
             entity.HasIndex(x => new { x.StockId, x.MarketIndexId })
                 .HasDatabaseName("IX_StockMarketIndices_StockId_MarketIndexId");
+        });
+
+        modelBuilder.Entity<CatalogStockRefreshRun>(entity =>
+        {
+            entity.Property(x => x.RunKey).HasMaxLength(64);
+            entity.Property(x => x.TimeZoneId).HasMaxLength(64);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(128);
+            entity.Property(x => x.LastError).HasMaxLength(1000);
+            entity.Property(x => x.FailureSummary).HasMaxLength(4000);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+
+            entity.HasIndex(x => x.RunKey).IsUnique();
+            entity.HasIndex(x => new { x.BusinessDate, x.TimeZoneId }).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.LeaseExpiresAtUtc });
         });
 
         modelBuilder.Entity<CompanyFundamentalsSnapshot>(entity =>

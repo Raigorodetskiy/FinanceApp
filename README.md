@@ -71,6 +71,43 @@ Notes:
 - Current quotes and historical refreshes share the same throttle, cooldown, and in-flight request coalescing.
 - When Yahoo returns HTTP `429`, FinanceApp stops sending new Yahoo requests until the shared cooldown expires.
 
+### Nightly catalog refresh (Tracked + CatalogOnly)
+
+FinanceApp now has a separate nightly background maintenance job that refreshes **quote + history** for all durable catalog stocks (`Tracked` and `CatalogOnly`) once per business day.
+
+- Frequent/intraday automatic refresh behavior for tracked stocks remains unchanged.
+- Nightly catalog job does **not** make `CatalogOnly` participate in the frequent tracked-only loop.
+- Default schedule: `22:30:00` in `Europe/Berlin` local time (DST-aware).
+
+Configuration (`CatalogStockRefreshJob` in `appsettings`):
+
+| Option | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enables/disables nightly catalog refresh. |
+| `RunCatchUpOnStartup` | `true` | If app was down at scheduled time, run one bounded catch-up on startup for today when missing. |
+| `TimeZoneId` | `Europe/Berlin` | IANA/OS timezone used for local schedule and business date. |
+| `LocalScheduleTime` | `22:30:00` | Local daily start time. |
+| `BatchSize` | `40` | Deterministic stock page size. |
+| `MaxConcurrency` | `1` | Processing concurrency limit. |
+| `InterRequestDelay` | `00:00:00.250` | Delay between stock requests. |
+| `RateLimitCooldown` | `00:02:00` | Cooldown pause used when provider rate-limits. |
+| `RetryLimit` | `2` | Retry attempts per quote/history step (except hard rate-limit response). |
+| `RetryBaseDelay` | `00:00:02` | Exponential retry base delay (with jitter). |
+| `LeaseDuration` | `00:10:00` | Durable run lease duration for cross-instance safety. |
+| `LeaseRenewInterval` | `00:02:00` | Lease renewal interval while run is active. |
+| `ProgressLogEveryStocks` | `25` | Periodic progress logging cadence. |
+
+Operational status endpoint (authenticated): `GET /api/catalog-refresh/status`
+
+Migration: `20260819024150_AddCatalogStockRefreshRunState`
+
+Recommended production deployment order:
+1. Backup database
+2. Apply migration
+3. Deploy/restart backend
+
+Rollback note: rolling back application binaries may leave `CatalogStockRefreshRuns` table unused; keeping it is safe and non-destructive.
+
 ### Index constituents import sources (DJIA + NASDAQ-100 + S&P 500 + DAX)
 
 - Supported index-constituent imports:
