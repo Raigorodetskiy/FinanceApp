@@ -9,6 +9,7 @@ import {
   Tag,
   Tooltip,
   Input,
+  Select,
 } from 'antd';
 import axios from 'axios';
 import {
@@ -19,11 +20,14 @@ import {
   CaretRightFilled,
   FundOutlined,
   StarOutlined,
+  SortAscendingOutlined,
+  SortDescendingOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import {
   getStockCatalog,
+  getStockCatalogPerformance,
   getStock,
   createStock,
   updateStockMetadata,
@@ -49,6 +53,7 @@ import type {
   MarketIndex,
   SectorDto,
   Stock,
+  StockHistoryRange,
   StockTrackingStatus,
   StockQuoteResponse,
   UpdateStockQuoteRequest,
@@ -57,6 +62,9 @@ import { groupStocks } from '../utils/stockGrouping';
 import { isQuoteDelayed } from '../utils/quote';
 import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
+import { STOCK_HISTORY_RANGE_OPTIONS } from '../components/historyRangeOptions';
+import { formatPerformance } from '../components/performanceHelpers';
+import type { PerformanceMap } from '../components/performanceHelpers';
 
 export {
   buildCreateStockPayload,
@@ -171,6 +179,20 @@ export const STOCKS_TABLE_TOTAL_COLS = 8;
  */
 const CATALOG_TOTAL_COLS = STOCKS_TABLE_TOTAL_COLS + 1;
 
+/** Catalog mode with performance column adds one more column. */
+const CATALOG_WITH_PERF_TOTAL_COLS = CATALOG_TOTAL_COLS + 1;
+
+export const CATALOG_SORT_NAME_MODE = 'name' as const;
+export type CatalogSortMode = typeof CATALOG_SORT_NAME_MODE | StockHistoryRange;
+export const CATALOG_SORT_MODE_OPTIONS: Array<{ label: string; value: CatalogSortMode }> = [
+  { label: 'По названию', value: CATALOG_SORT_NAME_MODE },
+  ...STOCK_HISTORY_RANGE_OPTIONS,
+];
+export const isCatalogPeriodSortMode = (mode: CatalogSortMode): mode is StockHistoryRange =>
+  mode !== CATALOG_SORT_NAME_MODE;
+
+const PERFORMANCE_COL_WIDTH = 110;
+
 /** Label shown on the delayed-quote badge. */
 export const STALE_DELAY_LABEL = 'Задержано';
 
@@ -281,8 +303,17 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [trackingLoadingByStock, setTrackingLoadingByStock] = useState<Record<number, boolean>>({});
   const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogSortMode, setCatalogSortMode] = useState<CatalogSortMode>(CATALOG_SORT_NAME_MODE);
+  const [catalogSortDirection, setCatalogSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [performanceMap, setPerformanceMap] = useState<PerformanceMap>(new Map());
+  const [performanceLoading, setPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState<string | null>(null);
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
+  const performanceAbortRef = useRef<AbortController | null>(null);
+  const performanceRequestIdRef = useRef(0);
+  const catalogSortModeRef = useRef<CatalogSortMode>(CATALOG_SORT_NAME_MODE);
+  catalogSortModeRef.current = catalogSortMode;
   const portfolioStockIds = useMemo(() => {
     const ids = new Set<number>();
     portfolios.forEach((portfolio) => {
@@ -315,13 +346,33 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
             || indexNames.includes(query);
         });
 
+    if (isCatalogPeriodSortMode(catalogSortMode)) {
+      const dir = catalogSortDirection === 'asc' ? 1 : -1;
+      return [...base].sort((a, b) => {
+        const pa = performanceMap.get(a.id) ?? null;
+        const pb = performanceMap.get(b.id) ?? null;
+        const aHas = pa != null;
+        const bHas = pb != null;
+
+        if (aHas && bHas) {
+          if (pa !== pb) return dir * (pa - pb);
+        } else if (aHas) {
+          return -1;
+        } else if (bHas) {
+          return 1;
+        }
+
+        return a.id - b.id;
+      });
+    }
+
     return [...base].sort((a, b) => {
       const nameA = (a.commonName || a.name || '').trim();
       const nameB = (b.commonName || b.name || '').trim();
       const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
       return cmp !== 0 ? cmp : a.ticker.localeCompare(b.ticker, undefined, { sensitivity: 'base' });
     });
-  }, [catalogQuery, isCatalogMode, marketIndexNameById, stocks]);
+  }, [catalogQuery, catalogSortMode, catalogSortDirection, performanceMap, isCatalogMode, marketIndexNameById, stocks]);
   const { portfolioGroup, fraGroup, nyseGroup } = useMemo(
     () => groupStocks(filteredStocks, portfolioStockIds),
     [filteredStocks, portfolioStockIds],
@@ -335,6 +386,61 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     const maxPage = Math.max(1, Math.ceil(filteredStocks.length / CATALOG_PAGE_SIZE));
     setCatalogPage((prev) => Math.min(prev, maxPage));
   }, [filteredStocks.length, isCatalogMode]);
+
+  const clearPerformanceStateAndAbort = useCallback(() => {
+    performanceRequestIdRef.current += 1;
+    performanceAbortRef.current?.abort();
+    performanceAbortRef.current = null;
+    setPerformanceLoading(false);
+    setPerformanceError(null);
+    setPerformanceMap(new Map());
+  }, []);
+
+  const loadPerformance = useCallback(async (range: StockHistoryRange) => {
+    performanceAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    const requestId = ++performanceRequestIdRef.current;
+    performanceAbortRef.current = ctrl;
+    setPerformanceLoading(true);
+    setPerformanceMap(new Map());
+    setPerformanceError(null);
+    try {
+      const res = await getStockCatalogPerformance(range, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      if (performanceRequestIdRef.current !== requestId) return;
+      const map = new Map<number, number | null>(
+        res.data.items.map((item) => [item.stockId, item.changePercent ?? null]),
+      );
+      setPerformanceMap(map);
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      if (performanceRequestIdRef.current !== requestId) return;
+      setPerformanceError('Не удалось загрузить данные о росте');
+    } finally {
+      if (!ctrl.signal.aborted && performanceRequestIdRef.current === requestId) {
+        setPerformanceLoading(false);
+      }
+    }
+  }, []);
+
+  const handleCatalogSortModeChange = useCallback((mode: CatalogSortMode) => {
+    setCatalogSortMode(mode);
+    setCatalogPage(1);
+    if (!isCatalogPeriodSortMode(mode)) {
+      clearPerformanceStateAndAbort();
+    } else {
+      void loadPerformance(mode);
+    }
+  }, [clearPerformanceStateAndAbort, loadPerformance]);
+
+  const handleCatalogSortDirectionToggle = useCallback(() => {
+    setCatalogSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+  }, []);
+
+  useEffect(() => {
+    if (!isCatalogMode) return;
+    return () => { performanceAbortRef.current?.abort(); };
+  }, [isCatalogMode]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -588,7 +694,9 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     }
   };
 
-  const TOTAL_COLS = isCatalogMode ? CATALOG_TOTAL_COLS : STOCKS_TABLE_TOTAL_COLS;
+  const TOTAL_COLS = isCatalogMode
+    ? (isCatalogPeriodSortMode(catalogSortMode) ? CATALOG_WITH_PERF_TOTAL_COLS : CATALOG_TOTAL_COLS)
+    : STOCKS_TABLE_TOTAL_COLS;
 
   const formatEur = (v: number) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
@@ -708,6 +816,30 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           );
         },
       },
+      ...(isCatalogPeriodSortMode(catalogSortMode) ? [
+        {
+          title: 'Рост за период',
+          key: 'performance',
+          align: 'right' as const,
+          width: PERFORMANCE_COL_WIDTH,
+          render: (_: unknown, record: TableRow) => {
+            if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
+            const stock = record as Stock;
+            if (performanceLoading) {
+              return <span style={{ color: '#8c8c8c' }}>…</span>;
+            }
+            const perf = formatPerformance(performanceMap.get(stock.id));
+            if (perf.kind === 'unavailable') {
+              return (
+                <Tooltip title="Недостаточно исторических данных">
+                  <span style={{ color: '#8c8c8c' }}>—</span>
+                </Tooltip>
+              );
+            }
+            return <span style={{ color: perf.color, whiteSpace: 'nowrap' }}>{perf.formatted}</span>;
+          },
+        },
+      ] : []),
     ] : []),
     {
       title: 'Текущая цена',
@@ -958,13 +1090,31 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
               </>
             )}
             {isCatalogMode && (
-              <Input
-                placeholder="Поиск: тикер, название, биржа, индекс"
-                value={catalogQuery}
-                onChange={(event) => setCatalogQuery(event.target.value)}
-                allowClear
-                style={{ width: 320 }}
-              />
+              <>
+                <Select<CatalogSortMode>
+                  value={catalogSortMode}
+                  onChange={handleCatalogSortModeChange}
+                  options={CATALOG_SORT_MODE_OPTIONS}
+                  style={{ width: 130 }}
+                  aria-label="Сортировка"
+                />
+                {isCatalogPeriodSortMode(catalogSortMode) && (
+                  <Tooltip title={catalogSortDirection === 'desc' ? 'Убыванию' : 'Возрастанию'}>
+                    <Button
+                      icon={catalogSortDirection === 'desc' ? <SortDescendingOutlined /> : <SortAscendingOutlined />}
+                      onClick={handleCatalogSortDirectionToggle}
+                      aria-label={catalogSortDirection === 'desc' ? 'Сортировать по возрастанию' : 'Сортировать по убыванию'}
+                    />
+                  </Tooltip>
+                )}
+                <Input
+                  placeholder="Поиск: тикер, название, биржа, индекс"
+                  value={catalogQuery}
+                  onChange={(event) => setCatalogQuery(event.target.value)}
+                  allowClear
+                  style={{ width: 320 }}
+                />
+              </>
             )}
             <Button
               type="primary"
@@ -984,30 +1134,35 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           filteredStocks.length === 0 ? (
             <Text type="secondary">Нет акций по выбранным фильтрам</Text>
           ) : (
-            <Table
-              className="stocks-table"
-              dataSource={filteredStocks}
-              columns={columns}
-              rowKey={getTableRowKey}
-              tableLayout="fixed"
-              scroll={{ x: STOCKS_TABLE_SCROLL_X + INDEX_MEMBERSHIP_COL_WIDTH }}
-              expandable={{
-                expandedRowKeys: expandedStockId != null ? [String(expandedStockId)] : [],
-                expandedRowRender: (stock) => renderExpandedChart(stock as Stock),
-                expandIcon: () => null,
-              }}
-              pagination={{
-                current: catalogPage,
-                pageSize: CATALOG_PAGE_SIZE,
-                showSizeChanger: false,
-                showTotal: (total) => `Всего: ${total}`,
-                onChange: (page) => setCatalogPage(page),
-              }}
-              rowClassName={(record: TableRow) => {
-                if (isChartRow(record)) return 'chart-panel-row';
-                return '';
-              }}
-            />
+            <>
+              {performanceError && (
+                <div style={{ marginBottom: 8, color: '#cf1322' }}>{performanceError}</div>
+              )}
+              <Table
+                className="stocks-table"
+                dataSource={filteredStocks}
+                columns={columns}
+                rowKey={getTableRowKey}
+                tableLayout="fixed"
+                scroll={{ x: STOCKS_TABLE_SCROLL_X + INDEX_MEMBERSHIP_COL_WIDTH + (isCatalogPeriodSortMode(catalogSortMode) ? PERFORMANCE_COL_WIDTH : 0) }}
+                expandable={{
+                  expandedRowKeys: expandedStockId != null ? [String(expandedStockId)] : [],
+                  expandedRowRender: (stock) => renderExpandedChart(stock as Stock),
+                  expandIcon: () => null,
+                }}
+                pagination={{
+                  current: catalogPage,
+                  pageSize: CATALOG_PAGE_SIZE,
+                  showSizeChanger: false,
+                  showTotal: (total) => `Всего: ${total}`,
+                  onChange: (page) => setCatalogPage(page),
+                }}
+                rowClassName={(record: TableRow) => {
+                  if (isChartRow(record)) return 'chart-panel-row';
+                  return '';
+                }}
+              />
+            </>
           )
         ) : (
           <>
