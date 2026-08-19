@@ -80,10 +80,13 @@ public class FundamentalsServiceTests
         var service = CreateService(context, provider);
 
         var result = await service.RefreshFundamentalsAsync(1);
+        var persisted = await context.FundamentalsSnapshots.SingleAsync(x => x.StockId == 1);
 
         Assert.Equal(FundamentalsState.Stale, result.State);
         Assert.Equal(100m, result.Snapshot!.MarketCap);
         Assert.NotNull(result.WarningMessage);
+        Assert.Equal(FundamentalsRefreshFailureCategory.ProviderFailure, result.FailureCategory);
+        Assert.Equal(100m, persisted.MarketCap);
     }
 
     [Fact]
@@ -101,6 +104,28 @@ public class FundamentalsServiceTests
         Assert.Equal(FundamentalsState.Unavailable, result.State);
         Assert.Null(result.Snapshot);
         Assert.NotNull(result.WarningMessage);
+        Assert.Equal(FundamentalsRefreshFailureCategory.ProviderFailure, result.FailureCategory);
+    }
+
+    [Fact]
+    public async Task RefreshFundamentalsAsync_RateLimitedFailure_ExposesRateLimitCategory()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple", CommonName = "Apple" });
+        context.FundamentalsSnapshots.Add(CreateSnapshotEntity("AAPL", FixedNow.AddDays(-2).UtcDateTime, 100m, stockId: 1));
+        await context.SaveChangesAsync();
+
+        var provider = new StubYahooFundamentalsService(_ => YahooFundamentalsResult.Failure(
+            429,
+            "rate limited",
+            YahooFundamentalsFailureCategory.ProviderRateLimited));
+        var service = CreateService(context, provider);
+
+        var result = await service.RefreshFundamentalsAsync(1);
+
+        Assert.Equal(FundamentalsState.Stale, result.State);
+        Assert.Equal(FundamentalsRefreshFailureCategory.ProviderRateLimited, result.FailureCategory);
+        Assert.Equal(100m, result.Snapshot!.MarketCap);
     }
 
     private static AppDbContext CreateContext()

@@ -12,19 +12,27 @@ public interface IFundamentalsService
     Task<FundamentalsResult> RefreshFundamentalsAsync(int stockId, CancellationToken ct = default);
 }
 
+public enum FundamentalsRefreshFailureCategory
+{
+    None = 0,
+    ProviderRateLimited,
+    ProviderFailure
+}
+
 public sealed record FundamentalsResult(
     CompanyFundamentalsSnapshot? Snapshot,
     FundamentalsState State,
-    string? WarningMessage)
+    string? WarningMessage,
+    FundamentalsRefreshFailureCategory FailureCategory = FundamentalsRefreshFailureCategory.None)
 {
     public static FundamentalsResult FromSnapshot(
         CompanyFundamentalsSnapshot snapshot,
         FundamentalsState state,
         string? warningMessage = null) =>
-        new(snapshot, state, warningMessage);
+        new(snapshot, state, warningMessage, FundamentalsRefreshFailureCategory.None);
 
     public static FundamentalsResult Unavailable(string? warningMessage) =>
-        new(null, FundamentalsState.Unavailable, warningMessage);
+        new(null, FundamentalsState.Unavailable, warningMessage, FundamentalsRefreshFailureCategory.ProviderFailure);
 }
 
 public sealed class FundamentalsService : IFundamentalsService
@@ -88,10 +96,22 @@ public sealed class FundamentalsService : IFundamentalsService
                     return FundamentalsResult.FromSnapshot(
                         trackedSnapshot,
                         FundamentalsState.Stale,
-                        "Не удалось обновить фундаментальные данные. Показан сохранённый снимок.");
+                        "Не удалось обновить фундаментальные данные. Показан сохранённый снимок.")
+                    with
+                    {
+                        FailureCategory = providerResult.FailureCategory == YahooFundamentalsFailureCategory.ProviderRateLimited
+                            ? FundamentalsRefreshFailureCategory.ProviderRateLimited
+                            : FundamentalsRefreshFailureCategory.ProviderFailure
+                    };
                 }
 
-                return FundamentalsResult.Unavailable("Не удалось загрузить фундаментальные данные.");
+                return FundamentalsResult.Unavailable("Не удалось загрузить фундаментальные данные.")
+                    with
+                    {
+                        FailureCategory = providerResult.FailureCategory == YahooFundamentalsFailureCategory.ProviderRateLimited
+                            ? FundamentalsRefreshFailureCategory.ProviderRateLimited
+                            : FundamentalsRefreshFailureCategory.ProviderFailure
+                    };
             }
 
             var persisted = await UpsertSnapshotAsync(stockId, providerResult.Snapshot, trackedSnapshot, ct);

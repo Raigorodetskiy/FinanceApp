@@ -78,6 +78,7 @@ FinanceApp now has a separate nightly background maintenance job that refreshes 
 - Frequent/intraday automatic refresh behavior for tracked stocks remains unchanged.
 - Nightly catalog job does **not** make `CatalogOnly` participate in the frequent tracked-only loop.
 - Default schedule: `22:30:00` in `Europe/Berlin` local time (DST-aware).
+- Fundamentals are intentionally **not** part of this loop.
 
 Configuration (`CatalogStockRefreshJob` in `appsettings`):
 
@@ -95,18 +96,56 @@ Configuration (`CatalogStockRefreshJob` in `appsettings`):
 | `RetryBaseDelay` | `00:00:02` | Exponential retry base delay (with jitter). |
 | `LeaseDuration` | `00:10:00` | Durable run lease duration for cross-instance safety. |
 | `LeaseRenewInterval` | `00:02:00` | Lease renewal interval while run is active. |
+| `SharedLeaseRetryDelay` | `00:00:30` | Delay before retrying when shared all-catalog maintenance lease is busy. |
 | `ProgressLogEveryStocks` | `25` | Periodic progress logging cadence. |
 
 Operational status endpoint (authenticated): `GET /api/catalog-refresh/status`
 
 Migration: `20260819024150_AddCatalogStockRefreshRunState`
 
+### Weekly catalog fundamentals refresh (Tracked + CatalogOnly)
+
+FinanceApp also runs a separate weekly maintenance job that refreshes **fundamental data only** for all durable catalog stocks (`Tracked` and `CatalogOnly`).
+
+- Default schedule: **Sunday `02:30:00`** in `Europe/Berlin` local time.
+- DST-safe behavior:
+  - if local `02:30` is invalid during spring-forward, the job advances to the first valid local instant (`03:00`);
+  - if local `02:30` is ambiguous during fall-back, the earlier UTC instant is used deterministically.
+- Startup catch-up is bounded and idempotent: when startup happens after this week’s scheduled time and the weekly run is missing, one catch-up run is created for the current business week.
+- Job is checkpointed and resumable by stock id cursor, uses deterministic paging, and skips stocks whose fundamentals are fresher than the configured threshold.
+- Quote/history nightly job and weekly fundamentals job coordinate through a shared durable DB lease (`CatalogMaintenanceLeases`) so heavy all-catalog jobs do not overlap.
+
+Configuration (`CatalogFundamentalsRefreshJob` in `appsettings`):
+
+| Option | Default | Description |
+|---|---|---|
+| `Enabled` | `true` | Enables/disables weekly fundamentals refresh. |
+| `Weekday` | `Sunday` | Local weekday for weekly run. |
+| `LocalScheduleTime` | `02:30:00` | Local weekly start time. |
+| `TimeZoneId` | `Europe/Berlin` | Timezone used for schedule and business week key. |
+| `RunCatchUpOnStartup` | `true` | Run one bounded catch-up when the current weekly run is missing. |
+| `FreshnessThreshold` | `7.00:00:00` | Skip fundamentals refreshed more recently than this threshold. |
+| `BatchSize` | `40` | Deterministic stock page size. |
+| `MaxConcurrency` | `1` | Bounded processing concurrency (default low/safe). |
+| `InterRequestDelay` | `00:00:00.250` | Delay between stock refresh attempts. |
+| `RetryLimit` | `2` | Retry attempts for per-stock transient failures (rate-limit is handled separately). |
+| `RetryBaseDelay` | `00:00:02` | Exponential retry base delay with jitter. |
+| `ProviderRateLimitCooldown` | `00:02:00` | Cooldown pause after provider rate-limit responses. |
+| `LeaseDuration` | `00:10:00` | Durable weekly run lease duration. |
+| `LeaseRenewInterval` | `00:02:00` | Lease renewal interval while running. |
+| `SharedLeaseRetryDelay` | `00:00:30` | Delay before retrying when shared all-catalog maintenance lease is busy. |
+| `ProgressLogEveryStocks` | `25` | Progress logging cadence. |
+
+Operational status endpoint (authenticated): `GET /api/catalog-fundamentals-refresh/status`
+
+Migration: `20260819034334_AddWeeklyCatalogFundamentalsRefreshRunState`
+
 Recommended production deployment order:
 1. Backup database
-2. Apply migration
+2. Apply migrations
 3. Deploy/restart backend
 
-Rollback note: rolling back application binaries may leave `CatalogStockRefreshRuns` table unused; keeping it is safe and non-destructive.
+Rollback note: rolling back application binaries may leave `CatalogStockRefreshRuns`, `CatalogFundamentalsRefreshRuns`, and `CatalogMaintenanceLeases` unused; keeping them is safe and non-destructive.
 
 ### Index constituents import sources (DJIA + NASDAQ-100 + S&P 500 + DAX)
 

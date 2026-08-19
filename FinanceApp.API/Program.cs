@@ -182,10 +182,17 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<IndexConstituentsB
 builder.Services.AddScoped<IStockQuoteFetchService, StockQuoteFetchService>();
 builder.Services.Configure<CatalogStockRefreshJobOptions>(
     builder.Configuration.GetSection("CatalogStockRefreshJob"));
+builder.Services.Configure<CatalogFundamentalsRefreshJobOptions>(
+    builder.Configuration.GetSection("CatalogFundamentalsRefreshJob"));
+builder.Services.AddSingleton<ICatalogMaintenanceLeaseService, CatalogMaintenanceLeaseService>();
 builder.Services.AddSingleton<CatalogStockRefreshHostedService>();
 builder.Services.AddSingleton<ICatalogStockRefreshStatusService>(sp =>
     sp.GetRequiredService<CatalogStockRefreshHostedService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CatalogStockRefreshHostedService>());
+builder.Services.AddSingleton<CatalogFundamentalsRefreshHostedService>();
+builder.Services.AddSingleton<ICatalogFundamentalsRefreshStatusService>(sp =>
+    sp.GetRequiredService<CatalogFundamentalsRefreshHostedService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CatalogFundamentalsRefreshHostedService>());
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();
