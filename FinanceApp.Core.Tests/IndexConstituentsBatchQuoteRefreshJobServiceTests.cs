@@ -234,11 +234,18 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
     }
 
     [Fact]
-    public async Task DelayedQuote_CountedButNotPersisted()
+    public async Task DelayedQuote_PersistsWhenTimestampIsNewer()
     {
         using var harness = await BatchQuoteHarness.CreateAsync(
-            FetchDelayed(1m, "Цена задержана"));
-        await harness.SeedAsync(1, 8021, "META", StockExchanges.Nyse, StockTrackingStatus.CatalogOnly);
+            FetchDelayed(1.23m, "Цена задержана", new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc)));
+        await harness.SeedAsync(
+            1,
+            8021,
+            "META",
+            StockExchanges.Nyse,
+            StockTrackingStatus.CatalogOnly,
+            existingPriceAt: new DateTime(2026, 8, 18, 12, 17, 0, DateTimeKind.Utc),
+            existingPrice: 50m);
         await harness.JobService.StartAsync(CancellationToken.None);
 
         var enqueued = harness.JobService.Enqueue(1);
@@ -246,12 +253,15 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
 
         Assert.Equal(IndexConstituentsBatchQuoteRefreshJobState.Succeeded, terminal.State);
         Assert.Equal(1, terminal.Delayed);
-        Assert.Equal(0, terminal.Succeeded);
+        Assert.Equal(1, terminal.Succeeded);
 
         await using var scope = harness.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var stock = await context.Stocks.FindAsync(8021);
-        Assert.Null(stock!.CurrentPrice == 0m ? null : (decimal?)stock.CurrentPrice);
+        Assert.Equal(1.23m, stock!.CurrentPrice);
+        Assert.Equal(new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc), stock.CurrentPriceAt);
+        Assert.True(stock.CurrentPriceIsDelayed);
+        Assert.Equal("Цена задержана", stock.CurrentPriceDelayWarning);
     }
 
     [Fact]
@@ -695,13 +705,14 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
     }
 
     private static Func<string, string, CancellationToken, Task<StockQuoteFetchResult>> FetchDelayed(
-        decimal priceEur, string warning)
+        decimal priceEur, string warning, DateTime? priceAt = null)
         => (_, _, _) =>
         {
             var quote = new StockQuoteResponse
             {
                 Symbol = "X",
                 CurrentPriceEur = priceEur,
+                PriceTimestampUtc = priceAt,
                 IsStale = true,
                 DelayWarning = warning,
                 MarketState = "REGULAR",
@@ -753,6 +764,7 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
             services.AddSingleton(TimeProvider.System);
             services.AddDbContext<AppDbContext>(b => b.UseInMemoryDatabase(dbName));
             services.AddScoped<IStockQuoteFetchService>(_ => new DelegatingQuoteService(fetchHandler));
+            services.AddScoped<StockQuoteSnapshotPersistenceService>();
 
             var provider = services.BuildServiceProvider();
             var jobService = new IndexConstituentsBatchQuoteRefreshJobService(

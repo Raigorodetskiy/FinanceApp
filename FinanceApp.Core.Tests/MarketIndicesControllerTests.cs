@@ -251,6 +251,46 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
+    public async Task GetConstituents_ExposesPersistedDelayedQuoteMetadata()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+
+        context.Stocks.Add(new Stock
+        {
+            Id = 950,
+            Ticker = "MTE.F",
+            Name = "Seagate",
+            CommonName = "Seagate",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 752m,
+            CurrentPriceChange = -52m,
+            CurrentPriceChangePercent = -6.47m,
+            CurrentPriceAt = new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = true,
+            CurrentPriceDelayWarning = "Котировка задержана",
+            UpdatedAt = now
+        });
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            StockId = 950,
+            MarketIndexId = 1,
+            EffectiveFrom = now.AddDays(-1),
+            ImportedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituents(1);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<IndexConstituentsResponse>(ok.Value);
+        var constituent = Assert.Single(response.Constituents, x => x.StockId == 950);
+        Assert.True(constituent.CurrentPriceIsDelayed);
+        Assert.Equal("Котировка задержана", constituent.CurrentPriceDelayWarning);
+    }
+
+    [Fact]
     public async Task GetHistory_NoProviderSymbol_Returns422()
     {
         await using var context = await CreateSqliteContextAsync();

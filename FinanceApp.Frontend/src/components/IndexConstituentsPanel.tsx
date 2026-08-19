@@ -381,10 +381,6 @@ export const persistFreshConstituentQuote = async ({
   persisted: UpdateStockQuoteResponse | null;
   warningMessage: string | null;
 }> => {
-  if (isQuoteDelayed(quote)) {
-    return { persisted: null, warningMessage: null };
-  }
-
   const patch = buildQuotePatch(quote);
   if (patch == null) {
     return {

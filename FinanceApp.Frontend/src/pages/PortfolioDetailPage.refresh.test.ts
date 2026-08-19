@@ -120,6 +120,8 @@ describe('buildQuotePatch – full patch shape', () => {
       currentPriceChange: expect.any(Number),
       currentPriceChangePercent: expect.any(Number),
       currentPriceAt: expect.any(String),
+      currentPriceIsDelayed: false,
+      currentPriceDelayWarning: null,
     });
   });
 
@@ -128,6 +130,15 @@ describe('buildQuotePatch – full patch shape', () => {
     expect(patch).not.toHaveProperty('ticker');
     expect(patch).not.toHaveProperty('name');
     expect(patch).not.toHaveProperty('exchange');
+  });
+
+  it('preserves delayed metadata for persisted delayed snapshots', () => {
+    const patch = buildQuotePatch(makeQuote({
+      isStale: true,
+      delayWarning: 'Котировка задержана',
+    }));
+    expect(patch?.currentPriceIsDelayed).toBe(true);
+    expect(patch?.currentPriceDelayWarning).toBe('Котировка задержана');
   });
 });
 

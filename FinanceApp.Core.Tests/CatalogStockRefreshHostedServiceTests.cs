@@ -238,6 +238,57 @@ public class CatalogStockRefreshHostedServiceTests
     }
 
     [Fact]
+    public async Task Run_NewerDelayedQuote_IsPersistedDuringNightlyRefresh()
+    {
+        var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 19, 20, 40, 0, TimeSpan.Zero));
+        var quote = new RecordingQuoteService
+        {
+            QuoteFactory = ticker => new StockQuoteResponse
+            {
+                Symbol = ticker,
+                CurrentPriceEur = 752m,
+                ChangeEur = -52m,
+                PercentChange = -6.47m,
+                MarketState = "REGULAR",
+                PriceSession = "REGULAR",
+                PriceTimestampUtc = new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc),
+                IsStale = true,
+                DelayWarning = "Котировка задержана",
+            }
+        };
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Frankfurt, StockTrackingStatus.Tracked);
+
+        await using (var scope = harness.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stock = await db.Stocks.SingleAsync(x => x.Id == 1);
+            stock.CurrentPrice = 804m;
+            stock.CurrentPriceChange = -44m;
+            stock.CurrentPriceChangePercent = -5.19m;
+            stock.CurrentPriceAt = new DateTime(2026, 8, 18, 12, 17, 0, DateTimeKind.Utc);
+            await db.SaveChangesAsync();
+        }
+
+        await harness.Service.TriggerRunAsync(DateOnly.FromDateTime(new DateTime(2026, 8, 19)), clock.GetUtcNow().UtcDateTime, "test");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = await verifyDb.Stocks.SingleAsync(x => x.Id == 1);
+        Assert.Equal(752m, persisted.CurrentPrice);
+        Assert.Equal(-52m, persisted.CurrentPriceChange);
+        Assert.Equal(-6.47m, persisted.CurrentPriceChangePercent);
+        Assert.Equal(new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc), persisted.CurrentPriceAt);
+        Assert.True(persisted.CurrentPriceIsDelayed);
+        Assert.Equal("Котировка задержана", persisted.CurrentPriceDelayWarning);
+    }
+
+    [Fact]
     public async Task GetStatus_ReturnsBoundedUsefulState()
     {
         var clock = new FixedTimeProvider(new DateTimeOffset(2026, 8, 19, 20, 40, 0, TimeSpan.Zero));
@@ -289,6 +340,7 @@ public class CatalogStockRefreshHostedServiceTests
             services.AddSingleton<TimeProvider>(clock);
             services.AddDbContext<AppDbContext>(b => b.UseInMemoryDatabase(dbName));
             services.AddScoped<IStockQuoteFetchService>(_ => quoteService);
+            services.AddScoped<StockQuoteSnapshotPersistenceService>();
             services.AddScoped<IStockHistoryService>(_ => historyService);
 
             var provider = services.BuildServiceProvider();
@@ -363,6 +415,7 @@ public class CatalogStockRefreshHostedServiceTests
     private sealed class RecordingQuoteService : IStockQuoteFetchService
     {
         public List<int> ProcessedIds { get; } = [];
+        public Func<string, StockQuoteResponse>? QuoteFactory { get; set; }
 
         public Task<StockQuoteFetchResult> FetchAsync(
             string ticker,
@@ -395,16 +448,17 @@ public class CatalogStockRefreshHostedServiceTests
                 ProcessedIds.Add(10);
             }
 
-            return Task.FromResult(StockQuoteFetchResult.Success(new StockQuoteResponse
-            {
-                Symbol = ticker,
-                CurrentPriceEur = 10m,
-                ChangeEur = 1m,
-                PercentChange = 1m,
-                MarketState = "REGULAR",
-                PriceSession = "REGULAR",
-                PriceTimestampUtc = new DateTime(2026, 8, 19, 20, 30, 0, DateTimeKind.Utc),
-            }));
+            return Task.FromResult(StockQuoteFetchResult.Success(
+                QuoteFactory?.Invoke(ticker) ?? new StockQuoteResponse
+                {
+                    Symbol = ticker,
+                    CurrentPriceEur = 10m,
+                    ChangeEur = 1m,
+                    PercentChange = 1m,
+                    MarketState = "REGULAR",
+                    PriceSession = "REGULAR",
+                    PriceTimestampUtc = new DateTime(2026, 8, 19, 20, 30, 0, DateTimeKind.Utc),
+                }));
         }
     }
 

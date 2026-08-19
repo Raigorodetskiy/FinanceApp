@@ -24,6 +24,8 @@ const makeConstituent = (overrides: Partial<IndexConstituentDto> = {}): IndexCon
   currentPriceChange: 0.5,
   currentPriceChangePercent: 0.5,
   currentPriceAt: '2026-08-17T09:00:00Z',
+  currentPriceIsDelayed: false,
+  currentPriceDelayWarning: null,
   importedAt: '2026-08-17T00:00:00Z',
   trackingStatus: 'CatalogOnly',
   ...overrides,
@@ -71,6 +73,8 @@ const makePersisted = (
   currentPriceChange: 1.2346,
   currentPriceChangePercent: 1.9877,
   currentPriceAt: '2026-08-17T10:11:12Z',
+  currentPriceIsDelayed: false,
+  currentPriceDelayWarning: null,
   applied: true,
   ...overrides,
 });
@@ -87,6 +91,8 @@ describe('IndexConstituentsPanel quote persistence helpers', () => {
           currentPriceChange: 1.2346,
           currentPriceChangePercent: 1.9877,
           currentPriceAt: '2026-08-17T10:11:12Z',
+          currentPriceIsDelayed: false,
+          currentPriceDelayWarning: null,
         });
         return persisted;
       },
@@ -110,9 +116,17 @@ describe('IndexConstituentsPanel quote persistence helpers', () => {
     expect(updated.trackingStatus).toBe('CatalogOnly');
   });
 
-  it('skips persistence for delayed quotes and keeps saved snapshot untouched', async () => {
+  it('persists delayed quotes so the delayed snapshot survives reloads', async () => {
     const constituent = makeConstituent();
-    const persistQuote = vi.fn();
+    const persistQuote = vi.fn(async (_stockId: number, patch: UpdateStockQuoteRequest) => {
+      expect(patch.currentPriceIsDelayed).toBe(true);
+      expect(patch.currentPriceDelayWarning).toBe('Котировка задержана');
+      return makePersisted({
+        currentPrice: 120,
+        currentPriceIsDelayed: true,
+        currentPriceDelayWarning: 'Котировка задержана',
+      });
+    });
 
     const result = await persistFreshConstituentQuote({
       constituent,
@@ -124,8 +138,14 @@ describe('IndexConstituentsPanel quote persistence helpers', () => {
       persistQuote,
     });
 
-    expect(persistQuote).not.toHaveBeenCalled();
-    expect(result).toEqual({ persisted: null, warningMessage: null });
+    expect(persistQuote).toHaveBeenCalledOnce();
+    expect(result.warningMessage).toBeNull();
+    expect(result.persisted?.currentPriceIsDelayed).toBe(true);
+
+    const updated = applyPersistedQuoteSnapshot(constituent, result.persisted!);
+    expect(updated.currentPrice).toBe(120);
+    expect(updated.currentPriceIsDelayed).toBe(true);
+    expect(updated.currentPriceDelayWarning).toBe('Котировка задержана');
   });
 
   it('does not persist when EUR conversion is unavailable and returns a Russian warning', async () => {
@@ -181,6 +201,8 @@ describe('IndexConstituentsPanel quote persistence helpers', () => {
         currentPriceChange: null,
         currentPriceChangePercent: null,
         currentPriceAt: null,
+        currentPriceIsDelayed: true,
+        currentPriceDelayWarning: 'Котировка задержана',
       }),
     );
 
@@ -188,5 +210,7 @@ describe('IndexConstituentsPanel quote persistence helpers', () => {
     expect(updated.currentPriceChange).toBeNull();
     expect(updated.currentPriceChangePercent).toBeNull();
     expect(updated.currentPriceAt).toBeNull();
+    expect(updated.currentPriceIsDelayed).toBe(true);
+    expect(updated.currentPriceDelayWarning).toBe('Котировка задержана');
   });
 });

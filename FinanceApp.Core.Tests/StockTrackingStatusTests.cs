@@ -942,7 +942,14 @@ public class StockTrackingStatusTests
 
     private static StocksController CreateController(AppDbContext context)
     {
-        return new StocksController(context, new NullStockHistoryService(), NullLogger<StocksController>.Instance)
+        return new StocksController(
+            context,
+            new NullStockHistoryService(),
+            new StockQuoteSnapshotPersistenceService(
+                context,
+                TimeProvider.System,
+                NullLogger<StockQuoteSnapshotPersistenceService>.Instance),
+            NullLogger<StocksController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

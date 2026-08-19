@@ -138,6 +138,8 @@ public sealed class UpdateStockQuoteRequest
     public decimal? CurrentPriceChange { get; init; }
     public decimal? CurrentPriceChangePercent { get; init; }
     public DateTime? CurrentPriceAt { get; init; }
+    public bool CurrentPriceIsDelayed { get; init; }
+    public string? CurrentPriceDelayWarning { get; init; }
 }
 
 public sealed class UpdateStockQuoteResponse
@@ -147,6 +149,8 @@ public sealed class UpdateStockQuoteResponse
     public decimal? CurrentPriceChange { get; init; }
     public decimal? CurrentPriceChangePercent { get; init; }
     public DateTime? CurrentPriceAt { get; init; }
+    public bool CurrentPriceIsDelayed { get; init; }
+    public string? CurrentPriceDelayWarning { get; init; }
     public bool Applied { get; init; }
 }
 

@@ -16,15 +16,18 @@ public class StocksController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IStockHistoryService _stockHistoryService;
+    private readonly StockQuoteSnapshotPersistenceService _stockQuoteSnapshotPersistenceService;
     private readonly ILogger<StocksController> _logger;
 
     public StocksController(
         AppDbContext context,
         IStockHistoryService stockHistoryService,
+        StockQuoteSnapshotPersistenceService stockQuoteSnapshotPersistenceService,
         ILogger<StocksController> logger)
     {
         _context = context;
         _stockHistoryService = stockHistoryService;
+        _stockQuoteSnapshotPersistenceService = stockQuoteSnapshotPersistenceService;
         _logger = logger;
     }
 
@@ -417,6 +420,8 @@ public class StocksController : ControllerBase
         existing.CurrentPriceChange = null;
         existing.CurrentPriceChangePercent = null;
         existing.CurrentPriceAt = null;
+        existing.CurrentPriceIsDelayed = false;
+        existing.CurrentPriceDelayWarning = null;
 
         try
         {
@@ -443,36 +448,50 @@ public class StocksController : ControllerBase
         CurrentPriceChange = stock.CurrentPriceChange,
         CurrentPriceChangePercent = stock.CurrentPriceChangePercent,
         CurrentPriceAt = stock.CurrentPriceAt,
+        CurrentPriceIsDelayed = stock.CurrentPriceIsDelayed,
+        CurrentPriceDelayWarning = stock.CurrentPriceDelayWarning,
         Applied = applied,
     };
 
     [HttpPatch("{id}/quote")]
     public async Task<ActionResult<UpdateStockQuoteResponse>> UpdateQuote(int id, UpdateStockQuoteRequest request)
     {
-        var existing = await _context.Stocks.FindAsync(id);
-        if (existing == null) return NotFound();
+        var persistenceResult = await _stockQuoteSnapshotPersistenceService.ApplyAsync(
+            id,
+            new PersistStockQuoteSnapshotRequest
+            {
+                CurrentPrice = request.CurrentPrice,
+                CurrentPriceChange = request.CurrentPriceChange,
+                CurrentPriceChangePercent = request.CurrentPriceChangePercent,
+                CurrentPriceAt = request.CurrentPriceAt,
+                CurrentPriceIsDelayed = request.CurrentPriceIsDelayed,
+                CurrentPriceDelayWarning = request.CurrentPriceDelayWarning,
+            });
 
-        if (request.CurrentPriceAt.HasValue &&
-            existing.CurrentPriceAt.HasValue &&
-            request.CurrentPriceAt.Value < existing.CurrentPriceAt.Value)
+        if (!persistenceResult.StockFound)
         {
-            _logger.LogInformation(
-                "Skipping stale stock quote update. StockId={StockId} ExistingPriceAt={ExistingPriceAt} IncomingPriceAt={IncomingPriceAt}",
-                id,
-                existing.CurrentPriceAt.Value,
-                request.CurrentPriceAt.Value);
-            return Ok(BuildQuoteResponse(id, existing, applied: false));
+            return NotFound();
         }
 
-        existing.CurrentPrice = request.CurrentPrice;
-        existing.CurrentPriceChange = request.CurrentPriceChange;
-        existing.CurrentPriceChangePercent = request.CurrentPriceChangePercent;
-        existing.CurrentPriceAt = request.CurrentPriceAt;
-        existing.UpdatedAt = DateTime.UtcNow;
+        if (!persistenceResult.Applied)
+        {
+            _logger.LogInformation(
+                "Skipping stock quote update. StockId={StockId} Reason={Reason}",
+                id,
+                persistenceResult.Reason);
+        }
 
-        await _context.SaveChangesAsync();
-
-        return Ok(BuildQuoteResponse(id, existing, applied: true));
+        return Ok(new UpdateStockQuoteResponse
+        {
+            StockId = id,
+            CurrentPrice = persistenceResult.CurrentPrice,
+            CurrentPriceChange = persistenceResult.CurrentPriceChange,
+            CurrentPriceChangePercent = persistenceResult.CurrentPriceChangePercent,
+            CurrentPriceAt = persistenceResult.CurrentPriceAt,
+            CurrentPriceIsDelayed = persistenceResult.CurrentPriceIsDelayed,
+            CurrentPriceDelayWarning = persistenceResult.CurrentPriceDelayWarning,
+            Applied = persistenceResult.Applied,
+        });
     }
 
     [HttpDelete("{id}")]

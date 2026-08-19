@@ -44,6 +44,8 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
         currentPriceChange: 25,
         currentPriceChangePercent: 1.82,
         currentPriceAt: '2026-08-19T09:00:00Z',
+        currentPriceIsDelayed: false,
+        currentPriceDelayWarning: null,
       },
       makeQuote({
         currentPriceEur: 1350,
@@ -72,6 +74,8 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
         currentPriceChange: 25,
         currentPriceChangePercent: 1.82,
         currentPriceAt: '2026-08-19T10:30:00Z',
+        currentPriceIsDelayed: false,
+        currentPriceDelayWarning: null,
       },
       makeQuote({
         currentPriceEur: 1350,
@@ -92,25 +96,30 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
     expect(selected.isDelayed).toBe(false);
   });
 
-  it('uses deterministic persisted precedence for equal timestamps', () => {
+  it('prefers a non-delayed snapshot for equal timestamps', () => {
     const selected = resolveNewestCurrentPriceSnapshot(
       {
         currentPrice: 1400,
         currentPriceChange: 25,
         currentPriceChangePercent: 1.82,
         currentPriceAt: '2026-08-19T10:00:00Z',
+        currentPriceIsDelayed: true,
+        currentPriceDelayWarning: 'Котировка задержана',
       },
       makeQuote({
         currentPriceEur: 1350,
         changeEur: -50,
         percentChange: -3.57,
         priceTimestampUtc: '2026-08-19T10:00:00Z',
+        isStale: false,
+        delayWarning: null,
       }),
       Date.parse('2026-08-19T12:00:00Z'),
     );
 
-    expect(selected.source).toBe('persisted');
-    expect(selected.currentPrice).toBe(1400);
+    expect(selected.source).toBe('live');
+    expect(selected.currentPrice).toBe(1350);
+    expect(selected.isDelayed).toBe(false);
   });
 
   it('falls back deterministically on missing/invalid timestamps', () => {
@@ -120,6 +129,8 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
         currentPriceChange: 25,
         currentPriceChangePercent: 1.82,
         currentPriceAt: 'not-a-date',
+        currentPriceIsDelayed: true,
+        currentPriceDelayWarning: 'Котировка задержана',
       },
       makeQuote({
         currentPriceEur: 1350,
@@ -129,6 +140,7 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
     );
     expect(withBrokenTimestamps.source).toBe('persisted');
     expect(withBrokenTimestamps.currentPrice).toBe(1400);
+    expect(withBrokenTimestamps.isDelayed).toBe(true);
 
     const liveOnly = resolveNewestCurrentPriceSnapshot(
       {
@@ -136,6 +148,8 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
         currentPriceChange: null,
         currentPriceChangePercent: null,
         currentPriceAt: 'bad',
+        currentPriceIsDelayed: false,
+        currentPriceDelayWarning: null,
       },
       makeQuote({ currentPriceEur: 1350, priceTimestampUtc: null }),
       Date.parse('2026-08-19T12:00:00Z'),
@@ -151,6 +165,8 @@ describe('resolveNewestCurrentPriceSnapshot', () => {
         currentPriceChange: 25,
         currentPriceChangePercent: 1.82,
         currentPriceAt: '2026-08-19T10:00:00Z',
+        currentPriceIsDelayed: false,
+        currentPriceDelayWarning: null,
       },
       makeQuote({
         rawCurrentPrice: 1500,

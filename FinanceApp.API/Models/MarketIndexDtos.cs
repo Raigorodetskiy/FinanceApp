@@ -74,6 +74,8 @@ public sealed class IndexConstituentDto
     public decimal? CurrentPriceChange { get; init; }
     public decimal? CurrentPriceChangePercent { get; init; }
     public DateTime? CurrentPriceAt { get; init; }
+    public bool CurrentPriceIsDelayed { get; init; }
+    public string? CurrentPriceDelayWarning { get; init; }
     /// <summary>"CatalogOnly" or "Tracked"</summary>
     public string TrackingStatus { get; init; } = string.Empty;
     public string? Source { get; init; }
