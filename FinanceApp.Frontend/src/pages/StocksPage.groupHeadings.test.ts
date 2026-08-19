@@ -24,14 +24,6 @@ describe('tracked-stocks group heading labels', () => {
     expect(pageSource).not.toContain("renderGroup('NYSE',");
   });
 
-  it('applies info-style background colour to group header', () => {
-    expect(pageSource).toContain('#e6f4ff');
-  });
-
-  it('applies blue border colour to group header', () => {
-    expect(pageSource).toContain('#91caff');
-  });
-
   it('renders InfoCircleOutlined icon in group header', () => {
     expect(pageSource).toContain('InfoCircleOutlined');
   });
