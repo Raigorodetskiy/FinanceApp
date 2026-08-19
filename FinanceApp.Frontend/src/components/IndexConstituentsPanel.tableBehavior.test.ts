@@ -109,8 +109,12 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
     expect(panelSource).toContain('getIndexConstituentHistoryRefreshJob');
   });
 
-  it('renders saved time from the persisted constituent snapshot instead of the transient live quote timestamp', () => {
-    expect(panelSource).toContain('const ts = record.currentPriceAt ?? null;');
+  it('uses shared newest-snapshot resolver for price/change/time fields', () => {
+    expect(panelSource).toContain('resolveNewestCurrentPriceSnapshot');
+    expect(panelSource).toContain('const selectedSnapshotByStockId = useMemo(() => {');
+    expect(panelSource).toContain('const getSelectedSnapshot = useCallback((record: IndexConstituentDto) => {');
+    expect(panelSource).toContain('const selectedSnapshot = getSelectedSnapshot(record);');
+    expect(panelSource).toContain('const ts = selectedSnapshot.currentPriceAt ?? null;');
   });
 
   it('keeps batch history button with confirmation and archived/empty loading guards', () => {

@@ -26,4 +26,11 @@ describe('StockPriceChart history strategy contracts', () => {
     expect(source).toContain('setHistoryRefreshing(true);');
     expect(source).toContain('setHistoryRefreshing(false);');
   });
+
+  it('selects a coherent newest snapshot for current price and chart overlay', () => {
+    expect(source).toContain('resolveNewestCurrentPriceSnapshot');
+    expect(source).toContain('const selectedSessionSnapshot = useMemo(');
+    expect(source).toContain('timestampUtc: selectedSessionSnapshot.currentPriceAt');
+    expect(source).toContain('isStale: selectedSessionSnapshot.isDelayed');
+  });
 });

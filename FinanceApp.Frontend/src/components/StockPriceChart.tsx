@@ -29,6 +29,7 @@ import {
 } from './stockPriceChartData';
 import type { HistoryChartPoint } from './stockPriceChartData';
 import { buildFinanzenNetUrl } from '../utils/finanzenNet';
+import { resolveNewestCurrentPriceSnapshot } from '../utils/currentPriceSnapshot';
 import {
   DAY_HIGH_LOW_VALUE_FONT_SIZE,
   CURRENT_PRICE_FONT_SIZE,
@@ -291,20 +292,30 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   }, [baseHistoryChartData]);
 
   const displayCurrencyCode = historyCurrencyCode ?? liveQuote?.normalizedQuoteCurrency ?? liveQuote?.currency ?? 'EUR';
+  const selectedSessionSnapshot = useMemo(
+    () => resolveNewestCurrentPriceSnapshot(
+      {
+        currentPrice: storedPriceEur,
+        currentPriceChange: storedPriceChangeEur,
+        currentPriceAt: storedPriceTimestampUtc,
+      },
+      liveQuote,
+    ),
+    [liveQuote, storedPriceChangeEur, storedPriceEur, storedPriceTimestampUtc],
+  );
 
   const currentPriceDisplayValue = useMemo(() => {
     if (historyHasEurConversion) {
-      if (liveQuote?.currentPriceEur != null) return liveQuote.currentPriceEur;
-      return storedPriceEur ?? latestHistoryClose;
+      return selectedSessionSnapshot.currentPrice ?? latestHistoryClose;
     }
 
     if (liveQuote?.normalizedCurrentPrice != null) return liveQuote.normalizedCurrentPrice;
     return latestHistoryClose;
-  }, [historyHasEurConversion, latestHistoryClose, liveQuote, storedPriceEur]);
+  }, [historyHasEurConversion, latestHistoryClose, liveQuote, selectedSessionSnapshot.currentPrice]);
 
   const currentPriceDisplayText = useMemo(() => {
-    if (liveQuote?.currentPriceEur != null) {
-      return formatCurrencyValue(liveQuote.currentPriceEur, 'EUR');
+    if (historyHasEurConversion && selectedSessionSnapshot.currentPrice != null) {
+      return formatCurrencyValue(selectedSessionSnapshot.currentPrice, 'EUR');
     }
 
     if (!historyHasEurConversion && liveQuote != null) {
@@ -316,10 +327,36 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     }
 
     return formatCurrencyValue(currentPriceDisplayValue, displayCurrencyCode);
-  }, [currentPriceDisplayValue, displayCurrencyCode, historyHasEurConversion, liveQuote]);
+  }, [
+    currentPriceDisplayValue,
+    displayCurrencyCode,
+    historyHasEurConversion,
+    liveQuote,
+    selectedSessionSnapshot.currentPrice,
+  ]);
 
   const currentQuoteOverlay = useMemo(() => {
-    if (liveQuote?.isStale !== true && liveQuote?.priceTimestampUtc && currentPriceDisplayValue != null) {
+    if (
+      historyHasEurConversion
+      && selectedSessionSnapshot.currentPriceAt
+      && selectedSessionSnapshot.currentPrice != null
+    ) {
+      return {
+        timestampUtc: selectedSessionSnapshot.currentPriceAt,
+        closeChart: selectedSessionSnapshot.currentPrice,
+        rawClose: selectedSessionSnapshot.source === 'live'
+          ? (selectedSessionSnapshot.liveQuote?.rawCurrentPrice ?? selectedSessionSnapshot.currentPrice)
+          : selectedSessionSnapshot.currentPrice,
+        isStale: selectedSessionSnapshot.isDelayed,
+      };
+    }
+
+    if (
+      !historyHasEurConversion
+      && liveQuote?.isStale !== true
+      && liveQuote?.priceTimestampUtc
+      && currentPriceDisplayValue != null
+    ) {
       return {
         timestampUtc: liveQuote.priceTimestampUtc,
         closeChart: currentPriceDisplayValue,
@@ -327,16 +364,8 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       };
     }
 
-    if (historyHasEurConversion && storedPriceTimestampUtc && storedPriceEur != null) {
-      return {
-        timestampUtc: storedPriceTimestampUtc,
-        closeChart: storedPriceEur,
-        rawClose: storedPriceEur,
-      };
-    }
-
     return null;
-  }, [currentPriceDisplayValue, historyHasEurConversion, liveQuote, storedPriceEur, storedPriceTimestampUtc]);
+  }, [currentPriceDisplayValue, historyHasEurConversion, liveQuote, selectedSessionSnapshot]);
 
   const historyChartData = useMemo(
     () => currentQuoteOverlay == null
@@ -368,18 +397,20 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       currentPriceDisplayValue,
       firstHistoryClose,
       historyHasEurConversion,
-      liveQuote,
-      storedPriceEur,
-      storedPriceChangeEur,
+      liveQuote: selectedSessionSnapshot.source === 'live' ? selectedSessionSnapshot.liveQuote : null,
+      storedPriceEur: selectedSessionSnapshot.source === 'persisted'
+        ? selectedSessionSnapshot.currentPrice
+        : null,
+      storedPriceChangeEur: selectedSessionSnapshot.source === 'persisted'
+        ? selectedSessionSnapshot.currentPriceChange
+        : null,
     }),
     [
       currentPriceDisplayValue,
       firstHistoryClose,
       historyHasEurConversion,
       historyRange,
-      liveQuote,
-      storedPriceChangeEur,
-      storedPriceEur,
+      selectedSessionSnapshot,
     ],
   );
   const periodChangeValue = periodSummary.changeValue;

@@ -61,6 +61,7 @@ import type {
 import { groupStocks } from '../utils/stockGrouping';
 import { isQuoteDelayed } from '../utils/quote';
 import { applyPersistedQuoteSnapshot, buildQuotePatch } from '../utils/quotePersistence';
+import { resolveNewestCurrentPriceSnapshot } from '../utils/currentPriceSnapshot';
 import { formatCurrency as fmtCur, formatPercent } from '../utils/currency';
 import { STOCK_HISTORY_RANGE_OPTIONS } from '../components/historyRangeOptions';
 import { formatPerformance } from '../components/performanceHelpers';
@@ -377,6 +378,18 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     () => groupStocks(filteredStocks, portfolioStockIds),
     [filteredStocks, portfolioStockIds],
   );
+  const selectedSnapshotByStockId = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof resolveNewestCurrentPriceSnapshot>>();
+    for (const stock of stocks) {
+      map.set(stock.id, resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null));
+    }
+    return map;
+  }, [livePrices, stocks]);
+  const getSelectedSnapshot = useCallback((stock: Stock) => {
+    const fromMap = selectedSnapshotByStockId.get(stock.id);
+    if (fromMap) return fromMap;
+    return resolveNewestCurrentPriceSnapshot(stock, livePrices[stock.id]?.quote ?? null);
+  }, [livePrices, selectedSnapshotByStockId]);
 
   useEffect(() => {
     if (!isCatalogMode) {
@@ -698,7 +711,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     ? (isCatalogPeriodSortMode(catalogSortMode) ? CATALOG_WITH_PERF_TOTAL_COLS : CATALOG_TOTAL_COLS)
     : STOCKS_TABLE_TOTAL_COLS;
 
-  const formatEur = (v: number) => fmtCur(v, '€');
+  const formatEur = (v: number | null | undefined) => fmtCur(v, '€');
   const formatPct = (v: number | null | undefined) => formatPercent(v);
   const columns = [
     {
@@ -849,9 +862,10 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
+        const selectedSnapshot = getSelectedSnapshot(stock);
         return (
           <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
-            {formatEur(stock.currentPrice)}
+            {formatEur(selectedSnapshot.currentPrice)}
           </span>
         );
       },
@@ -865,7 +879,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const change = stock.currentPriceChange ?? null;
+        const selectedSnapshot = getSelectedSnapshot(stock);
+        const change = selectedSnapshot.currentPriceChange ?? null;
         const color =
           change == null ? '#8c8c8c' : change > 0 ? COLOR_POSITIVE : change < 0 ? COLOR_NEGATIVE : '#8c8c8c';
         return (
@@ -883,7 +898,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const pct = stock.currentPriceChangePercent ?? null;
+        const selectedSnapshot = getSelectedSnapshot(stock);
+        const pct = selectedSnapshot.currentPriceChangePercent ?? null;
         const color =
           pct == null ? '#8c8c8c' : pct > 0 ? COLOR_POSITIVE : pct < 0 ? COLOR_NEGATIVE : '#8c8c8c';
         return (
@@ -944,11 +960,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       render: (_: unknown, record: TableRow) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         const stock = record as Stock;
-        const live = livePrices[stock.id];
-        // Prefer live quote provider timestamp when a quote was fetched this session.
-        // Fall back to the persisted currentPriceAt from the database.
-        // Do NOT fall back to updatedAt or request time.
-        const ts = live?.quote?.priceTimestampUtc ?? stock.currentPriceAt ?? null;
+        const selectedSnapshot = getSelectedSnapshot(stock);
+        const ts = selectedSnapshot.currentPriceAt;
         if (!ts) return <span style={{ whiteSpace: 'nowrap' }}>—</span>;
         return <span style={{ whiteSpace: 'nowrap' }}>{dayjs.utc(ts).local().format(PRICE_TIME_FORMAT)}</span>;
       },

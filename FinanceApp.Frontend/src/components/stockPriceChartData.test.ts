@@ -187,6 +187,36 @@ describe('buildHistoryChartData', () => {
     expect(data[0]?.closeChart).toBe(20);
   });
 
+  it('does not append an older current quote overlay point', () => {
+    const data = buildHistoryChartData([
+      {
+        timestamp: '2026-08-19T13:45:00.000Z',
+        interval: '1d',
+        openRaw: 20,
+        highRaw: 20,
+        lowRaw: 20,
+        closeRaw: 20,
+        openNormalized: 20,
+        highNormalized: 20,
+        lowNormalized: 20,
+        closeNormalized: 20,
+        openEur: 20,
+        highEur: 20,
+        lowEur: 20,
+        closeEur: 20,
+        volume: 300,
+      },
+    ], '1m', {
+      timestampUtc: '2026-08-19T10:00:00.000Z',
+      closeChart: 19,
+      rawClose: 19,
+      isStale: false,
+    });
+
+    expect(data).toHaveLength(1);
+    expect(data[0]?.timestamp).toBe('2026-08-19T13:45:00.000Z');
+  });
+
   it('keeps date-only labels on UTC trading dates for daily ranges at weekend boundaries', () => {
     expect(usesUtcDateLabels('1m')).toBe(true);
     expect(formatHistoryTimestamp('2026-08-21T22:30:00.000Z', '1m', 'DD.MM.YYYY')).toBe('21.08.2026');
