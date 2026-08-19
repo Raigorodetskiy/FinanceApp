@@ -922,6 +922,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
                 liveQuote={live?.quote ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
                 storedPriceChangeEur={stock?.currentPriceChange ?? null}
+                storedPriceTimestampUtc={stock?.currentPriceAt ?? null}
                 refreshToken={chartRefreshTokens[record._stockId] ?? 0}
                 historyLoader={loadConstituentHistory}
                 historyRefreshJobAdapter={constituentHistoryRefreshJobAdapter}

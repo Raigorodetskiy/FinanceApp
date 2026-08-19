@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -199,6 +199,18 @@ const renderPage = (mode: 'tracked' | 'catalog') => render(
   </MemoryRouter>,
 );
 
+const buildCatalogStock = (order: number): Stock => ({
+  id: order + 100,
+  ticker: `T${String(order).padStart(3, '0')}`,
+  name: `Stock ${String(order).padStart(3, '0')}`,
+  commonName: `Stock ${String(order).padStart(3, '0')}`,
+  exchange: 'NYSE',
+  currentPrice: 10,
+  updatedAt: '2026-08-18T00:00:00Z',
+  trackingStatus: 0,
+  marketIndexIds: [],
+});
+
 describe('StocksPage catalog mode', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -211,15 +223,27 @@ describe('StocksPage catalog mode', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
   });
 
   const getTickerToggleButton = (stockId: number, ticker: string) => {
-    const button = document.querySelector(
-      `tr[data-row-key="${stockId}"] button[aria-label="Открыть график цены: ${ticker}"]`,
-    );
+    const row = document.querySelector(`tr[data-row-key="${stockId}"]`);
+    expect(row).not.toBeNull();
+    const button = within(row as HTMLElement).queryByRole('button', { name: `Открыть график цены: ${ticker}` })
+      ?? within(row as HTMLElement).queryByRole('button', { name: `Закрыть график цены: ${ticker}` });
     expect(button).not.toBeNull();
     return button as HTMLButtonElement;
+  };
+
+  const getPaginationTrigger = (page: number) => {
+    const trigger = document.querySelector(`li.ant-pagination-item-${page} a, li.ant-pagination-item-${page} button`);
+    expect(trigger).not.toBeNull();
+    return trigger as HTMLElement;
+  };
+
+  const expectActivePage = (page: number) => {
+    expect(document.querySelector(`li.ant-pagination-item-${page}.ant-pagination-item-active`)).not.toBeNull();
   };
 
   // Test 1: All exchange fixtures render in one table, not separate sections
@@ -437,12 +461,108 @@ describe('StocksPage catalog mode', () => {
     renderPage('catalog');
 
     await waitFor(() => expect(screen.getAllByText('MCD').length).toBeGreaterThan(0));
-    await waitFor(() =>
-      expect(document.querySelector('tr[data-row-key="5"] button[aria-label="Открыть график цены: MCD"]')).not.toBeNull());
     await user.click(getTickerToggleButton(5, 'MCD'));
 
     await waitFor(() => expect(api.getStockHistory).toHaveBeenCalledWith(5, '1y'));
     expect(api.getIndexConstituentHistory).not.toHaveBeenCalled();
+  }, 15000);
+
+  it('expanding and collapsing the last row on a non-final page never changes the current page', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const manyStocks: Stock[] = Array.from({ length: 120 }, (_, i) => buildCatalogStock(i));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    vi.mocked(api.getStockHistory).mockResolvedValue({
+      data: {
+        ...buildHistoryResponse('1y'),
+        points: [
+          {
+            ...buildHistoryResponse('1y').points[0],
+            closeRaw: 99,
+            closeNormalized: 99,
+          },
+        ],
+      },
+    });
+
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+
+    await user.click(getPaginationTrigger(2));
+    await waitFor(() => expect(screen.getAllByText('T050').length).toBeGreaterThan(0));
+    await waitFor(() => expect(document.querySelector('tr[data-row-key="199"]')).not.toBeNull());
+    expect(screen.queryByText('T100')).not.toBeInTheDocument();
+    expectActivePage(2);
+
+    await user.click(getTickerToggleButton(199, 'T099'));
+    await waitFor(() => expect(api.getStockHistory).toHaveBeenCalledWith(199, '1y'));
+    expect(await screen.findByText('История цены: T099 — Stock 099')).toBeInTheDocument();
+    expect(screen.queryByText('T100')).not.toBeInTheDocument();
+    expectActivePage(2);
+
+    await user.click(getTickerToggleButton(199, 'T099'));
+    await waitFor(() =>
+      expect(within(document.querySelector('tr[data-row-key="199"]') as HTMLElement).getByRole('button', { name: 'Открыть график цены: T099' })).toBeInTheDocument());
+    expect(screen.getAllByText('T050').length).toBeGreaterThan(0);
+    expect(screen.queryByText('T100')).not.toBeInTheDocument();
+    expectActivePage(2);
+  }, 15000);
+
+  it('keeps expansion deterministic through async chart loading and explicit paginator interaction', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const manyStocks: Stock[] = Array.from({ length: 120 }, (_, i) => buildCatalogStock(i));
+    let resolveHistory: ((value: { data: ReturnType<typeof buildHistoryResponse> }) => void) | null = null;
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    vi.mocked(api.getStockHistory).mockImplementation(() => new Promise((resolve) => {
+      resolveHistory = resolve;
+    }));
+
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+
+    await user.click(getPaginationTrigger(2));
+    await waitFor(() => expect(screen.getAllByText('T050').length).toBeGreaterThan(0));
+    await waitFor(() => expect(document.querySelector('tr[data-row-key="199"]')).not.toBeNull());
+
+    await user.click(getTickerToggleButton(199, 'T099'));
+    expectActivePage(2);
+    expect(screen.queryByText('T100')).not.toBeInTheDocument();
+
+    resolveHistory?.({ data: buildHistoryResponse('1y') });
+    await waitFor(() => expect(screen.getByText('История цены: T099 — Stock 099')).toBeInTheDocument());
+    expectActivePage(2);
+
+    await user.click(getPaginationTrigger(3));
+    await waitFor(() => expect(screen.getAllByText('T100').length).toBeGreaterThan(0));
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+    expectActivePage(3);
+  }, 15000);
+
+  it('keeps or clamps the current page deterministically when filtering changes the catalog size', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const manyStocks: Stock[] = Array.from({ length: 120 }, (_, i) => buildCatalogStock(i));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+
+    await user.click(getPaginationTrigger(2));
+    await waitFor(() => expect(screen.getAllByText('T050').length).toBeGreaterThan(0));
+    expectActivePage(2);
+
+    const [catalogSearch] = screen.getAllByPlaceholderText('Поиск: тикер, название, биржа, индекс');
+    await user.type(catalogSearch, 'Stock 0');
+    await waitFor(() => expect(screen.getAllByText('T050').length).toBeGreaterThan(0));
+    expect(screen.queryByText('T100')).not.toBeInTheDocument();
+    expectActivePage(2);
+
+    await user.clear(catalogSearch);
+    await user.type(catalogSearch, 'Stock 099');
+    await waitFor(() => expect(document.querySelector('tr[data-row-key="199"]')).not.toBeNull());
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+    expectActivePage(1);
   }, 15000);
 });
 

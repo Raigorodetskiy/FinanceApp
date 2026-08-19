@@ -276,6 +276,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<number, LivePriceEntry>>({});
   const [expandedStockId, setExpandedStockId] = useState<number | null>(null);
+  const [catalogPage, setCatalogPage] = useState(1);
   const [fundamentalsStock, setFundamentalsStock] = useState<Stock | null>(null);
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [trackingLoadingByStock, setTrackingLoadingByStock] = useState<Record<number, boolean>>({});
@@ -325,6 +326,15 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     () => groupStocks(filteredStocks, portfolioStockIds),
     [filteredStocks, portfolioStockIds],
   );
+
+  useEffect(() => {
+    if (!isCatalogMode) {
+      return;
+    }
+
+    const maxPage = Math.max(1, Math.ceil(filteredStocks.length / CATALOG_PAGE_SIZE));
+    setCatalogPage((prev) => Math.min(prev, maxPage));
+  }, [filteredStocks.length, isCatalogMode]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -605,6 +615,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
                 liveQuote={live?.quote ?? null}
                 storedPriceEur={stock?.currentPrice ?? null}
                 storedPriceChangeEur={stock?.currentPriceChange ?? null}
+                storedPriceTimestampUtc={stock?.currentPriceAt ?? null}
               />
             ),
             props: { colSpan: TOTAL_COLS },
@@ -873,6 +884,25 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
     [],
   );
 
+  const renderExpandedChart = useCallback((stock: Stock) => {
+    const live = livePrices[stock.id];
+    return (
+      <StockPriceChart
+        panelId={`chart-panel-${stock.id}`}
+        stockId={stock.id}
+        ticker={stock.ticker}
+        name={stock.name}
+        wkn={stock.wkn ?? null}
+        isin={stock.isin ?? null}
+        finanzenNetSlug={stock.finanzenNetSlug ?? null}
+        liveQuote={live?.quote ?? null}
+        storedPriceEur={stock.currentPrice ?? null}
+        storedPriceChangeEur={stock.currentPriceChange ?? null}
+        storedPriceTimestampUtc={stock.currentPriceAt ?? null}
+      />
+    );
+  }, [livePrices]);
+
   const renderGroup = (groupTitle: string, groupStocks: Stock[], rows: TableRow[]) => {
     if (groupStocks.length === 0) return null;
     return (
@@ -897,17 +927,6 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
       </div>
     );
   };
-
-  const catalogRows = useMemo((): TableRow[] => {
-    const rows: TableRow[] = [];
-    for (const stock of filteredStocks) {
-      rows.push(stock);
-      if (expandedStockId === stock.id) {
-        rows.push({ _isChartRow: true, _stockId: stock.id });
-      }
-    }
-    return rows;
-  }, [filteredStocks, expandedStockId]);
 
   return (
     <>
@@ -967,15 +986,22 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           ) : (
             <Table
               className="stocks-table"
-              dataSource={catalogRows}
+              dataSource={filteredStocks}
               columns={columns}
               rowKey={getTableRowKey}
               tableLayout="fixed"
               scroll={{ x: STOCKS_TABLE_SCROLL_X + INDEX_MEMBERSHIP_COL_WIDTH }}
+              expandable={{
+                expandedRowKeys: expandedStockId != null ? [String(expandedStockId)] : [],
+                expandedRowRender: (stock) => renderExpandedChart(stock as Stock),
+                expandIcon: () => null,
+              }}
               pagination={{
+                current: catalogPage,
                 pageSize: CATALOG_PAGE_SIZE,
                 showSizeChanger: false,
                 showTotal: (total) => `Всего: ${total}`,
+                onChange: (page) => setCatalogPage(page),
               }}
               rowClassName={(record: TableRow) => {
                 if (isChartRow(record)) return 'chart-panel-row';

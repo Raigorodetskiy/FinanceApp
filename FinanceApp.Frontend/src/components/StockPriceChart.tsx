@@ -22,7 +22,11 @@ import {
 import {
   getStockPriceChartSummary,
 } from './stockPriceChartSummary';
-import { buildHistoryChartData } from './stockPriceChartData';
+import {
+  buildHistoryChartData,
+  formatHistoryTimestamp,
+  usesUtcDateLabels,
+} from './stockPriceChartData';
 import type { HistoryChartPoint } from './stockPriceChartData';
 import { buildFinanzenNetUrl } from '../utils/finanzenNet';
 import {
@@ -83,6 +87,7 @@ export interface StockPriceChartProps {
   liveQuote?: StockQuoteResponse | null;
   storedPriceEur?: number | null;
   storedPriceChangeEur?: number | null;
+  storedPriceTimestampUtc?: string | null;
   refreshToken?: number;
   historyLoader?: (params: {
     stockId: number;
@@ -137,6 +142,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   liveQuote,
   storedPriceEur,
   storedPriceChangeEur,
+  storedPriceTimestampUtc,
   refreshToken,
   historyLoader,
   historyRefreshJobAdapter,
@@ -268,39 +274,21 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     ? 'EUR'
     : historyResponse?.normalizedQuoteCurrency ?? historyResponse?.currency ?? null;
   const volumeMetrics = historyResponse?.volumeMetrics ?? null;
-
-  const historyChartData = useMemo(() => buildHistoryChartData(historyData, historyRange), [historyData, historyRange]);
-
-  const weeklyIndexToTimestampMs = useMemo(() => {
-    const map = new Map<number, number>();
-    if (historyRange === '1w') {
-      historyChartData.forEach((pt) => {
-        if (pt.chartIndex !== undefined) {
-          map.set(pt.chartIndex, pt.timestampMs);
-        }
-      });
-    }
-    return map;
-  }, [historyRange, historyChartData]);
-
-  const resolveWeeklyTs = useCallback(
-    (idx: number) => weeklyIndexToTimestampMs.get(Math.round(idx)),
-    [weeklyIndexToTimestampMs],
-  );
+  const baseHistoryChartData = useMemo(() => buildHistoryChartData(historyData, historyRange), [historyData, historyRange]);
 
   const firstHistoryClose = useMemo(() => {
-    for (const point of historyChartData) {
+    for (const point of baseHistoryChartData) {
       if (point.closeChart != null) return point.closeChart;
     }
     return null;
-  }, [historyChartData]);
+  }, [baseHistoryChartData]);
 
   const latestHistoryClose = useMemo(() => {
-    for (let i = historyChartData.length - 1; i >= 0; i -= 1) {
-      if (historyChartData[i].closeChart != null) return historyChartData[i].closeChart;
+    for (let i = baseHistoryChartData.length - 1; i >= 0; i -= 1) {
+      if (baseHistoryChartData[i].closeChart != null) return baseHistoryChartData[i].closeChart;
     }
     return null;
-  }, [historyChartData]);
+  }, [baseHistoryChartData]);
 
   const displayCurrencyCode = historyCurrencyCode ?? liveQuote?.normalizedQuoteCurrency ?? liveQuote?.currency ?? 'EUR';
 
@@ -329,6 +317,50 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
 
     return formatCurrencyValue(currentPriceDisplayValue, displayCurrencyCode);
   }, [currentPriceDisplayValue, displayCurrencyCode, historyHasEurConversion, liveQuote]);
+
+  const currentQuoteOverlay = useMemo(() => {
+    if (liveQuote?.isStale !== true && liveQuote?.priceTimestampUtc && currentPriceDisplayValue != null) {
+      return {
+        timestampUtc: liveQuote.priceTimestampUtc,
+        closeChart: currentPriceDisplayValue,
+        rawClose: liveQuote.rawCurrentPrice,
+      };
+    }
+
+    if (historyHasEurConversion && storedPriceTimestampUtc && storedPriceEur != null) {
+      return {
+        timestampUtc: storedPriceTimestampUtc,
+        closeChart: storedPriceEur,
+        rawClose: storedPriceEur,
+      };
+    }
+
+    return null;
+  }, [currentPriceDisplayValue, historyHasEurConversion, liveQuote, storedPriceEur, storedPriceTimestampUtc]);
+
+  const historyChartData = useMemo(
+    () => currentQuoteOverlay == null
+      ? baseHistoryChartData
+      : buildHistoryChartData(historyData, historyRange, currentQuoteOverlay),
+    [baseHistoryChartData, currentQuoteOverlay, historyData, historyRange],
+  );
+
+  const weeklyIndexToTimestampMs = useMemo(() => {
+    const map = new Map<number, number>();
+    if (historyRange === '1w') {
+      historyChartData.forEach((pt) => {
+        if (pt.chartIndex !== undefined) {
+          map.set(pt.chartIndex, pt.timestampMs);
+        }
+      });
+    }
+    return map;
+  }, [historyRange, historyChartData]);
+
+  const resolveWeeklyTs = useCallback(
+    (idx: number) => weeklyIndexToTimestampMs.get(Math.round(idx)),
+    [weeklyIndexToTimestampMs],
+  );
 
   const periodSummary = useMemo(
     () => getStockPriceChartSummary({
@@ -423,7 +455,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         tickFormatter={(idx: number) => {
           const ts = resolveWeeklyTs(idx);
           return ts != null
-            ? dayjs.utc(ts).local().format(xAxisFormatByRange['1w'])
+            ? formatHistoryTimestamp(ts, '1w', xAxisFormatByRange['1w'])
             : '';
         }}
       />
@@ -435,7 +467,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         scale="time"
         domain={['dataMin', 'dataMax']}
         tickFormatter={(value: number) =>
-          dayjs.utc(value).local().format(xAxisFormatByRange[historyRange])
+          formatHistoryTimestamp(value, historyRange, xAxisFormatByRange[historyRange])
         }
       />
     )
@@ -459,7 +491,11 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         : null;
     const timestampText =
       entry.timestampUtc != null
-        ? `${entry.isFromLiveQuote ? 'Время котировки' : 'Свеча'}: ${dayjs.utc(entry.timestampUtc).local().format('DD.MM.YYYY HH:mm')}`
+        ? `${entry.isFromLiveQuote ? 'Время котировки' : 'Свеча'}: ${formatHistoryTimestamp(
+          entry.timestampUtc,
+          historyRange,
+          usesUtcDateLabels(historyRange) ? 'DD.MM.YYYY' : 'DD.MM.YYYY HH:mm',
+        )}`
         : null;
 
     const tooltip = [timestampText, rawValueText].filter((value): value is string => value != null).join('\n');
@@ -717,9 +753,13 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                   labelFormatter={(value: number) => {
                     if (historyRange === '1w') {
                       const ts = resolveWeeklyTs(value);
-                      return ts != null ? dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm') : '';
+                      return ts != null ? formatHistoryTimestamp(ts, '1w', 'DD.MM.YYYY HH:mm') : '';
                     }
-                    return dayjs.utc(value).local().format('DD.MM.YYYY HH:mm');
+                    return formatHistoryTimestamp(
+                      value,
+                      historyRange,
+                      usesUtcDateLabels(historyRange) ? 'DD.MM.YYYY' : 'DD.MM.YYYY HH:mm',
+                    );
                   }}
                   formatter={(value: unknown, _name: string, item) => {
                     const payload = item.payload as HistoryChartPoint | undefined;
@@ -760,9 +800,13 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                   labelFormatter={(value: number) => {
                     if (historyRange === '1w') {
                       const ts = resolveWeeklyTs(value);
-                      return ts != null ? dayjs.utc(ts).local().format('DD.MM.YYYY HH:mm') : '';
+                      return ts != null ? formatHistoryTimestamp(ts, '1w', 'DD.MM.YYYY HH:mm') : '';
                     }
-                    return dayjs.utc(value).local().format('DD.MM.YYYY HH:mm');
+                    return formatHistoryTimestamp(
+                      value,
+                      historyRange,
+                      usesUtcDateLabels(historyRange) ? 'DD.MM.YYYY' : 'DD.MM.YYYY HH:mm',
+                    );
                   }}
                   formatter={(value: unknown) => {
                     if (value == null) {

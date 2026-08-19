@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildHistoryChartData } from './stockPriceChartData';
+import {
+  buildHistoryChartData,
+  formatHistoryTimestamp,
+  usesUtcDateLabels,
+} from './stockPriceChartData';
 
 describe('buildHistoryChartData', () => {
   it('keeps volume aligned with price points and inserts null gap markers for intraday gaps', () => {
@@ -90,5 +94,130 @@ describe('buildHistoryChartData', () => {
       '2026-08-08T12:00:00.000Z',
     ]);
     expect(data.map((point) => point.volumeChart)).toEqual([300, 400]);
+  });
+
+  it('appends a newer valid current quote for 1m/3m/6m ranges', () => {
+    const data = buildHistoryChartData([
+      {
+        timestamp: '2026-08-18T00:00:00.000Z',
+        interval: '1d',
+        openRaw: 20,
+        highRaw: 20,
+        lowRaw: 20,
+        closeRaw: 20,
+        openNormalized: 20,
+        highNormalized: 20,
+        lowNormalized: 20,
+        closeNormalized: 20,
+        openEur: 20,
+        highEur: 20,
+        lowEur: 20,
+        closeEur: 20,
+        volume: 300,
+      },
+    ], '1m', {
+      timestampUtc: '2026-08-19T13:45:00.000Z',
+      closeChart: 21,
+      rawClose: 21,
+    });
+
+    expect(data.map((point) => point.timestamp)).toEqual([
+      '2026-08-18T00:00:00.000Z',
+      '2026-08-19T13:45:00.000Z',
+    ]);
+    expect(data[1]).toMatchObject({ closeChart: 21, volumeChart: null });
+  });
+
+  it('does not append a duplicate daily trading date when the current quote is on the same effective date', () => {
+    const data = buildHistoryChartData([
+      {
+        timestamp: '2026-08-19T00:00:00.000Z',
+        interval: '1d',
+        openRaw: 20,
+        highRaw: 20,
+        lowRaw: 20,
+        closeRaw: 20,
+        openNormalized: 20,
+        highNormalized: 20,
+        lowNormalized: 20,
+        closeNormalized: 20,
+        openEur: 20,
+        highEur: 20,
+        lowEur: 20,
+        closeEur: 20,
+        volume: 300,
+      },
+    ], '3m', {
+      timestampUtc: '2026-08-19T22:30:00.000Z',
+      closeChart: 22,
+      rawClose: 22,
+    });
+
+    expect(data).toHaveLength(1);
+    expect(data[0]?.closeChart).toBe(20);
+  });
+
+  it('does not append stale current quotes', () => {
+    const data = buildHistoryChartData([
+      {
+        timestamp: '2026-08-18T00:00:00.000Z',
+        interval: '1d',
+        openRaw: 20,
+        highRaw: 20,
+        lowRaw: 20,
+        closeRaw: 20,
+        openNormalized: 20,
+        highNormalized: 20,
+        lowNormalized: 20,
+        closeNormalized: 20,
+        openEur: 20,
+        highEur: 20,
+        lowEur: 20,
+        closeEur: 20,
+        volume: 300,
+      },
+    ], '6m', {
+      timestampUtc: '2026-08-19T13:45:00.000Z',
+      closeChart: 21,
+      rawClose: 21,
+      isStale: true,
+    });
+
+    expect(data).toHaveLength(1);
+    expect(data[0]?.closeChart).toBe(20);
+  });
+
+  it('keeps date-only labels on UTC trading dates for daily ranges at weekend boundaries', () => {
+    expect(usesUtcDateLabels('1m')).toBe(true);
+    expect(formatHistoryTimestamp('2026-08-21T22:30:00.000Z', '1m', 'DD.MM.YYYY')).toBe('21.08.2026');
+  });
+
+  it('does not regress longer ranges by appending quote overlays outside 1m/3m/6m', () => {
+    const data = buildHistoryChartData([
+      {
+        timestamp: '2026-08-18T00:00:00.000Z',
+        interval: '1wk',
+        openRaw: 20,
+        highRaw: 20,
+        lowRaw: 20,
+        closeRaw: 20,
+        openNormalized: 20,
+        highNormalized: 20,
+        lowNormalized: 20,
+        closeNormalized: 20,
+        openEur: 20,
+        highEur: 20,
+        lowEur: 20,
+        closeEur: 20,
+        volume: 300,
+      },
+    ], '1y', {
+      timestampUtc: '2026-08-19T13:45:00.000Z',
+      closeChart: 21,
+      rawClose: 21,
+    });
+
+    expect(data).toHaveLength(1);
+    expect(data[0]?.timestamp).toBe('2026-08-18T00:00:00.000Z');
   });
 });
