@@ -704,3 +704,9 @@ export interface IndexConstituentPerformanceResponse {
   generatedAtUtc: string;
   items: IndexConstituentPerformanceItem[];
 }
+
+export interface StockCatalogPerformanceResponse {
+  range: StockHistoryRange;
+  generatedAtUtc: string;
+  items: IndexConstituentPerformanceItem[];
+}

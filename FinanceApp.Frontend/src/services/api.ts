@@ -48,6 +48,7 @@ import type {
   IndexConstituentHistoryRefreshBatchResponse,
   IndexConstituentsBatchQuoteRefreshJobResponse,
   IndexConstituentPerformanceResponse,
+  StockCatalogPerformanceResponse,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -114,6 +115,8 @@ export const deleteOrder = (portfolioId: number, orderId: number) =>
 export const getStocks = () => api.get<Stock[]>('/Stocks');
 export const getTrackedStocks = () => api.get<Stock[]>('/Stocks/tracked');
 export const getStockCatalog = () => api.get<Stock[]>('/Stocks/catalog');
+export const getStockCatalogPerformance = (range: StockHistoryRange, signal?: AbortSignal) =>
+  api.get<StockCatalogPerformanceResponse>('/Stocks/catalog/performance', { params: { range }, signal });
 export const getStock = (id: number) => api.get<Stock>(`/Stocks/${id}`);
 export const createStock = (data: CreateStockRequest) => api.post<Stock>('/Stocks', data);
 export const updateStock = (id: number, data: UpdateStockRequest) => api.put<Stock>(`/Stocks/${id}`, data);

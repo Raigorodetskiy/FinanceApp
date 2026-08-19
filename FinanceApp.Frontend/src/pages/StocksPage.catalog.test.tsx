@@ -6,7 +6,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AuthContext from '../contexts/AuthContext';
 import type { Stock } from '../types';
-import StocksPage from './StocksPage';
+import StocksPage, {
+  CATALOG_SORT_MODE_OPTIONS,
+  CATALOG_SORT_NAME_MODE,
+  isCatalogPeriodSortMode,
+} from './StocksPage';
+import { STOCK_HISTORY_RANGE_OPTIONS } from '../components/historyRangeOptions';
 
 const trackedStock: Stock = {
   id: 1,
@@ -176,6 +181,7 @@ vi.mock('../services/api', async () => {
     getStockHistory: vi.fn(),
     refreshStockHistory: vi.fn(),
     getIndexConstituentHistory: vi.fn(),
+    getStockCatalogPerformance: vi.fn(),
     trackStock: vi.fn().mockResolvedValue({ data: {} }),
     untrackStock: vi.fn().mockResolvedValue({ data: {} }),
   };
@@ -220,6 +226,7 @@ describe('StocksPage catalog mode', () => {
     vi.mocked(api.getStockHistory).mockImplementation(async (_id, range) => ({ data: buildHistoryResponse(range as '1y' | '6m') }));
     vi.mocked(api.refreshStockHistory).mockResolvedValue({ data: { stockId: mcdCatalogStock.id, deletedPoints: 2, importedPoints: 2 } });
     vi.mocked(api.getIndexConstituentHistory).mockResolvedValue({ data: buildHistoryResponse('1y') });
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue({ data: { range: '1y', generatedAtUtc: '2026-08-19T00:00:00Z', items: [] } });
   });
 
   afterEach(() => {
@@ -564,6 +571,428 @@ describe('StocksPage catalog mode', () => {
     expect(screen.queryByText('T050')).not.toBeInTheDocument();
     expectActivePage(1);
   }, 15000);
+});
+
+// ── Period-performance sorting tests ──────────────────────────────────────────
+
+describe('StocksPage catalog period-performance sorting', () => {
+  const buildPerfItem = (stockId: number, changePercent: number | null) => ({
+    stockId,
+    startPrice: 100,
+    endPrice: changePercent != null ? 100 * (1 + changePercent / 100) : null,
+    changePercent,
+    startAtUtc: '2026-01-01T00:00:00Z',
+    endAtUtc: '2026-08-01T00:00:00Z',
+    dataStatus: (changePercent != null ? 'Available' : 'InsufficientData') as 'Available' | 'InsufficientData',
+  });
+
+  const buildPerfResponse = (range: string, items: ReturnType<typeof buildPerfItem>[]) => ({
+    data: { range, generatedAtUtc: '2026-08-19T00:00:00Z', items },
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const api = await import('../services/api');
+    vi.mocked(api.getTrackedStocks).mockResolvedValue({ data: [] });
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: [trackedStock, untrackedStock, untrackedStockFRA, mcdCatalogStock] });
+    vi.mocked(api.getStockHistory).mockResolvedValue({ data: buildHistoryResponse('1y') });
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue({ data: { range: '1y', generatedAtUtc: '2026-08-19T00:00:00Z', items: [] } });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  // ─ Contract tests ────────────────────────────────────────────────────────────
+
+  it('period options match the shared STOCK_HISTORY_RANGE_OPTIONS used by indices', () => {
+    expect(CATALOG_SORT_MODE_OPTIONS[0]).toEqual({ label: 'По названию', value: CATALOG_SORT_NAME_MODE });
+    expect(CATALOG_SORT_MODE_OPTIONS.slice(1)).toEqual(STOCK_HISTORY_RANGE_OPTIONS);
+    expect(STOCK_HISTORY_RANGE_OPTIONS.map((o) => o.value)).toEqual([
+      'today', '24h', '1w', '1m', '3m', '6m', '1y', '3y', '5y',
+    ]);
+  });
+
+  it('isCatalogPeriodSortMode distinguishes name mode from period mode', () => {
+    expect(isCatalogPeriodSortMode(CATALOG_SORT_NAME_MODE)).toBe(false);
+    expect(isCatalogPeriodSortMode('1y')).toBe(true);
+    expect(isCatalogPeriodSortMode('6m')).toBe(true);
+    expect(isCatalogPeriodSortMode('today')).toBe(true);
+  });
+
+  // ─ Default mode ───────────────────────────────────────────────────────────────
+
+  it('defaults to name sort mode with no performance column visible', async () => {
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+    expect(screen.queryByText('Рост за период')).not.toBeInTheDocument();
+    const api = await import('../services/api');
+    expect(vi.mocked(api.getStockCatalogPerformance)).not.toHaveBeenCalled();
+  });
+
+  // ─ Descending sort ────────────────────────────────────────────────────────────
+
+  it('sorts stocks by period performance descending, nulls last', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    // id: 1 AAPL +5%, id: 2 BAS -3%, id: 3 BMW null, id: 4 MCD +15%
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y', [
+      buildPerfItem(1, 5),
+      buildPerfItem(2, -3),
+      buildPerfItem(3, null),
+      buildPerfItem(4, 15),
+    ]));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    const opt1y = await screen.findByText('1 год');
+    await user.click(opt1y);
+
+    await waitFor(() => expect(screen.getAllByText('Рост за период')[0]).toBeInTheDocument());
+    await waitFor(() => expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalledWith('1y', expect.any(AbortSignal)));
+
+    // Verify performance column shows formatted percentages
+    await waitFor(() => {
+      expect(screen.getByText('+15,00 %')).toBeInTheDocument();
+      expect(screen.getByText('+5,00 %')).toBeInTheDocument();
+      expect(screen.getByText('-3,00 %')).toBeInTheDocument();
+    });
+
+    // Verify order: MCD (+15%) → AAPL (+5%) → BAS (-3%) → BMW (null)
+    const rows = Array.from(document.querySelectorAll('tr[data-row-key]'));
+    const ids = rows.map((r) => r.getAttribute('data-row-key'));
+    expect(ids.indexOf('4')).toBeLessThan(ids.indexOf('1'));
+    expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('2'));
+    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('3'));
+  });
+
+  // ─ Ascending sort ─────────────────────────────────────────────────────────────
+
+  it('switches to ascending when direction toggle is clicked', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y', [
+      buildPerfItem(1, 5),
+      buildPerfItem(2, -3),
+      buildPerfItem(3, null),
+      buildPerfItem(4, 15),
+    ]));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+    await waitFor(() => expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalled());
+
+    // Toggle direction to ascending
+    const dirBtn = screen.getByRole('button', { name: 'Сортировать по возрастанию' });
+    await user.click(dirBtn);
+
+    // Ascending: BAS (-3%) → AAPL (+5%) → MCD (+15%), nulls still last
+    const rows = Array.from(document.querySelectorAll('tr[data-row-key]'));
+    const ids = rows.map((r) => r.getAttribute('data-row-key'));
+    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('1'));
+    expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('4'));
+    expect(ids.indexOf('3')).toBeGreaterThan(ids.indexOf('4'));
+  });
+
+  // ─ Tie-breaking ──────────────────────────────────────────────────────────────
+
+  it('breaks ties by stock id ascending for both available and null values', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y', [
+      buildPerfItem(1, 10),
+      buildPerfItem(2, 10),
+      buildPerfItem(3, null),
+      buildPerfItem(4, 10),
+    ]));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+    await waitFor(() => expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalled());
+
+    const rows = Array.from(document.querySelectorAll('tr[data-row-key]'));
+    const ids = rows.map((r) => r.getAttribute('data-row-key'));
+    // Tied values sort by stockId asc: 1, 2, 4 then null (3) last
+    expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('2'));
+    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('4'));
+    expect(ids.indexOf('3')).toBeGreaterThan(ids.indexOf('4'));
+  });
+
+  // ─ Stale response rejection ──────────────────────────────────────────────────
+
+  it('rejects stale performance responses when period is changed quickly', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+
+    let resolve1y: ((v: unknown) => void) | null = null;
+    const items6m = [buildPerfItem(1, 20), buildPerfItem(2, 10), buildPerfItem(3, 5), buildPerfItem(4, 1)];
+
+    vi.mocked(api.getStockCatalogPerformance).mockImplementation((range) => {
+      if (range === '1y') {
+        return new Promise((resolve) => { resolve1y = resolve; });
+      }
+      return Promise.resolve(buildPerfResponse('6m', items6m));
+    });
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+
+    // Select 1y (slow request - pending)
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+
+    // Quickly switch to 6m before 1y resolves
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('6 мес.'));
+    await waitFor(() => expect(screen.getByText('+20,00 %')).toBeInTheDocument());
+
+    // Now resolve the 1y request (stale response)
+    act(() => {
+      resolve1y?.(buildPerfResponse('1y', [
+        buildPerfItem(1, 1),
+        buildPerfItem(2, 2),
+        buildPerfItem(3, 3),
+        buildPerfItem(4, 4),
+      ]));
+    });
+    // The stale 1y data must not replace the current 6m data
+    await waitFor(() => expect(screen.getByText('+20,00 %')).toBeInTheDocument());
+    // +4,00 % would only appear if stale 1y data for stock 4 (+4%) replaced 6m data (+1%)
+    expect(screen.queryByText('+4,00 %')).not.toBeInTheDocument();
+  }, 15000);
+
+  // ─ No N+1 requests ────────────────────────────────────────────────────────────
+
+  it('issues a single batch request for 600+ stocks, not per-stock', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const bigCatalog = Array.from({ length: 600 }, (_, i) => ({
+      id: i + 1,
+      ticker: `T${i}`,
+      name: `Stock ${i}`,
+      commonName: `Stock ${i}`,
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0 as const,
+      marketIndexIds: [],
+    }));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: bigCatalog });
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y', []));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('T0').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+    await waitFor(() => expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalled());
+
+    // Only one batch request, not 600 individual requests
+    expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.getStockHistory)).not.toHaveBeenCalled();
+  }, 15000);
+
+  // ─ Pagination resets on period change, preserves on direction toggle ──────────
+
+  it('resets page to 1 when period changes but preserves page when toggling direction', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const manyStocks = Array.from({ length: 120 }, (_, i) => ({
+      id: i + 1,
+      ticker: `T${String(i).padStart(3, '0')}`,
+      name: `Stock ${String(i).padStart(3, '0')}`,
+      commonName: `Stock ${String(i).padStart(3, '0')}`,
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0 as const,
+      marketIndexIds: [],
+    }));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y', []));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+
+    // Navigate to page 2
+    const page2Trigger = document.querySelector('li.ant-pagination-item-2 a, li.ant-pagination-item-2 button');
+    expect(page2Trigger).not.toBeNull();
+    await user.click(page2Trigger as HTMLElement);
+    await waitFor(() => expect(screen.getAllByText('T050').length).toBeGreaterThan(0));
+    expect(document.querySelector('li.ant-pagination-item-2.ant-pagination-item-active')).not.toBeNull();
+
+    // Change period — should reset to page 1
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+    await waitFor(() => {
+      expect(document.querySelector('li.ant-pagination-item-1.ant-pagination-item-active')).not.toBeNull();
+    });
+
+    // Navigate back to page 2
+    await user.click(document.querySelector('li.ant-pagination-item-2 a, li.ant-pagination-item-2 button') as HTMLElement);
+    await waitFor(() => expect(screen.getAllByText('T050').length).toBeGreaterThan(0));
+    expect(document.querySelector('li.ant-pagination-item-2.ant-pagination-item-active')).not.toBeNull();
+
+    // Toggle direction — page stays at 2
+    const dirBtn = screen.getByRole('button', { name: 'Сортировать по возрастанию' });
+    await user.click(dirBtn);
+    expect(document.querySelector('li.ant-pagination-item-2.ant-pagination-item-active')).not.toBeNull();
+  }, 15000);
+
+  // ─ Expanding last row on non-final page preserves page and sort order ─────────
+
+  it('expanding/collapsing the last row on a non-final page does not change page or sort order', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const manyStocks = Array.from({ length: 101 }, (_, i) => ({
+      id: i + 1,
+      ticker: `T${String(i).padStart(3, '0')}`,
+      name: `Stock ${String(i).padStart(3, '0')}`,
+      commonName: `Stock ${String(i).padStart(3, '0')}`,
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0 as const,
+      marketIndexIds: [],
+    }));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    vi.mocked(api.getStockHistory).mockResolvedValue({ data: buildHistoryResponse('1y') });
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y',
+      manyStocks.map((s, i) => buildPerfItem(s.id, i * 0.1)),
+    ));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+
+    // Select period sort
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+    await waitFor(() => expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalled());
+
+    // Go to page 2
+    const page2Trigger = document.querySelector('li.ant-pagination-item-2 a, li.ant-pagination-item-2 button');
+    expect(page2Trigger).not.toBeNull();
+    await user.click(page2Trigger as HTMLElement);
+    await waitFor(() => {
+      expect(document.querySelector('li.ant-pagination-item-2.ant-pagination-item-active')).not.toBeNull();
+    });
+    await waitFor(() => expect(screen.getAllByText('T049').length).toBeGreaterThan(0));
+
+    // Expand the last row on page 2 (stock T049, id=50)
+    const row50 = document.querySelector('tr[data-row-key="50"]');
+    expect(row50).not.toBeNull();
+    const toggleBtn = within(row50 as HTMLElement).queryByRole('button', { name: /Открыть график цены: T049/ });
+    expect(toggleBtn).not.toBeNull();
+    await user.click(toggleBtn as HTMLElement);
+
+    expect(document.querySelector('li.ant-pagination-item-2.ant-pagination-item-active')).not.toBeNull();
+    expect(screen.queryByText('T100')).not.toBeInTheDocument();
+
+    // Collapse
+    const collapseBtn = within(row50 as HTMLElement).queryByRole('button', { name: /Закрыть график цены: T049/ });
+    expect(collapseBtn).not.toBeNull();
+    await user.click(collapseBtn as HTMLElement);
+
+    expect(document.querySelector('li.ant-pagination-item-2.ant-pagination-item-active')).not.toBeNull();
+  }, 15000);
+
+  // ─ Return to name sort clears performance state ───────────────────────────────
+
+  it('switching back to name sort clears performance column and does not call API again', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('1y', [
+      buildPerfItem(1, 5),
+    ]));
+
+    render(
+      <MemoryRouter>
+        <AuthContext.Provider value={{ token: 'token', user: { id: 1, username: 'test', email: 'x@x.com', roles: [] }, login: () => {}, logout: () => {}, refreshUser: async () => {}, isAuthenticated: true, loading: false }}>
+          <StocksPage mode="catalog" />
+        </AuthContext.Provider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('1 год'));
+    await waitFor(() => expect(screen.getAllByText('Рост за период')[0]).toBeInTheDocument());
+
+    const callCount = vi.mocked(api.getStockCatalogPerformance).mock.calls.length;
+
+    // Switch back to name sort
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('По названию'));
+
+    await waitFor(() => expect(screen.queryByText('Рост за период')).not.toBeInTheDocument());
+    expect(vi.mocked(api.getStockCatalogPerformance).mock.calls.length).toBe(callCount);
+  });
 });
 
 describe('StocksPage tracked mode regression', () => {

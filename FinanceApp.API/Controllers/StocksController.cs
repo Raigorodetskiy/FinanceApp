@@ -114,6 +114,126 @@ public class StocksController : ControllerBase
     public Task<ActionResult<IEnumerable<Stock>>> GetCatalog()
         => GetAll(includeCatalog: true);
 
+    [HttpGet("catalog/performance")]
+    public async Task<ActionResult<StockCatalogPerformanceResponse>> GetCatalogPerformance(
+        [FromQuery] string range = "1y",
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalizedRange is not ("5y" or "3y" or "1y" or "6m" or "3m" or "1m" or "1w" or "24h" or "today"))
+        {
+            return BadRequest("Недопустимый диапазон. Допустимые значения: 5y, 3y, 1y, 6m, 3m, 1m, 1w, 24h, today");
+        }
+
+        var stockIds = await _context.Stocks
+            .AsNoTracking()
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        if (stockIds.Count == 0)
+        {
+            return Ok(new StockCatalogPerformanceResponse
+            {
+                Range = normalizedRange,
+                GeneratedAtUtc = DateTime.UtcNow,
+                Items = Array.Empty<IndexConstituentPerformanceItemDto>(),
+            });
+        }
+
+        var interval = GetCatalogPerformanceInterval(normalizedRange);
+        var from = GetCatalogPerformanceFromTimestamp(normalizedRange);
+
+        // Single set-based query — no N+1 database round-trips.
+        var allPoints = await _context.StockHistoricalPrices
+            .AsNoTracking()
+            .Where(x => stockIds.Contains(x.StockId) && x.Interval == interval && x.Timestamp >= from)
+            .Select(x => new { x.StockId, x.Timestamp, x.Close, x.QuoteUnitMultiplier })
+            .OrderBy(x => x.StockId)
+            .ThenBy(x => x.Timestamp)
+            .ToListAsync(cancellationToken);
+
+        var pointsByStock = allPoints
+            .GroupBy(p => p.StockId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var items = stockIds.Select(stockId =>
+        {
+            if (!pointsByStock.TryGetValue(stockId, out var points) || points.Count < 2)
+            {
+                return new IndexConstituentPerformanceItemDto
+                {
+                    StockId = stockId,
+                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
+                };
+            }
+
+            var first = points[0];
+            var last = points[^1];
+
+            var startNorm = first.Close * first.QuoteUnitMultiplier;
+            var endNorm = last.Close * last.QuoteUnitMultiplier;
+
+            if (startNorm <= 0m)
+            {
+                return new IndexConstituentPerformanceItemDto
+                {
+                    StockId = stockId,
+                    StartPrice = startNorm,
+                    EndPrice = endNorm,
+                    StartAtUtc = first.Timestamp,
+                    EndAtUtc = last.Timestamp,
+                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
+                };
+            }
+
+            return new IndexConstituentPerformanceItemDto
+            {
+                StockId = stockId,
+                StartPrice = startNorm,
+                EndPrice = endNorm,
+                ChangePercent = (double)((endNorm - startNorm) / startNorm * 100m),
+                StartAtUtc = first.Timestamp,
+                EndAtUtc = last.Timestamp,
+                DataStatus = ConstituentPerformanceDataStatus.Available,
+            };
+        }).ToList();
+
+        return Ok(new StockCatalogPerformanceResponse
+        {
+            Range = normalizedRange,
+            GeneratedAtUtc = DateTime.UtcNow,
+            Items = items,
+        });
+    }
+
+    private static string GetCatalogPerformanceInterval(string normalizedRange) => normalizedRange switch
+    {
+        "5y" or "3y" => "1mo",
+        "1y" => "1wk",
+        "6m" or "3m" or "1m" => "1d",
+        "1w" => "1h",
+        "24h" or "today" => "10m",
+        _ => "1mo",
+    };
+
+    private static DateTime GetCatalogPerformanceFromTimestamp(string normalizedRange)
+    {
+        var now = DateTime.UtcNow;
+        return normalizedRange switch
+        {
+            "5y" => now.AddYears(-5),
+            "3y" => now.AddYears(-3),
+            "1y" => now.AddYears(-1),
+            "6m" => now.AddMonths(-6),
+            "3m" => now.AddMonths(-3),
+            "1m" => now.AddMonths(-1),
+            "1w" => now.AddDays(-7),
+            "24h" => now.AddHours(-24),
+            "today" => now.Date,
+            _ => now.AddYears(-5),
+        };
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult<Stock>> GetById(int id)
     {
