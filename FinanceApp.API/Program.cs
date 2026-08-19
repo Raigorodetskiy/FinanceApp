@@ -180,6 +180,12 @@ builder.Services.AddSingleton<IIndexConstituentsBatchQuoteRefreshJobService>(sp 
     sp.GetRequiredService<IndexConstituentsBatchQuoteRefreshJobService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<IndexConstituentsBatchQuoteRefreshJobService>());
 builder.Services.AddScoped<IStockQuoteFetchService, StockQuoteFetchService>();
+builder.Services.Configure<CatalogStockRefreshJobOptions>(
+    builder.Configuration.GetSection("CatalogStockRefreshJob"));
+builder.Services.AddSingleton<CatalogStockRefreshHostedService>();
+builder.Services.AddSingleton<ICatalogStockRefreshStatusService>(sp =>
+    sp.GetRequiredService<CatalogStockRefreshHostedService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CatalogStockRefreshHostedService>());
 builder.Services.AddHostedService<StockHistoryRefreshHostedService>();
 
 var app = builder.Build();
