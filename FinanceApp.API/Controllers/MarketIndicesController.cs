@@ -357,6 +357,8 @@ public class MarketIndicesController : ControllerBase
             CurrentPriceChange = x.Stock.CurrentPriceChange,
             CurrentPriceChangePercent = x.Stock.CurrentPriceChangePercent,
             CurrentPriceAt = x.Stock.CurrentPriceAt,
+            CurrentPriceIsDelayed = x.Stock.CurrentPriceIsDelayed,
+            CurrentPriceDelayWarning = x.Stock.CurrentPriceDelayWarning,
             TrackingStatus = x.Stock.TrackingStatus.ToString(),
             Source = x.Source,
             ProviderConstituentKey = x.ProviderConstituentKey,

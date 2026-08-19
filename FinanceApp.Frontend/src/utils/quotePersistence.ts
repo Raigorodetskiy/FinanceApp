@@ -3,6 +3,7 @@ import type {
   UpdateStockQuoteResponse,
   StockQuoteResponse,
 } from '../types';
+import { isQuoteDelayed } from './quote';
 
 export const buildQuotePatch = (
   quote: StockQuoteResponse,
@@ -16,6 +17,8 @@ export const buildQuotePatch = (
     currentPriceChangePercent:
       quote.percentChange != null ? Math.round(quote.percentChange * 10000) / 10000 : null,
     currentPriceAt: isFinite(tsRaw) ? quote.priceTimestampUtc : null,
+    currentPriceIsDelayed: isQuoteDelayed(quote),
+    currentPriceDelayWarning: quote.delayWarning?.trim() || null,
   };
 };
 
@@ -24,13 +27,20 @@ type QuoteSnapshotTarget = {
   currentPriceChange?: number | null;
   currentPriceChangePercent?: number | null;
   currentPriceAt?: string | null;
+  currentPriceIsDelayed?: boolean;
+  currentPriceDelayWarning?: string | null;
 };
 
 export const applyPersistedQuoteSnapshot = <T extends QuoteSnapshotTarget>(
   target: T,
   snapshot: Pick<
     UpdateStockQuoteResponse,
-    'currentPrice' | 'currentPriceChange' | 'currentPriceChangePercent' | 'currentPriceAt'
+    | 'currentPrice'
+    | 'currentPriceChange'
+    | 'currentPriceChangePercent'
+    | 'currentPriceAt'
+    | 'currentPriceIsDelayed'
+    | 'currentPriceDelayWarning'
   >,
 ): T => ({
   ...target,
@@ -38,4 +48,6 @@ export const applyPersistedQuoteSnapshot = <T extends QuoteSnapshotTarget>(
   currentPriceChange: snapshot.currentPriceChange,
   currentPriceChangePercent: snapshot.currentPriceChangePercent,
   currentPriceAt: snapshot.currentPriceAt,
+  currentPriceIsDelayed: snapshot.currentPriceIsDelayed,
+  currentPriceDelayWarning: snapshot.currentPriceDelayWarning,
 });

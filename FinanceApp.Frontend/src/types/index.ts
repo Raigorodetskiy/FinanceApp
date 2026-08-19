@@ -95,6 +95,10 @@ export interface Stock {
   currentPriceChangePercent?: number | null;
   /** UTC timestamp of the price as reported by the quote provider. Null when unavailable. */
   currentPriceAt?: string | null;
+  /** True when the persisted quote snapshot is delayed. */
+  currentPriceIsDelayed?: boolean;
+  /** Persisted warning/tooltip for delayed quote snapshots. */
+  currentPriceDelayWarning?: string | null;
   industryId?: number | null;
   industry?: IndustryRef | null;
   sector?: SectorRef | null;
@@ -517,6 +521,8 @@ export interface UpdateStockQuoteRequest {
   currentPriceChange: number | null;
   currentPriceChangePercent: number | null;
   currentPriceAt: string | null;
+  currentPriceIsDelayed: boolean;
+  currentPriceDelayWarning: string | null;
 }
 
 export interface CreateOrderRequest {
@@ -543,6 +549,8 @@ export interface UpdateStockQuoteResponse {
   currentPriceChange: number | null;
   currentPriceChangePercent: number | null;
   currentPriceAt: string | null;
+  currentPriceIsDelayed: boolean;
+  currentPriceDelayWarning: string | null;
   applied: boolean;
 }
 
@@ -562,6 +570,8 @@ export interface IndexConstituentDto {
   currentPriceChange?: number | null;
   currentPriceChangePercent?: number | null;
   currentPriceAt?: string | null;
+  currentPriceIsDelayed?: boolean;
+  currentPriceDelayWarning?: string | null;
   /** "CatalogOnly" or "Tracked" */
   trackingStatus: string;
   source?: string | null;

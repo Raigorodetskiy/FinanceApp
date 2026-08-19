@@ -207,6 +207,8 @@ public class StocksControllerTests
             CurrentPriceChange = 5m,
             CurrentPriceChangePercent = 1.2m,
             CurrentPriceAt = providerTs,
+            CurrentPriceIsDelayed = true,
+            CurrentPriceDelayWarning = "Котировка задержана",
         };
         context.Stocks.Add(existing);
         await context.SaveChangesAsync();
@@ -229,6 +231,8 @@ public class StocksControllerTests
         Assert.Null(persisted.CurrentPriceChange);
         Assert.Null(persisted.CurrentPriceChangePercent);
         Assert.Null(persisted.CurrentPriceAt);
+        Assert.False(persisted.CurrentPriceIsDelayed);
+        Assert.Null(persisted.CurrentPriceDelayWarning);
     }
 
     [Fact]
@@ -731,9 +735,6 @@ public class StocksControllerTests
             CommonName = "Microsoft",
             Exchange = StockExchanges.Nyse,
             CurrentPrice = 400m,
-            CurrentPriceChange = 5m,
-            CurrentPriceChangePercent = 1.25m,
-            CurrentPriceAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
             UpdatedAt = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc),
         };
         context.Stocks.Add(existing);
@@ -762,6 +763,139 @@ public class StocksControllerTests
         Assert.Null(persisted.CurrentPriceChange);
         Assert.Null(persisted.CurrentPriceChangePercent);
         Assert.Null(persisted.CurrentPriceAt);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_NewerDelayedSnapshot_PersistsDelayedMetadata()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 106,
+            Ticker = "MTE.F",
+            Name = "Seagate",
+            CommonName = "Seagate",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 804m,
+            CurrentPriceChange = -44m,
+            CurrentPriceChangePercent = -5.19m,
+            CurrentPriceAt = new DateTime(2026, 8, 18, 12, 17, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 18, 12, 17, 5, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 752m,
+            CurrentPriceChange = -52m,
+            CurrentPriceChangePercent = -6.47m,
+            CurrentPriceAt = new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = true,
+            CurrentPriceDelayWarning = "Котировка задержана на 15 минут   ",
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.True(response.CurrentPriceIsDelayed);
+        Assert.Equal("Котировка задержана на 15 минут", response.CurrentPriceDelayWarning);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(752m, persisted.CurrentPrice);
+        Assert.Equal(-52m, persisted.CurrentPriceChange);
+        Assert.Equal(-6.47m, persisted.CurrentPriceChangePercent);
+        Assert.Equal(new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc), persisted.CurrentPriceAt);
+        Assert.True(persisted.CurrentPriceIsDelayed);
+        Assert.Equal("Котировка задержана на 15 минут", persisted.CurrentPriceDelayWarning);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_EqualTimestamp_PrefersNonDelayedSnapshot()
+    {
+        await using var context = CreateContext();
+        var timestamp = new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc);
+        context.Stocks.Add(new Stock
+        {
+            Id = 107,
+            Ticker = "MTE.F",
+            Name = "Seagate",
+            CommonName = "Seagate",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 752m,
+            CurrentPriceChange = -52m,
+            CurrentPriceChangePercent = -6.47m,
+            CurrentPriceAt = timestamp,
+            CurrentPriceIsDelayed = true,
+            CurrentPriceDelayWarning = "Котировка задержана",
+            UpdatedAt = timestamp,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateQuote(107, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 752m,
+            CurrentPriceChange = -52m,
+            CurrentPriceChangePercent = -6.47m,
+            CurrentPriceAt = timestamp,
+            CurrentPriceIsDelayed = false,
+            CurrentPriceDelayWarning = null,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.False(response.CurrentPriceIsDelayed);
+        Assert.Null(response.CurrentPriceDelayWarning);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.False(persisted.CurrentPriceIsDelayed);
+        Assert.Null(persisted.CurrentPriceDelayWarning);
+    }
+
+    [Fact]
+    public async Task UpdateQuote_InvalidTimestamp_DoesNotOverwriteValidStoredSnapshot()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 108,
+            Ticker = "SAP",
+            Name = "SAP SE",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 250m,
+            CurrentPriceChange = 2m,
+            CurrentPriceChangePercent = 0.8m,
+            CurrentPriceAt = new DateTime(2026, 8, 19, 8, 0, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 19, 8, 0, 5, DateTimeKind.Utc),
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateQuote(108, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 200m,
+            CurrentPriceChange = -10m,
+            CurrentPriceChangePercent = -4m,
+            CurrentPriceAt = null,
+            CurrentPriceIsDelayed = true,
+            CurrentPriceDelayWarning = "Котировка задержана",
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.False(response.Applied);
+        Assert.Equal(250m, response.CurrentPrice);
+        Assert.False(response.CurrentPriceIsDelayed);
+
+        var persisted = await context.Stocks.SingleAsync();
+        Assert.Equal(250m, persisted.CurrentPrice);
+        Assert.Equal(new DateTime(2026, 8, 19, 8, 0, 0, DateTimeKind.Utc), persisted.CurrentPriceAt);
+        Assert.False(persisted.CurrentPriceIsDelayed);
+        Assert.Null(persisted.CurrentPriceDelayWarning);
     }
 
     [Fact]
@@ -1451,7 +1585,14 @@ public class StocksControllerTests
 
     private static StocksController CreateController(AppDbContext context, IStockHistoryService? stockHistoryService = null)
     {
-        return new StocksController(context, stockHistoryService ?? new StubStockHistoryService(), NullLogger<StocksController>.Instance)
+        return new StocksController(
+            context,
+            stockHistoryService ?? new StubStockHistoryService(),
+            new StockQuoteSnapshotPersistenceService(
+                context,
+                TimeProvider.System,
+                NullLogger<StockQuoteSnapshotPersistenceService>.Instance),
+            NullLogger<StocksController>.Instance)
         {
             ControllerContext = new ControllerContext
             {

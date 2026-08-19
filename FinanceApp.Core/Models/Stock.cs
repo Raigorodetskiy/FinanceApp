@@ -44,6 +44,9 @@ public class Stock
     /// which records when the row was last written to the database.
     /// </summary>
     public DateTime? CurrentPriceAt { get; set; }
+    public bool CurrentPriceIsDelayed { get; set; }
+    [MaxLength(300)]
+    public string? CurrentPriceDelayWarning { get; set; }
     public int? IndustryId { get; set; }
     public Industry? Industry { get; set; }
 

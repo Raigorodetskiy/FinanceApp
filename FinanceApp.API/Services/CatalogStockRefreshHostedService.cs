@@ -569,37 +569,44 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         }
 
         var quote = fetchResult.Quote;
-        if (quote.IsStale || !string.IsNullOrWhiteSpace(quote.DelayWarning) || quote.CurrentPriceEur is null)
+        if (quote.CurrentPriceEur is null)
         {
-            return StepOutcome.Skipped("Quote is stale or missing EUR conversion.");
+            return StepOutcome.Skipped("Quote is missing EUR conversion.");
         }
 
         var incomingPrice = Math.Round(quote.CurrentPriceEur.Value, 2);
         var incomingChange = quote.ChangeEur.HasValue ? Math.Round(quote.ChangeEur.Value, 4) : (decimal?)null;
         var incomingPercent = Math.Round(quote.PercentChange, 4);
-        var incomingAt = quote.PriceTimestampUtc;
 
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var quoteSnapshotPersistenceService = scope.ServiceProvider.GetRequiredService<StockQuoteSnapshotPersistenceService>();
         var existing = await db.Stocks.FindAsync([stock.StockId], cancellationToken);
         if (existing is null)
         {
             return StepOutcome.Skipped("Stock record not found.");
         }
 
-        if (incomingAt.HasValue &&
-            existing.CurrentPriceAt.HasValue &&
-            incomingAt.Value < existing.CurrentPriceAt.Value)
+        var persistenceResult = await quoteSnapshotPersistenceService.ApplyAsync(
+            stock.StockId,
+            new PersistStockQuoteSnapshotRequest
+            {
+                CurrentPrice = incomingPrice,
+                CurrentPriceChange = incomingChange,
+                CurrentPriceChangePercent = incomingPercent,
+                CurrentPriceAt = quote.PriceTimestampUtc,
+                CurrentPriceIsDelayed = quote.IsStale || !string.IsNullOrWhiteSpace(quote.DelayWarning),
+                CurrentPriceDelayWarning = quote.DelayWarning,
+            },
+            cancellationToken);
+
+        if (!persistenceResult.StockFound)
         {
-            return StepOutcome.Skipped("Quote timestamp is stale.");
+            return StepOutcome.Skipped("Stock record not found.");
         }
 
-        existing.CurrentPrice = incomingPrice;
-        existing.CurrentPriceChange = incomingChange;
-        existing.CurrentPriceChangePercent = incomingPercent;
-        existing.CurrentPriceAt = incomingAt;
-        existing.UpdatedAt = _timeProvider.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(cancellationToken);
-        return StepOutcome.Succeeded();
+        return persistenceResult.Applied
+            ? StepOutcome.Succeeded()
+            : StepOutcome.Skipped(persistenceResult.Reason);
     }
 
     private async Task<StepOutcome> RefreshHistoryAsync(RefreshStockCandidate stock, CancellationToken cancellationToken)

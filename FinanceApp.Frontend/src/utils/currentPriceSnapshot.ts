@@ -6,6 +6,8 @@ type PersistedQuoteSnapshot = {
   currentPriceChange?: number | null;
   currentPriceChangePercent?: number | null;
   currentPriceAt?: string | null;
+  currentPriceIsDelayed?: boolean;
+  currentPriceDelayWarning?: string | null;
 };
 
 export type CurrentPriceSnapshotSource = 'persisted' | 'live' | 'none';
@@ -66,8 +68,9 @@ const withCandidateTimestamp = (
  * Rules:
  * 1. Compare only valid timestamps (parseable UTC and not in the future).
  * 2. Newer valid timestamp wins.
- * 3. Equal timestamps: prefer persisted snapshot (safe deterministic precedence).
- * 4. If no valid timestamps exist, fall back deterministically to persisted first,
+ * 3. Equal timestamps: prefer a non-delayed snapshot over a delayed one.
+ * 4. Otherwise, prefer persisted snapshot (safe deterministic precedence).
+ * 5. If no valid timestamps exist, fall back deterministically to persisted first,
  *    then live, then empty snapshot.
  */
 export const resolveNewestCurrentPriceSnapshot = (
@@ -83,8 +86,8 @@ export const resolveNewestCurrentPriceSnapshot = (
       ? persisted.currentPriceChangePercent
       : null,
     currentPriceAt: persisted.currentPriceAt ?? null,
-    isDelayed: false,
-    delayWarning: null,
+    isDelayed: persisted.currentPriceIsDelayed === true || !!persisted.currentPriceDelayWarning,
+    delayWarning: persisted.currentPriceDelayWarning?.trim() || null,
     liveQuote: null,
   };
   const liveCurrentPriceEur = liveQuote?.currentPriceEur;
@@ -116,6 +119,9 @@ export const resolveNewestCurrentPriceSnapshot = (
     const selected = candidates.reduce((best, current) => {
       if (current.timestampMs > best.timestampMs) return current;
       if (current.timestampMs < best.timestampMs) return best;
+      if (current.snapshot.isDelayed !== best.snapshot.isDelayed) {
+        return current.snapshot.isDelayed ? best : current;
+      }
       if (best.source === 'persisted') return best;
       if (current.source === 'persisted') return current;
       return best;

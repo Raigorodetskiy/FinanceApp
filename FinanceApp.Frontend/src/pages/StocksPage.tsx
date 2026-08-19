@@ -28,7 +28,6 @@ import utc from 'dayjs/plugin/utc';
 import {
   getStockCatalog,
   getStockCatalogPerformance,
-  getStock,
   createStock,
   updateStockMetadata,
   updateStockQuote,
@@ -526,11 +525,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
               [stock.id]: { quote, loading: false },
             }));
 
-            if (isQuoteDelayed(quote)) {
-              return { delayed: true };
-            }
             await persistConvertedPrice(stock, quote);
-            return { delayed: false };
+            return { delayed: isQuoteDelayed(quote) };
           } catch (error) {
             setLivePrices((prev) => ({
               ...prev,
@@ -673,33 +669,23 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
         [stock.id]: { quote, loading: false },
       }));
 
+      const persisted = await persistConvertedPrice(stock, quote);
+
+      if (persisted != null) {
+        const applyPatch = (candidate: Stock) =>
+          candidate.id === stock.id
+            ? applyPersistedQuoteSnapshot(candidate, persisted)
+            : candidate;
+        setStocks((prev) => prev.map(applyPatch));
+        stocksRef.current = stocksRef.current.map(applyPatch);
+      }
+
       if (isQuoteDelayed(quote)) {
         const tsDisplay = quote.priceTimestampUtc
           ? dayjs.utc(quote.priceTimestampUtc).local().format(PRICE_TIME_FORMAT)
           : '—';
         message.warning(`Задержанная котировка для ${stock.ticker}: ${tsDisplay}`);
-        // Reconcile from the authoritative backend state rather than applying a stale patch.
-        try {
-          const freshRes = await getStock(stock.id);
-          const freshStock = freshRes.data;
-          setStocks((prev) => prev.map((s) => s.id === stock.id ? freshStock : s));
-          stocksRef.current = stocksRef.current.map((s) => s.id === stock.id ? freshStock : s);
-        } catch {
-          // Reconciliation best-effort; live badge still shows Задержано
-        }
         return;
-      }
-
-      const persisted = await persistConvertedPrice(stock, quote);
-
-      if (persisted != null) {
-        setStocks((prev) =>
-          prev.map((s) =>
-            s.id === stock.id
-              ? applyPersistedQuoteSnapshot(s, persisted)
-              : s
-          )
-        );
       }
     } catch {
       setLivePrices((prev) => ({ ...prev, [stock.id]: preserveEntry(prev[stock.id], false) }));

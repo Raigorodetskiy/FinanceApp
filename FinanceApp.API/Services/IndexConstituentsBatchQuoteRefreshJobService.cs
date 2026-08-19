@@ -405,12 +405,7 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         }
 
         var quote = fetchResult.Quote;
-
-        if (quote.IsStale || !string.IsNullOrEmpty(quote.DelayWarning))
-        {
-            counters.Delayed++;
-            return;
-        }
+        var isDelayed = quote.IsStale || !string.IsNullOrWhiteSpace(quote.DelayWarning);
 
         if (quote.CurrentPriceEur is null)
         {
@@ -427,31 +422,50 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         {
             using var persistScope = _scopeFactory.CreateScope();
             var persistContext = persistScope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var existing = await persistContext.Stocks.FindAsync([stock.Id], cancellationToken);
-            if (existing is null)
+            if (!await persistContext.Stocks.AnyAsync(x => x.Id == stock.Id, cancellationToken))
             {
                 counters.PersistFailed++;
                 return;
             }
 
-            if (incomingAt.HasValue &&
-                existing.CurrentPriceAt.HasValue &&
-                incomingAt.Value < existing.CurrentPriceAt.Value)
+            var quoteSnapshotPersistenceService = persistScope.ServiceProvider.GetRequiredService<StockQuoteSnapshotPersistenceService>();
+            var persistenceResult = await quoteSnapshotPersistenceService.ApplyAsync(
+                stock.Id,
+                new PersistStockQuoteSnapshotRequest
+                {
+                    CurrentPrice = incomingPrice,
+                    CurrentPriceChange = incomingChange,
+                    CurrentPriceChangePercent = incomingPercent,
+                    CurrentPriceAt = incomingAt,
+                    CurrentPriceIsDelayed = isDelayed,
+                    CurrentPriceDelayWarning = quote.DelayWarning,
+                },
+                cancellationToken);
+
+            if (!persistenceResult.StockFound)
             {
-                _logger.LogDebug(
-                    "Batch quote: stale timestamp rejected for stockId={StockId} ticker={Ticker} incoming={Incoming} stored={Stored}",
-                    stock.Id, stock.Ticker, incomingAt.Value, existing.CurrentPriceAt.Value);
-                counters.StaleRejected++;
+                counters.PersistFailed++;
                 return;
             }
 
-            existing.CurrentPrice = incomingPrice;
-            existing.CurrentPriceChange = incomingChange;
-            existing.CurrentPriceChangePercent = incomingPercent;
-            existing.CurrentPriceAt = incomingAt;
-            existing.UpdatedAt = _timeProvider.GetUtcNow().UtcDateTime;
+            if (isDelayed)
+            {
+                counters.Delayed++;
+            }
 
-            await persistContext.SaveChangesAsync(cancellationToken);
+            if (!persistenceResult.Applied)
+            {
+                counters.StaleRejected++;
+
+                _logger.LogDebug(
+                    "Batch quote: snapshot rejected for stockId={StockId} ticker={Ticker} reason={Reason}",
+                    stock.Id,
+                    stock.Ticker,
+                    persistenceResult.Reason);
+
+                return;
+            }
+
             counters.Succeeded++;
 
             _logger.LogDebug(

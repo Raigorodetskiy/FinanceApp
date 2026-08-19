@@ -410,19 +410,15 @@ const PortfolioDetailPage: React.FC = () => {
           const priceRes = await getStockPrice(stock.ticker, stock.exchange, stock.finanzenNetSlug);
           const quote: StockQuoteResponse = priceRes.data;
 
-          if (isQuoteDelayed(quote)) {
-            return { stockId: stock.id, patch: null, delayed: true };
-          }
-
           const patch = buildQuotePatch(quote);
-          if (!patch) return { stockId: stock.id, patch: null, delayed: false };
+          if (!patch) return { stockId: stock.id, patch: null, delayed: isQuoteDelayed(quote) };
 
           const persisted = (await updateStockQuote(
             stock.id,
             patch satisfies UpdateStockQuoteRequest,
           )).data;
 
-          return { stockId: stock.id, patch: persisted, delayed: false };
+          return { stockId: stock.id, patch: persisted, delayed: isQuoteDelayed(quote) };
         })
       );
 
