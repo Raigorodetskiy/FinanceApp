@@ -280,6 +280,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
   const [countdown, setCountdown] = useState(AUTO_REFRESH_INTERVAL);
   const [trackingLoadingByStock, setTrackingLoadingByStock] = useState<Record<number, boolean>>({});
   const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogPage, setCatalogPage] = useState(1);
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
   const portfolioStockIds = useMemo(() => {
@@ -942,7 +943,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
               <Input
                 placeholder="Поиск: тикер, название, биржа, индекс"
                 value={catalogQuery}
-                onChange={(event) => setCatalogQuery(event.target.value)}
+                onChange={(event) => { setCatalogQuery(event.target.value); setCatalogPage(1); }}
                 allowClear
                 style={{ width: 320 }}
               />
@@ -974,8 +975,10 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
               scroll={{ x: STOCKS_TABLE_SCROLL_X + INDEX_MEMBERSHIP_COL_WIDTH }}
               pagination={{
                 pageSize: CATALOG_PAGE_SIZE,
+                current: catalogPage,
+                onChange: (page) => setCatalogPage(page),
                 showSizeChanger: false,
-                showTotal: (total) => `Всего: ${total}`,
+                showTotal: () => `Всего: ${filteredStocks.length}`,
               }}
               rowClassName={(record: TableRow) => {
                 if (isChartRow(record)) return 'chart-panel-row';

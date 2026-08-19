@@ -22,7 +22,7 @@ import {
 import {
   getStockPriceChartSummary,
 } from './stockPriceChartSummary';
-import { buildHistoryChartData } from './stockPriceChartData';
+import { buildHistoryChartData, appendCurrentQuotePoint } from './stockPriceChartData';
 import type { HistoryChartPoint } from './stockPriceChartData';
 import { buildFinanzenNetUrl } from '../utils/finanzenNet';
 import {
@@ -269,7 +269,19 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     : historyResponse?.normalizedQuoteCurrency ?? historyResponse?.currency ?? null;
   const volumeMetrics = historyResponse?.volumeMetrics ?? null;
 
-  const historyChartData = useMemo(() => buildHistoryChartData(historyData, historyRange), [historyData, historyRange]);
+  const historyChartData = useMemo(() => {
+    const base = buildHistoryChartData(historyData, historyRange);
+    const quotePrice = historyHasEurConversion
+      ? liveQuote?.currentPriceEur
+      : liveQuote?.normalizedCurrentPrice;
+    return appendCurrentQuotePoint(
+      base,
+      historyRange,
+      quotePrice,
+      liveQuote?.priceTimestampUtc,
+      liveQuote?.isStale ?? true,
+    );
+  }, [historyData, historyHasEurConversion, historyRange, liveQuote]);
 
   const weeklyIndexToTimestampMs = useMemo(() => {
     const map = new Map<number, number>();

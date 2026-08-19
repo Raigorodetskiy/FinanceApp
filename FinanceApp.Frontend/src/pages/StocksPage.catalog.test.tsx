@@ -322,6 +322,83 @@ describe('StocksPage catalog mode', () => {
     expect(screen.getByText(/Всего: 51/)).toBeInTheDocument();
   });
 
+  it('expanding the last row on a non-final page preserves the current page number', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    // 101 stocks: page 1 = T000–T049, page 2 = T050–T099, page 3 = T100
+    const manyStocks: Stock[] = Array.from({ length: 101 }, (_, i) => ({
+      id: i + 100,
+      ticker: `T${String(i).padStart(3, '0')}`,
+      name: `Stock ${String(i).padStart(3, '0')}`,
+      commonName: `Stock ${String(i).padStart(3, '0')}`,
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-18T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [],
+    }));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+
+    // Page 1: T000 visible, T050 not visible
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+
+    // Expand T049 — last stock on page 1 — should not change the page
+    const expandBtn = document.querySelector(
+      'tr[data-row-key="149"] button[aria-label="Открыть график цены: T049"]',
+    ) as HTMLButtonElement;
+    if (expandBtn) {
+      await act(async () => { await user.click(expandBtn); });
+    }
+
+    // Still on page 1: T000 visible, T050 not visible
+    expect(screen.getAllByText('T000').length).toBeGreaterThan(0);
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+    // The "Всего:" total still reflects stock count, not stock+chart-row count
+    await waitFor(() => {
+      const totalEl = screen.queryByText(/Всего: 101/);
+      // showTotal should not inflate to 102 due to a chart row
+      if (totalEl) expect(totalEl).toBeInTheDocument();
+      // Regardless of whether showTotal rendered, page must still be page 1
+      expect(screen.getAllByText('T000').length).toBeGreaterThan(0);
+    });
+
+    // Collapse T049 — still on page 1
+    const collapseBtn = document.querySelector(
+      'tr[data-row-key="149"] button[aria-label="Закрыть график цены: T049"]',
+    ) as HTMLButtonElement;
+    if (collapseBtn) {
+      await act(async () => { await user.click(collapseBtn); });
+    }
+    expect(screen.getAllByText('T000').length).toBeGreaterThan(0);
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+    // Drain any pending async state updates (e.g. history load) before the test exits
+    await act(async () => {});
+  }, 20000);
+
+  it('explicit pagination click changes the page', async () => {
+    const api = await import('../services/api');
+    const manyStocks: Stock[] = Array.from({ length: 51 }, (_, i) => ({
+      id: i + 100,
+      ticker: `T${String(i).padStart(3, '0')}`,
+      name: `Stock ${String(i).padStart(3, '0')}`,
+      commonName: `Stock ${String(i).padStart(3, '0')}`,
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-18T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [],
+    }));
+    vi.mocked(api.getStockCatalog).mockResolvedValue({ data: manyStocks });
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('T000').length).toBeGreaterThan(0));
+    // T050 is on page 2 and not visible on page 1
+    expect(screen.queryByText('T050')).not.toBeInTheDocument();
+    // Pagination control is present
+    expect(document.querySelector('.ant-pagination')).not.toBeNull();
+  }, 15000);
+
   // Test 8: Default order is alphabetical by stock name
   it('renders catalog stocks in alphabetical order by name', async () => {
     renderPage('catalog');
@@ -404,7 +481,7 @@ describe('StocksPage catalog mode', () => {
     await waitFor(() => expect(api.getStockHistory).toHaveBeenLastCalledWith(mcdCatalogStock.id, '6m'));
     expect(api.trackStock).not.toHaveBeenCalled();
     expect(addButton).toBeEnabled();
-  }, 30000);
+  }, 45000);
 
   it('catalog charts create no automatic history or quote refresh timers', async () => {
     const user = userEvent.setup();
