@@ -87,12 +87,15 @@ export const resolveNewestCurrentPriceSnapshot = (
     delayWarning: null,
     liveQuote: null,
   };
+  const liveCurrentPriceEur = liveQuote?.currentPriceEur;
+  const liveChangeEur = liveQuote?.changeEur;
+  const livePercentChange = liveQuote?.percentChange;
 
   const liveSnapshot: CurrentPriceSnapshot = {
     source: 'live',
-    currentPrice: isFiniteNumber(liveQuote?.currentPriceEur) ? liveQuote.currentPriceEur : null,
-    currentPriceChange: isFiniteNumber(liveQuote?.changeEur) ? liveQuote.changeEur : null,
-    currentPriceChangePercent: isFiniteNumber(liveQuote?.percentChange) ? liveQuote.percentChange : null,
+    currentPrice: isFiniteNumber(liveCurrentPriceEur) ? liveCurrentPriceEur : null,
+    currentPriceChange: isFiniteNumber(liveChangeEur) ? liveChangeEur : null,
+    currentPriceChangePercent: isFiniteNumber(livePercentChange) ? livePercentChange : null,
     currentPriceAt: liveQuote?.priceTimestampUtc ?? null,
     isDelayed: isQuoteDelayed(liveQuote),
     delayWarning: liveQuote?.delayWarning ?? null,
