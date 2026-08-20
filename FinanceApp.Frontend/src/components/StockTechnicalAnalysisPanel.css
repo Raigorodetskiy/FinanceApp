@@ -102,6 +102,10 @@
   gap: 8px;
 }
 
+.technical-analysis-panel__component-help-link {
+  font-size: 12px;
+}
+
 .technical-analysis-panel__factors-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

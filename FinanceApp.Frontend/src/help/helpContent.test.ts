@@ -95,10 +95,60 @@ describe('help content contracts', () => {
     const fundamentals = HELP_ARTICLES.find((item) => item.slug === 'fundamentals');
     const quality = HELP_ARTICLES.find((item) => item.slug === 'data-quality-and-freshness');
 
-    expect(JSON.stringify(fundamentals)).toContain('устарев');
+    expect(JSON.stringify(fundamentals)).toContain('FUNDAMENTALS_STALE');
     expect(JSON.stringify(fundamentals)).toContain('snapshot');
     expect(JSON.stringify(quality)).toContain('AdjustedClose coverage incomplete');
     expect(JSON.stringify(quality)).toContain('confidence');
+  });
+
+  it('documents current fundamental scoring rules, thresholds, weights, missing-data behavior, and limits', () => {
+    const fundamentals = HELP_ARTICLES.find((item) => item.slug === 'fundamentals');
+    expect(fundamentals).toBeDefined();
+    const serialized = JSON.stringify(fundamentals);
+
+    for (const metric of ['NetIncomeTtm', 'FreeCashFlowTtm', 'Debt/EBITDA', 'PeRatio', 'PbRatio', 'DividendYield']) {
+      expect(serialized).toContain(metric);
+    }
+
+    for (const rule of [
+      '50',
+      'NetIncomeTtm > 0',
+      'FreeCashFlowTtm > 0',
+      'Debt/EBITDA = TotalDebt / EbitdaTtm',
+      'Debt/EBITDA < 2',
+      'Debt/EBITDA > 6',
+      'Debt/EBITDA > 4 и <= 6',
+      '5 <= P/E <= 35',
+      'P/E > 60',
+      '0.5 <= P/B <= 8',
+      'P/B > 15',
+      '1 <= DividendYield <= 6',
+      'DividendYield > 10',
+    ]) {
+      expect(serialized).toContain(rule);
+    }
+
+    for (const warningOrLimit of [
+      'FUNDAMENTALS_MISSING',
+      'FUNDAMENTALS_STALE',
+      'FUNDAMENTALS_UNUSABLE',
+      'FUNDAMENTAL_HISTORY_INSUFFICIENT',
+      'COMPONENTS_MISSING',
+      '>35 дней',
+      'PeriodCount < 8',
+      '540 дней',
+      'не использует sector/industry',
+      'не запускается refresh провайдера',
+      'CashAndEquivalents не вычитается',
+      'не является оценкой intrinsic value',
+      'не является персональной инвестиционной рекомендацией',
+    ]) {
+      expect(serialized).toContain(warningOrLimit);
+    }
+
+    for (const horizonWeight of ['3 месяца', '0%', '6 месяцев', '5%', '1 год', '20%', '2 года', '45%']) {
+      expect(serialized).toContain(horizonWeight);
+    }
   });
 
   it('contains required top-level categories and FAQ article', () => {
@@ -119,6 +169,8 @@ describe('help search behavior', () => {
     expect(searchHelpArticles('формула Уайлдера').some((result) => result.articleSlug === 'technical-indicator-formulas')).toBe(true);
     expect(searchHelpArticles('где находится').some((result) => result.articleSlug === 'faq')).toBe(true);
     expect(searchHelpArticles('ренормализует веса').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
+    expect(searchHelpArticles('фундаментальный анализ').some((result) => result.articleSlug === 'fundamentals')).toBe(true);
+    expect(searchHelpArticles('FUNDAMENTALS_STALE').some((result) => result.articleSlug === 'fundamentals')).toBe(true);
   });
 
   it('keeps deterministic ranking with exact title before broad matches', () => {
