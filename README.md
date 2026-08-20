@@ -71,6 +71,73 @@ Notes:
 - Current quotes and historical refreshes share the same throttle, cooldown, and in-flight request coalescing.
 - When Yahoo returns HTTP `429`, FinanceApp stops sending new Yahoo requests until the shared cooldown expires.
 
+### Phase 1 technical-analysis schema and deployment notes
+
+This repository now supports **multiple exchange listings sharing the same ISIN** and persists
+**Yahoo adjusted close** alongside the existing raw close.
+
+- `Stocks.Isin` is now indexed for lookup but is **no longer globally unique**.
+- `StockHistoricalPrices.AdjustedClose` is nullable and is populated only when Yahoo
+  `indicators.adjclose[0].adjclose` is present, aligned to the candle array, and strictly positive.
+- `StockHistoricalPrices.Close` remains the canonical raw/unadjusted close for auditability and
+  compatibility.
+- Close-based technical indicators prefer adjusted close only when the required full sequence/window
+  is complete and valid; otherwise that metric explicitly falls back to raw close. ATR remains
+  raw-OHLC-based because adjusted OHLC is not available in the current model.
+- Same-ISIN fallback remains **exact normalized ISIN only** (`TRIM + UPPER` plus ISIN format validation).
+  No fallback by ticker or company name is used.
+
+#### Read-only preflight checks before applying migration `20260820043053_AddAdjustedCloseAndNonUniqueIsin`
+
+Review accidental duplicate listing identities first. This migration does **not** auto-delete,
+rewrite, or merge stock rows.
+
+```sql
+-- Potential duplicate concrete listings by normalized ticker+exchange
+SELECT
+    UPPER(TRIM(Ticker)) AS NormalizedTicker,
+    UPPER(TRIM(Exchange)) AS NormalizedExchange,
+    COUNT(*) AS DuplicateCount,
+    GROUP_CONCAT(Id ORDER BY Id) AS StockIds
+FROM Stocks
+GROUP BY UPPER(TRIM(Ticker)), UPPER(TRIM(Exchange))
+HAVING COUNT(*) > 1;
+
+-- Potential duplicate provider-symbol identities when ProviderSymbol is present
+SELECT
+    UPPER(TRIM(ProviderSymbol)) AS NormalizedProviderSymbol,
+    COUNT(*) AS DuplicateCount,
+    GROUP_CONCAT(Id ORDER BY Id) AS StockIds
+FROM Stocks
+WHERE ProviderSymbol IS NOT NULL AND TRIM(ProviderSymbol) <> ''
+GROUP BY UPPER(TRIM(ProviderSymbol))
+HAVING COUNT(*) > 1;
+```
+
+#### Recommended deployment order
+
+1. Back up the database.
+2. Run the preflight queries above and resolve unexpected duplicate concrete listings manually.
+3. Apply EF migration `20260820043053_AddAdjustedCloseAndNonUniqueIsin`.
+4. Deploy/restart the backend.
+5. Refresh history for the affected stocks/index constituents to backfill `AdjustedClose` gradually.
+
+#### Compatibility and rollback
+
+- Existing rows remain valid with `AdjustedClose = NULL` until each listing is refreshed.
+- The application keeps concrete listing deduplication at the application layer (`ProviderSymbol`,
+  then `Ticker + Exchange`) to avoid imposing a potentially unsafe new production uniqueness rule
+  without a dedicated data-cleanup rollout.
+- Rolling back the application is safe; rolling back the migration removes `AdjustedClose` and
+  restores the previous unique ISIN index, so it should only be done before any newly allowed
+  same-ISIN multi-listing rows are inserted.
+
+#### Remaining Phase 2 work
+
+- Adjusted OHLC support (if a provider/source is added)
+- Public technical-analysis endpoints/UI
+- Scoring/ranking features on top of the explicit price-basis metadata
+
 ### Nightly catalog refresh (Tracked + CatalogOnly)
 
 FinanceApp now has a separate nightly background maintenance job that refreshes **quote + history** for all durable catalog stocks (`Tracked` and `CatalogOnly`) once per business day.

@@ -32,6 +32,22 @@ public class MigrationDiscoveryTests
     }
 
     [Fact]
+    public void GetMigrations_Contains_AddAdjustedCloseAndNonUniqueIsin()
+    {
+        using var context = CreateContext();
+
+        var migrations = context.Database.GetMigrations().ToList();
+        Assert.Contains("20260820043053_AddAdjustedCloseAndNonUniqueIsin", migrations);
+
+        var migrationType = typeof(AppDbContext).Assembly.GetType("FinanceApp.Data.Migrations.AddAdjustedCloseAndNonUniqueIsin");
+        Assert.NotNull(migrationType);
+
+        var migrationAttribute = migrationType!.GetCustomAttribute<MigrationAttribute>();
+        Assert.NotNull(migrationAttribute);
+        Assert.Equal("20260820043053_AddAdjustedCloseAndNonUniqueIsin", migrationAttribute!.Id);
+    }
+
+    [Fact]
     public void Model_Contains_StockTracking_And_MembershipHistory_Metadata()
     {
         using var context = CreateContext();
