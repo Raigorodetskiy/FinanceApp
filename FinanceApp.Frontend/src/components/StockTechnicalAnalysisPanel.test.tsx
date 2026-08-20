@@ -224,7 +224,7 @@ describe('StockTechnicalAnalysisPanel', () => {
     expect(document.activeElement).toBe(tab);
   });
 
-  it('formats metrics in disclosure area and does not call unrelated endpoints', async () => {
+  it('formats metrics in disclosure area, includes contextual methodology link, and does not call unrelated endpoints', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -240,6 +240,11 @@ describe('StockTechnicalAnalysisPanel', () => {
       expect(screen.getByText('4,2% / 8,7% / 12,4% / 18,9%')).toBeInTheDocument();
       expect(screen.getByText('80%')).toBeInTheDocument();
     });
+    expect(
+      screen.getByRole('link', {
+        name: 'Открыть методологию расчёта показателей в справке',
+      }),
+    ).toHaveAttribute('href', '/help/technical-indicators#indicators-methodology');
 
     expect(getStockTechnicalAnalysisMock).toHaveBeenCalled();
   });

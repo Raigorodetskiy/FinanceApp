@@ -138,6 +138,14 @@
   font-weight: 600;
 }
 
+.technical-analysis-panel__metrics-help {
+  margin-top: 6px;
+}
+
+.technical-analysis-panel__metrics-help-link {
+  font-size: 13px;
+}
+
 .technical-analysis-panel__metrics-grid {
   margin-top: 8px;
   display: grid;
