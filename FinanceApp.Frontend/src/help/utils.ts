@@ -1,5 +1,11 @@
 import { HELP_ARTICLES, HELP_CATEGORIES } from './content';
+import { TECHNICAL_INDICATOR_FORMULAS_ARTICLE } from './technicalIndicatorFormulas';
 import type { HelpArticle, HelpBlock, HelpCategory, HelpContentValidationResult, HelpRelatedLink, HelpSearchResult } from './models';
+
+export const ALL_HELP_ARTICLES: HelpArticle[] = [
+  ...HELP_ARTICLES,
+  TECHNICAL_INDICATOR_FORMULAS_ARTICLE,
+];
 
 export const normalizeHelpText = (value: string): string => value
   .normalize('NFKC')
@@ -27,12 +33,12 @@ const collectBlockText = (block: HelpBlock): string => {
 export const getOrderedHelpCategories = (): HelpCategory[] => [...HELP_CATEGORIES]
   .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title, 'ru'));
 
-export const getOrderedHelpArticles = (): HelpArticle[] => [...HELP_ARTICLES]
+export const getOrderedHelpArticles = (): HelpArticle[] => [...ALL_HELP_ARTICLES]
   .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title, 'ru'));
 
 export const getHelpArticleBySlug = (slug: string | undefined): HelpArticle | null => {
   if (!slug) return null;
-  return HELP_ARTICLES.find((article) => article.slug === slug) ?? null;
+  return ALL_HELP_ARTICLES.find((article) => article.slug === slug) ?? null;
 };
 
 export const resolveHelpRelatedLink = (link: HelpRelatedLink): { article: HelpArticle; sectionExists: boolean } | null => {
@@ -62,7 +68,7 @@ export const validateHelpContent = (): HelpContentValidationResult => {
     categorySeen.add(category.slug);
   }
 
-  for (const article of HELP_ARTICLES) {
+  for (const article of ALL_HELP_ARTICLES) {
     if (articleSeen.has(article.slug)) duplicateArticleSlugs.push(article.slug);
     articleSeen.add(article.slug);
 

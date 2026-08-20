@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HELP_ARTICLES, HELP_CATEGORIES } from './content';
-import { getOrderedHelpArticles, getOrderedHelpCategories, normalizeHelpText, searchHelpArticles, validateHelpContent } from './utils';
+import { ALL_HELP_ARTICLES, getOrderedHelpArticles, getOrderedHelpCategories, normalizeHelpText, searchHelpArticles, validateHelpContent } from './utils';
 
 describe('help content contracts', () => {
   it('keeps deterministic ordering for categories and articles', () => {
@@ -34,6 +34,52 @@ describe('help content contracts', () => {
     expect(serialized).toContain('Score — агрегированная оценка');
     expect(serialized).toContain('Confidence');
     expect(serialized).toContain('не является персональной инвестиционной рекомендацией');
+  });
+
+  it('documents every exposed technical metric and exact warm-up requirements', () => {
+    const article = ALL_HELP_ARTICLES.find((item) => item.slug === 'technical-indicator-formulas');
+    expect(article).toBeDefined();
+    const serialized = JSON.stringify(article);
+
+    for (const metric of ['SMA20', 'SMA50', 'SMA200', 'EMA12', 'EMA26', 'RSI14', 'MACD', 'Signal', 'Histogram', 'Volatility20', 'Volatility60', 'MaxDrawdown', 'ATR14']) {
+      expect(serialized).toContain(metric);
+    }
+    for (const requirement of ['15 закрытий', '26 закрытий', '34 закрытия', '22 / 64 / 127 / 253', '21 / 61']) {
+      expect(serialized).toContain(requirement);
+    }
+  });
+
+  it('documents implementation-aligned formulas, scoring thresholds and units', () => {
+    const article = ALL_HELP_ARTICLES.find((item) => item.slug === 'technical-indicator-formulas');
+    const serialized = JSON.stringify(article);
+
+    expect(serialized).toContain('k = 2 / (N + 1)');
+    expect(serialized).toContain('RSI = 100 − 100 / (1 + RS)');
+    expect(serialized).toContain('MACD line = EMA12 − EMA26');
+    expect(serialized).toContain('Histogram = MACD line − Signal line');
+    expect(serialized).toContain('(Pпоследняя / P N торговых дней назад − 1) × 100');
+    expect(serialized).toContain('σpopulation(r) × √252');
+    expect(serialized).toContain('(Pпоследняя / MaxCloseокна − 1) × 100');
+    expect(serialized).toContain('TR = max(High − Low, |High − Previous Close|, |Low − Previous Close|)');
+    expect(serialized).toContain('процентных пунктах');
+    expect(serialized).toContain('абсолютных единицах цены');
+    expect(serialized).toContain('55–70 включительно');
+    expect(serialized).toContain('>40%');
+    expect(serialized).toContain('< −35%');
+    expect(serialized).toContain('>5%');
+  });
+
+  it('clarifies price basis, drawdown naming, null semantics and read-only behavior', () => {
+    const article = ALL_HELP_ARTICLES.find((item) => item.slug === 'technical-indicator-formulas');
+    const serialized = JSON.stringify(article);
+
+    expect(serialized).toContain('per-candle fallback');
+    expect(serialized).toContain('AdjustedClose coverage');
+    expect(serialized).toContain('не скорректированные High, Low');
+    expect(serialized).toContain('поле API/UI называется MaxDrawdown');
+    expect(serialized).toContain('Это НЕ максимальная историческая просадка');
+    expect(serialized).toContain('null и показывается как «Недостаточно данных»');
+    expect(serialized).toContain('не запускает запрос к провайдеру');
   });
 
   it('documents AdjustedClose/Close fallback and ATR unadjusted OHLC semantics', () => {
@@ -70,6 +116,7 @@ describe('help search behavior', () => {
   it('matches title, keywords, headings and body', () => {
     expect(searchHelpArticles('Аналитический сигнал').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
     expect(searchHelpArticles('AdjustedClose').some((result) => result.articleSlug === 'technical-indicators')).toBe(true);
+    expect(searchHelpArticles('формула Уайлдера').some((result) => result.articleSlug === 'technical-indicator-formulas')).toBe(true);
     expect(searchHelpArticles('где находится').some((result) => result.articleSlug === 'faq')).toBe(true);
     expect(searchHelpArticles('ренормализует веса').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
   });
