@@ -32,6 +32,22 @@ public class MigrationDiscoveryTests
     }
 
     [Fact]
+    public void GetMigrations_Contains_AddAdjustedCloseAndNonUniqueIsin()
+    {
+        using var context = CreateContext();
+
+        var migrations = context.Database.GetMigrations().ToList();
+        Assert.Contains("20260820043053_AddAdjustedCloseAndNonUniqueIsin", migrations);
+
+        var migrationType = typeof(AppDbContext).Assembly.GetType("FinanceApp.Data.Migrations.AddAdjustedCloseAndNonUniqueIsin");
+        Assert.NotNull(migrationType);
+
+        var migrationAttribute = migrationType!.GetCustomAttribute<MigrationAttribute>();
+        Assert.NotNull(migrationAttribute);
+        Assert.Equal("20260820043053_AddAdjustedCloseAndNonUniqueIsin", migrationAttribute!.Id);
+    }
+
+    [Fact]
     public void Model_Contains_StockTracking_And_MembershipHistory_Metadata()
     {
         using var context = CreateContext();
@@ -56,6 +72,12 @@ public class MigrationDiscoveryTests
             index => index.GetDatabaseName() == "IX_Stocks_ProviderSymbol"
                 && index.GetFilter() == "`ProviderSymbol` IS NOT NULL"
                 && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(Stock.ProviderSymbol) }));
+        Assert.Contains(
+            stockEntity.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_Stocks_Isin"
+                && !index.IsUnique
+                && index.GetFilter() == "`Isin` IS NOT NULL"
+                && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(Stock.Isin) }));
 
         var membershipEntity = context.Model.FindEntityType(typeof(StockMarketIndex));
         Assert.NotNull(membershipEntity);
@@ -74,6 +96,13 @@ public class MigrationDiscoveryTests
                     nameof(StockMarketIndex.StockId),
                     nameof(StockMarketIndex.MarketIndexId)
                 }));
+
+        var historicalPriceEntity = context.Model.FindEntityType(typeof(StockHistoricalPrice));
+        Assert.NotNull(historicalPriceEntity);
+
+        var adjustedClose = historicalPriceEntity!.FindProperty(nameof(StockHistoricalPrice.AdjustedClose));
+        Assert.NotNull(adjustedClose);
+        Assert.Equal("decimal(18,4)", adjustedClose!.GetColumnType());
     }
 
     private static AppDbContext CreateContext()

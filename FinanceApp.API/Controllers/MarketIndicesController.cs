@@ -634,11 +634,6 @@ public class MarketIndicesController : ControllerBase
                 .Where(x => x.MarketIndexId == id && x.EffectiveTo == null)
                 .ToListAsync(cancellationToken);
 
-            var allIsins = normalizedConstituents
-                .Where(c => c.Isin is not null)
-                .Select(c => c.Isin!)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
             var allProviderSymbols = normalizedConstituents
                 .Select(c => c.ProviderSymbol)
                 .ToHashSet(StringComparer.Ordinal);
@@ -649,15 +644,9 @@ public class MarketIndicesController : ControllerBase
 
             var existingStocks = await _context.Stocks
                 .Where(s =>
-                    (s.Isin != null && allIsins.Contains(s.Isin)) ||
                     (s.ProviderSymbol != null && allProviderSymbols.Contains(s.ProviderSymbol)) ||
                     allTickers.Contains(s.Ticker))
                 .ToListAsync(cancellationToken);
-
-            var byIsin = existingStocks
-                .Where(s => s.Isin != null)
-                .GroupBy(s => s.Isin!)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             var byProviderSymbol = existingStocks
                 .Where(s => s.ProviderSymbol != null)
@@ -675,11 +664,10 @@ public class MarketIndicesController : ControllerBase
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // Deduplication order: ISIN → ProviderSymbol → Ticker+Exchange.
+                    // Listing identity is exchange/provider-symbol/ticker specific.
+                    // ISIN is security-level metadata and may legitimately be shared by multiple listings.
+                    // Deduplication therefore uses concrete listing identity only.
                     Stock? stock = null;
-
-                    if (constituent.Isin is not null)
-                        byIsin.TryGetValue(constituent.Isin, out stock);
 
                     if (stock is null)
                         byProviderSymbol.TryGetValue(constituent.ProviderSymbol, out stock);
@@ -701,7 +689,6 @@ public class MarketIndicesController : ControllerBase
                             UpdatedAt = now,
                         };
                         _context.Stocks.Add(stock);
-                        if (stock.Isin != null) byIsin[stock.Isin] = stock;
                         byProviderSymbol[stock.ProviderSymbol!] = stock;
                         byTickerExchange[$"{stock.Ticker}|{stock.Exchange}"] = stock;
                     }

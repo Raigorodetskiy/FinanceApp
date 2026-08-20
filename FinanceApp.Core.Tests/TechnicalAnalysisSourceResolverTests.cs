@@ -3,6 +3,8 @@ using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using System.Data.Common;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -11,6 +13,7 @@ public class TechnicalAnalysisSourceResolverTests : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly AppDbContext _dbContext;
+    private readonly CommandCountingInterceptor _commandCounter = new();
 
     public TechnicalAnalysisSourceResolverTests()
     {
@@ -18,11 +21,11 @@ public class TechnicalAnalysisSourceResolverTests : IDisposable
         _connection.Open();
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlite(_connection)
+            .AddInterceptors(_commandCounter)
             .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.AmbientTransactionWarning))
             .Options;
         _dbContext = new AppDbContext(options);
         _dbContext.Database.EnsureCreated();
-        _dbContext.Database.ExecuteSqlRaw("DROP INDEX IF EXISTS IX_Stocks_Isin;");
     }
 
     public void Dispose()
@@ -33,9 +36,23 @@ public class TechnicalAnalysisSourceResolverTests : IDisposable
 
     private TechnicalAnalysisSourceResolver CreateResolver() => new(_dbContext);
 
-    private async Task<Stock> AddStockAsync(int id, string ticker, string? isin = null)
+    private async Task<Stock> AddStockAsync(
+        int id,
+        string ticker,
+        string? isin = null,
+        string exchange = StockExchanges.Frankfurt,
+        string? providerSymbol = null)
     {
-        var stock = new Stock { Id = id, Ticker = ticker, Name = ticker, CommonName = ticker, Exchange = "XETR", Isin = isin };
+        var stock = new Stock
+        {
+            Id = id,
+            Ticker = ticker,
+            Name = ticker,
+            CommonName = ticker,
+            Exchange = exchange,
+            ProviderSymbol = providerSymbol,
+            Isin = isin
+        };
         _dbContext.Stocks.Add(stock);
         await _dbContext.SaveChangesAsync();
         return stock;
@@ -84,8 +101,8 @@ public class TechnicalAnalysisSourceResolverTests : IDisposable
     [Fact]
     public async Task ResolveAsync_InsufficientOwnHistory_FallsBackToSameIsin()
     {
-        await AddStockAsync(1, "ABC", "DE0001234567");
-        await AddStockAsync(2, "ABC2", "DE0001234567");
+        await AddStockAsync(1, "ABC", "DE0001234567", StockExchanges.Frankfurt, "ABC.DE");
+        await AddStockAsync(2, "ABC", "DE0001234567", StockExchanges.Nyse, "ABC");
         await AddDailyPricesAsync(1, 100); // insufficient
         await AddDailyPricesAsync(2, 252); // sufficient
         var resolver = CreateResolver();
@@ -206,6 +223,84 @@ public class TechnicalAnalysisSourceResolverTests : IDisposable
         var resolver = CreateResolver();
         var result = await resolver.ResolveAsync(1);
         Assert.Equal(2, result.AnalysisStockId);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_InvalidIsin_DoesNotEnableFallback()
+    {
+        await AddStockAsync(1, "A", "INVALID");
+        await AddStockAsync(2, "B", "INVALID");
+        await AddDailyPricesAsync(1, 50);
+        await AddDailyPricesAsync(2, 252);
+
+        var resolver = CreateResolver();
+        var result = await resolver.ResolveAsync(1);
+
+        Assert.Equal(1, result.AnalysisStockId);
+        Assert.Equal("InsufficientHistory", result.Resolution);
+        Assert.Null(result.Isin);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_RealSchema_AllowsSameNormalizedIsinAcrossListings()
+    {
+        await AddStockAsync(1, "SAP", "de0007164600", StockExchanges.Frankfurt, "SAP.DE");
+        await AddStockAsync(2, "SAP", "DE0007164600", StockExchanges.Nyse, "SAP");
+
+        var stocks = await _dbContext.Stocks
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+
+        Assert.Equal(2, stocks.Count);
+        Assert.Equal("de0007164600", stocks[0].Isin);
+        Assert.Equal("DE0007164600", stocks[1].Isin);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_UsesBoundedQueryCount_ForSameIsinRanking()
+    {
+        await AddStockAsync(1, "A", "DE0001234567");
+        await AddStockAsync(2, "B", "DE0001234567");
+        await AddStockAsync(3, "C", "DE0001234567");
+        await AddStockAsync(4, "D", "DE0001234567");
+        await AddDailyPricesAsync(1, 10);
+        await AddDailyPricesAsync(2, 300);
+        await AddDailyPricesAsync(3, 280);
+        await AddDailyPricesAsync(4, 260);
+
+        _commandCounter.Reset();
+
+        var resolver = CreateResolver();
+        var result = await resolver.ResolveAsync(1);
+
+        Assert.Equal(2, result.AnalysisStockId);
+        Assert.InRange(_commandCounter.CommandCount, 1, 3);
+    }
+
+    private sealed class CommandCountingInterceptor : DbCommandInterceptor
+    {
+        public int CommandCount { get; private set; }
+
+        public void Reset() => CommandCount = 0;
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            CommandCount++;
+            return base.ReaderExecuting(command, eventData, result);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            CommandCount++;
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
     }
 
     [Fact]

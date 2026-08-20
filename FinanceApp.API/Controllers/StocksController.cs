@@ -54,6 +54,9 @@ public class StocksController : ControllerBase
     {
         stock.Wkn = NormalizeIdentifier(stock.Wkn);
         stock.Isin = NormalizeIdentifier(stock.Isin);
+        stock.ProviderSymbol = string.IsNullOrWhiteSpace(stock.ProviderSymbol)
+            ? null
+            : stock.ProviderSymbol.Trim();
         stock.FinanzenNetSlug = string.IsNullOrWhiteSpace(stock.FinanzenNetSlug)
             ? null
             : stock.FinanzenNetSlug.Trim();
@@ -313,6 +316,9 @@ public class StocksController : ControllerBase
         var (marketIndicesValidationError, marketIndices) = await ValidateMarketIndexAssignmentsAsync(requestedMarketIndexIds);
         if (marketIndicesValidationError != null) return marketIndicesValidationError;
 
+        var duplicateError = await ValidateCreateUniquenessAsync(stock);
+        if (duplicateError != null) return duplicateError;
+
         stock.UpdatedAt = DateTime.UtcNow;
         // Standard create always produces a Tracked stock; CatalogOnly is set only by import jobs.
         stock.TrackingStatus = StockTrackingStatus.Tracked;
@@ -334,7 +340,7 @@ public class StocksController : ControllerBase
         }
         catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
         {
-            return BadRequest(BuildDuplicateMessage(stock.Wkn, stock.Isin));
+            return BadRequest(BuildCreateDuplicateMessage(stock.Wkn, stock.ProviderSymbol, stock.Ticker, stock.Exchange));
         }
 
         try
@@ -398,6 +404,9 @@ public class StocksController : ControllerBase
         var identifierError = ValidateIdentifiers(wkn, isin);
         if (identifierError is not null) return identifierError;
 
+        var duplicateWknError = await ValidateWknUniquenessAsync(wkn, id);
+        if (duplicateWknError is not null) return duplicateWknError;
+
         var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
         if (industryValidationError != null) return industryValidationError;
 
@@ -429,7 +438,7 @@ public class StocksController : ControllerBase
         }
         catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
         {
-            return BadRequest(BuildDuplicateMessage(wkn, isin));
+            return BadRequest(BuildWknDuplicateMessage(wkn));
         }
 
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous";
@@ -588,6 +597,48 @@ public class StocksController : ControllerBase
         => ex.InnerException?.Message.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase) == true
         || ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true;
 
+    private async Task<ActionResult?> ValidateCreateUniquenessAsync(Stock stock)
+    {
+        var duplicates = await _context.Stocks
+            .AsNoTracking()
+            .Where(x =>
+                (stock.Wkn != null && x.Wkn == stock.Wkn) ||
+                (stock.ProviderSymbol != null && x.ProviderSymbol == stock.ProviderSymbol) ||
+                (x.Ticker == stock.Ticker && x.Exchange == stock.Exchange))
+            .ToListAsync();
+
+        if (stock.Wkn != null && duplicates.Any(x => x.Wkn == stock.Wkn))
+        {
+            return BadRequest(BuildWknDuplicateMessage(stock.Wkn));
+        }
+
+        if (stock.ProviderSymbol != null && duplicates.Any(x => x.ProviderSymbol == stock.ProviderSymbol))
+        {
+            return BadRequest(BuildProviderSymbolDuplicateMessage(stock.ProviderSymbol));
+        }
+
+        if (duplicates.Any(x => x.Ticker == stock.Ticker && x.Exchange == stock.Exchange))
+        {
+            return BadRequest(BuildListingDuplicateMessage(stock.Ticker, stock.Exchange));
+        }
+
+        return null;
+    }
+
+    private async Task<ActionResult?> ValidateWknUniquenessAsync(string? wkn, int existingStockId)
+    {
+        if (wkn is null)
+        {
+            return null;
+        }
+
+        var duplicateExists = await _context.Stocks
+            .AsNoTracking()
+            .AnyAsync(x => x.Id != existingStockId && x.Wkn == wkn);
+
+        return duplicateExists ? BadRequest(BuildWknDuplicateMessage(wkn)) : null;
+    }
+
     private async Task<Stock> LoadStockWithClassificationAsync(int id)
         => await _context.Stocks
             .Include(s => s.Industry)
@@ -716,14 +767,23 @@ public class StocksController : ControllerBase
         return stock;
     }
 
-    private static string BuildDuplicateMessage(string? wkn, string? isin)
+    private static string BuildCreateDuplicateMessage(string? wkn, string? providerSymbol, string ticker, string exchange)
     {
-        if (wkn != null && isin != null)
-            return $"Акция с WKN «{wkn}» или ISIN «{isin}» уже существует.";
         if (wkn != null)
-            return $"Акция с WKN «{wkn}» уже существует.";
-        if (isin != null)
-            return $"Акция с ISIN «{isin}» уже существует.";
-        return "Акция с указанными идентификаторами уже существует.";
+            return BuildWknDuplicateMessage(wkn);
+        if (providerSymbol != null)
+            return BuildProviderSymbolDuplicateMessage(providerSymbol);
+        return BuildListingDuplicateMessage(ticker, exchange);
     }
+
+    private static string BuildWknDuplicateMessage(string? wkn)
+        => wkn != null
+            ? $"Акция с WKN «{wkn}» уже существует."
+            : "Акция с указанной WKN уже существует.";
+
+    private static string BuildProviderSymbolDuplicateMessage(string providerSymbol)
+        => $"Акция с ProviderSymbol «{providerSymbol}» уже существует.";
+
+    private static string BuildListingDuplicateMessage(string ticker, string exchange)
+        => $"Акция с тикером «{ticker}» на бирже «{exchange}» уже существует.";
 }

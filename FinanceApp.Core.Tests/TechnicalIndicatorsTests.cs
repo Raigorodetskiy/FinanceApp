@@ -7,13 +7,19 @@ public class TechnicalIndicatorsTests
 {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static TechnicalIndicators.DailyObservation Obs(DateTime date, decimal close,
-        decimal open = 0, decimal high = 0, decimal low = 0, long volume = 0)
+    private static TechnicalIndicators.DailyObservation Obs(
+        DateTime date,
+        decimal close,
+        decimal open = 0,
+        decimal high = 0,
+        decimal low = 0,
+        long volume = 0,
+        decimal? adjustedClose = null)
     {
         if (open == 0) open = close;
         if (high == 0) high = close;
         if (low == 0) low = close;
-        return new TechnicalIndicators.DailyObservation(date, open, high, low, close, volume);
+        return new TechnicalIndicators.DailyObservation(date, open, high, low, close, volume, adjustedClose);
     }
 
     private static TechnicalIndicators.DailyObservation[] CloseSeries(params double[] closes)
@@ -414,5 +420,82 @@ public class TechnicalIndicatorsTests
         Assert.NotNull(result);
         Assert.NotNull(result!.Return1Week);
         Assert.Equal(10.0, result.Return1Week!.Value, 6);
+    }
+
+    [Fact]
+    public void Calculate_PrefersAdjustedClose_WhenFullMetricWindowIsAvailable()
+    {
+        var base_ = new DateTime(2020, 1, 1);
+        var obs = new[]
+        {
+            Obs(base_.AddDays(0), 100m, adjustedClose: 50m),
+            Obs(base_.AddDays(1), 102m, adjustedClose: 51m),
+            Obs(base_.AddDays(2), 104m, adjustedClose: 52m),
+            Obs(base_.AddDays(3), 52m, adjustedClose: 52m),
+            Obs(base_.AddDays(4), 53m, adjustedClose: 53m),
+            Obs(base_.AddDays(5), 54m, adjustedClose: 54m),
+        };
+
+        var result = TechnicalIndicators.Calculate(obs);
+
+        Assert.NotNull(result);
+        Assert.Equal(8.0, result!.Returns!.Return1Week!.Value, 6);
+        Assert.Equal(TechnicalIndicators.PriceBasis.Adjusted, result.PriceBasisByMetric["Returns.Return1Week"].Basis);
+    }
+
+    [Fact]
+    public void Calculate_FallsBackToRawClose_WhenAdjustedWindowIsIncomplete()
+    {
+        var base_ = new DateTime(2020, 1, 1);
+        var obs = Enumerable.Range(0, 20)
+            .Select(i => Obs(
+                base_.AddDays(i),
+                close: 100 + i,
+                adjustedClose: i == 10 ? null : 200 + i))
+            .ToArray();
+
+        var result = TechnicalIndicators.Calculate(obs);
+
+        Assert.NotNull(result);
+        Assert.Equal(109.5, result!.Sma20!.Value, 6);
+        Assert.Equal(TechnicalIndicators.PriceBasis.RawFallback, result.PriceBasisByMetric["Sma20"].Basis);
+    }
+
+    [Fact]
+    public void Calculate_AdjustedSeriesMayBeUsedForShortWindowEvenWhenLongerWindowFallsBack()
+    {
+        var base_ = new DateTime(2020, 1, 1);
+        var obs = Enumerable.Range(0, 30)
+            .Select(i => Obs(
+                base_.AddDays(i),
+                close: 100 + i,
+                adjustedClose: i < 10 ? null : 200 + i))
+            .ToArray();
+
+        var result = TechnicalIndicators.Calculate(obs);
+
+        Assert.NotNull(result);
+        Assert.Equal(TechnicalIndicators.PriceBasis.Adjusted, result!.PriceBasisByMetric["Sma20"].Basis);
+        Assert.Equal(TechnicalIndicators.PriceBasis.RawFallback, result.PriceBasisByMetric["Ema12"].Basis);
+    }
+
+    [Fact]
+    public void Calculate_AtrRemainsRawPriceBased()
+    {
+        var base_ = new DateTime(2020, 1, 1);
+        var obs = Enumerable.Range(0, 15)
+            .Select(i =>
+            {
+                var close = i < 7 ? 100m : 50m;
+                return Obs(base_.AddDays(i), close, open: close, high: close + 1m, low: close - 1m, adjustedClose: 100m + i);
+            })
+            .ToArray();
+
+        var result = TechnicalIndicators.Calculate(obs);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result!.Atr14);
+        Assert.True(result.Atr14 > 2.0);
+        Assert.Equal(TechnicalIndicators.PriceBasis.RawFallback, result.PriceBasisByMetric["Atr14"].Basis);
     }
 }

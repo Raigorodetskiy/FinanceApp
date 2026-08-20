@@ -63,10 +63,10 @@ public sealed class TechnicalAnalysisSourceResolver : ITechnicalAnalysisSourceRe
         }
 
         var normalizedIsin = NormalizeIsin(stock.Isin);
-
-        // Count usable daily observations for the requested stock
-        var requestedCount = await CountUsableDailyObservationsAsync(requestedStockId, cancellationToken);
-        var requestedLatest = await GetLatestDailyObservationDateAsync(requestedStockId, cancellationToken);
+        var candidates = await LoadCandidatesAsync(requestedStockId, normalizedIsin, cancellationToken);
+        var requestedCandidate = candidates.FirstOrDefault(c => c.StockId == requestedStockId)
+            ?? new CandidateInfo(requestedStockId, 0, null);
+        var requestedCount = requestedCandidate.ObservationCount;
 
         // Own sufficient history always wins
         if (requestedCount >= ITechnicalAnalysisSourceResolver.SufficientDailyObservations)
@@ -92,16 +92,11 @@ public sealed class TechnicalAnalysisSourceResolver : ITechnicalAnalysisSourceRe
                 $"Requested listing has no usable daily history and no valid ISIN for same-ISIN fallback.");
         }
 
-        // Find same-ISIN candidates (exact normalized-ISIN match only; never ticker/name)
-        var candidates = await FindSameIsinCandidatesAsync(normalizedIsin, requestedStockId, cancellationToken);
+        var rankedCandidates = candidates
+            .Where(c => c.ObservationCount > 0)
+            .ToList();
 
-        // Include the requested stock itself as a candidate (may have some data even if insufficient)
-        if (requestedCount > 0)
-        {
-            candidates.Add(new CandidateInfo(requestedStockId, requestedCount, requestedLatest));
-        }
-
-        if (candidates.Count == 0)
+        if (rankedCandidates.Count == 0)
         {
             return new TechnicalAnalysisSourceResolution(
                 requestedStockId, null, "NoSuitableHistory", normalizedIsin, false,
@@ -113,7 +108,7 @@ public sealed class TechnicalAnalysisSourceResolver : ITechnicalAnalysisSourceRe
         // 2. Larger observation count
         // 3. Fresher latest observation
         // 4. Smallest stockId (stable tie-breaker)
-        var best = candidates
+        var best = rankedCandidates
             .OrderByDescending(c => c.ObservationCount >= ITechnicalAnalysisSourceResolver.SufficientDailyObservations ? 1 : 0)
             .ThenByDescending(c => c.ObservationCount)
             .ThenByDescending(c => c.LatestDate ?? DateTime.MinValue)
@@ -131,53 +126,26 @@ public sealed class TechnicalAnalysisSourceResolver : ITechnicalAnalysisSourceRe
             (isInherited ? $" (same-ISIN {normalizedIsin} fallback)" : " (own history)") + ".");
     }
 
-    private async Task<int> CountUsableDailyObservationsAsync(int stockId, CancellationToken ct)
-    {
-        return await _dbContext.StockHistoricalPrices
-            .AsNoTracking()
-            .CountAsync(p => p.StockId == stockId && p.Interval == "1d" && p.Close > 0, ct);
-    }
-
-    private async Task<DateTime?> GetLatestDailyObservationDateAsync(int stockId, CancellationToken ct)
-    {
-        return await _dbContext.StockHistoricalPrices
-            .AsNoTracking()
-            .Where(p => p.StockId == stockId && p.Interval == "1d" && p.Close > 0)
-            .OrderByDescending(p => p.Timestamp)
-            .Select(p => (DateTime?)p.Timestamp)
-            .FirstOrDefaultAsync(ct);
-    }
-
-    private async Task<List<CandidateInfo>> FindSameIsinCandidatesAsync(
-        string normalizedIsin,
-        int excludeStockId,
+    private async Task<List<CandidateInfo>> LoadCandidatesAsync(
+        int requestedStockId,
+        string? normalizedIsin,
         CancellationToken ct)
     {
-        // Load all stocks with matching ISIN (exact normalized match), excluding the requested stock
-        var matchingStocks = await _dbContext.Stocks
+        return await _dbContext.Stocks
             .AsNoTracking()
-            .Where(s => s.Id != excludeStockId && s.Isin != null)
+            .Where(stock => stock.Id == requestedStockId
+                || (normalizedIsin != null
+                    && stock.Id != requestedStockId
+                    && stock.Isin != null
+                    && stock.Isin.Trim().ToUpper() == normalizedIsin))
+            .Select(stock => new CandidateInfo(
+                stock.Id,
+                _dbContext.StockHistoricalPrices.Count(p => p.StockId == stock.Id && p.Interval == "1d" && p.Close > 0),
+                _dbContext.StockHistoricalPrices
+                    .Where(p => p.StockId == stock.Id && p.Interval == "1d" && p.Close > 0)
+                    .Select(p => (DateTime?)p.Timestamp)
+                    .Max()))
             .ToListAsync(ct);
-
-        // Filter by normalized ISIN in memory (trim+uppercase)
-        var sameIsinIds = matchingStocks
-            .Where(s => NormalizeIsin(s.Isin) == normalizedIsin)
-            .Select(s => s.Id)
-            .ToList();
-
-        if (sameIsinIds.Count == 0) return [];
-
-        // Get observation counts and latest dates for each candidate
-        var result = new List<CandidateInfo>();
-        foreach (var candidateId in sameIsinIds)
-        {
-            var count = await CountUsableDailyObservationsAsync(candidateId, ct);
-            if (count == 0) continue; // Exclude candidates without usable history
-
-            var latest = await GetLatestDailyObservationDateAsync(candidateId, ct);
-            result.Add(new CandidateInfo(candidateId, count, latest));
-        }
-        return result;
     }
 
     private sealed record CandidateInfo(int StockId, int ObservationCount, DateTime? LatestDate);
@@ -185,7 +153,9 @@ public sealed class TechnicalAnalysisSourceResolver : ITechnicalAnalysisSourceRe
     /// <summary>Normalize an ISIN for comparison: trim whitespace and upper-case.</summary>
     private static string? NormalizeIsin(string? isin)
     {
-        if (string.IsNullOrWhiteSpace(isin)) return null;
-        return isin.Trim().ToUpperInvariant();
+        var normalized = StockIdentifiers.Normalize(isin);
+        return normalized != null && StockIdentifiers.IsValidIsin(normalized)
+            ? normalized
+            : null;
     }
 }

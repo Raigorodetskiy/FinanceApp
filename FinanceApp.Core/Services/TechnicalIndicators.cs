@@ -7,11 +7,12 @@ namespace FinanceApp.Core.Services;
 /// <summary>
 /// Pure, deterministic technical indicator calculations over timestamped daily OHLCV observations.
 ///
-/// <para><b>Price-adjustment semantics:</b> All inputs are assumed to be unadjusted (raw) close
-/// prices as stored in <c>StockHistoricalPrice.Close</c>. Corporate actions (splits, dividends)
-/// are not accounted for. Comparative return and drawdown calculations may be affected by
-/// significant corporate actions over the lookback window. Phase 2 should introduce
-/// adjusted-close support when available.</para>
+/// <para><b>Price-adjustment semantics:</b> Raw OHLC always remains available for auditability and
+/// ATR. When <see cref="DailyObservation.AdjustedClose"/> is present and valid, close-based
+/// indicators prefer an adjusted-close-only series for their required lookback window or full
+/// recursive sequence. If that adjusted series is incomplete, calculations explicitly fall back to
+/// raw close for the affected metric rather than silently mixing raw and adjusted points inside one
+/// calculation window.</para>
 ///
 /// <para><b>Warm-up requirements:</b>
 /// <list type="bullet">
@@ -49,6 +50,15 @@ public static class TechnicalIndicators
     /// <summary>12-month (52-week / 1-year) return uses 252 trading-day observations back.</summary>
     public const int TradingDaysPer12Months = 252;
 
+    public enum PriceBasis
+    {
+        Adjusted,
+        RawFallback,
+        Unavailable
+    }
+
+    public sealed record PriceSeriesSelection(PriceBasis Basis, string Reason);
+
     // ─── Result types ──────────────────────────────────────────────────────────
 
     /// <summary>
@@ -68,7 +78,8 @@ public static class TechnicalIndicators
         double? Volatility20,
         double? Volatility60,
         double? CurrentDrawdown,
-        double? Atr14);
+        double? Atr14,
+        IReadOnlyDictionary<string, PriceSeriesSelection> PriceBasisByMetric);
 
     /// <summary>MACD line, signal line, and histogram. Null when insufficient data.</summary>
     public sealed record MACDResult(double MacdLine, double? SignalLine, double? Histogram);
@@ -93,7 +104,8 @@ public static class TechnicalIndicators
         decimal High,
         decimal Low,
         decimal Close,
-        long Volume);
+        long Volume,
+        decimal? AdjustedClose = null);
 
     // ─── Main entry point ─────────────────────────────────────────────────────
 
@@ -116,26 +128,183 @@ public static class TechnicalIndicators
         if (sorted.Count == 0) return null;
 
         var asOfDate = sorted[^1].Date;
-        var closes = sorted.Select(o => (double)o.Close).ToArray();
+        var priceBasisByMetric = new Dictionary<string, PriceSeriesSelection>(StringComparer.Ordinal);
 
-        // Filter out non-positive closes for log-based calculations
-        // (we still need the raw sorted list for ATR which uses OHLC)
+        var sma20Series = SelectWindowSeries(sorted, 20, "Sma20");
+        var sma50Series = SelectWindowSeries(sorted, 50, "Sma50");
+        var sma200Series = SelectWindowSeries(sorted, 200, "Sma200");
+        var ema12Series = SelectFullSeries(sorted, 12, "Ema12");
+        var ema26Series = SelectFullSeries(sorted, 26, "Ema26");
+        var rsi14Series = SelectFullSeries(sorted, 15, "Rsi14");
+        var macdSeries = SelectFullSeries(sorted, 26, "Macd");
+        var returns1WeekSeries = SelectWindowSeries(sorted, TradingDaysPerWeek + 1, "Returns.Return1Week");
+        var returns1MonthSeries = SelectWindowSeries(sorted, TradingDaysPerMonth + 1, "Returns.Return1Month");
+        var returns3MonthsSeries = SelectWindowSeries(sorted, TradingDaysPer3Months + 1, "Returns.Return3Months");
+        var returns6MonthsSeries = SelectWindowSeries(sorted, TradingDaysPer6Months + 1, "Returns.Return6Months");
+        var returns12MonthsSeries = SelectWindowSeries(sorted, TradingDaysPer12Months + 1, "Returns.Return12Months");
+        var volatility20Series = SelectWindowSeries(sorted, 21, "Volatility20");
+        var volatility60Series = SelectWindowSeries(sorted, 61, "Volatility60");
+        var drawdownSeries = SelectWindowSeries(sorted, Math.Min(sorted.Count, TradingDaysPer12Months), "CurrentDrawdown");
+
+        AddSelection(priceBasisByMetric, "Sma20", sma20Series);
+        AddSelection(priceBasisByMetric, "Sma50", sma50Series);
+        AddSelection(priceBasisByMetric, "Sma200", sma200Series);
+        AddSelection(priceBasisByMetric, "Ema12", ema12Series);
+        AddSelection(priceBasisByMetric, "Ema26", ema26Series);
+        AddSelection(priceBasisByMetric, "Rsi14", rsi14Series);
+        AddSelection(priceBasisByMetric, "Macd", macdSeries);
+        AddSelection(priceBasisByMetric, "Returns.Return1Week", returns1WeekSeries);
+        AddSelection(priceBasisByMetric, "Returns.Return1Month", returns1MonthSeries);
+        AddSelection(priceBasisByMetric, "Returns.Return3Months", returns3MonthsSeries);
+        AddSelection(priceBasisByMetric, "Returns.Return6Months", returns6MonthsSeries);
+        AddSelection(priceBasisByMetric, "Returns.Return12Months", returns12MonthsSeries);
+        AddSelection(priceBasisByMetric, "Volatility20", volatility20Series);
+        AddSelection(priceBasisByMetric, "Volatility60", volatility60Series);
+        AddSelection(priceBasisByMetric, "CurrentDrawdown", drawdownSeries);
+        priceBasisByMetric["Atr14"] = new PriceSeriesSelection(
+            PriceBasis.RawFallback,
+            "ATR uses raw OHLC because adjusted OHLC is not available in the current model.");
 
         return new TechnicalIndicatorResult(
             AsOfDate: asOfDate,
-            Sma20: CalcSma(closes, 20),
-            Sma50: CalcSma(closes, 50),
-            Sma200: CalcSma(closes, 200),
-            Ema12: CalcEma(closes, 12),
-            Ema26: CalcEma(closes, 26),
-            Rsi14: CalcRsi14(closes),
-            Macd: CalcMacd(closes),
-            Returns: CalcReturns(closes),
-            Volatility20: CalcVolatility(closes, 20),
-            Volatility60: CalcVolatility(closes, 60),
-            CurrentDrawdown: CalcCurrentDrawdown(closes),
-            Atr14: CalcAtr14(sorted));
+            Sma20: CalcSma(sma20Series.Values, 20),
+            Sma50: CalcSma(sma50Series.Values, 50),
+            Sma200: CalcSma(sma200Series.Values, 200),
+            Ema12: CalcEma(ema12Series.Values, 12),
+            Ema26: CalcEma(ema26Series.Values, 26),
+            Rsi14: CalcRsi14(rsi14Series.Values),
+            Macd: CalcMacd(macdSeries.Values),
+            Returns: BuildReturnsResult(
+                returns1WeekSeries,
+                returns1MonthSeries,
+                returns3MonthsSeries,
+                returns6MonthsSeries,
+                returns12MonthsSeries),
+            Volatility20: CalcVolatility(volatility20Series.Values, 20),
+            Volatility60: CalcVolatility(volatility60Series.Values, 60),
+            CurrentDrawdown: CalcCurrentDrawdown(drawdownSeries.Values),
+            Atr14: CalcAtr14(sorted),
+            PriceBasisByMetric: priceBasisByMetric);
     }
+
+    private static void AddSelection(
+        IDictionary<string, PriceSeriesSelection> target,
+        string key,
+        SelectedSeries selection)
+        => target[key] = selection.Selection;
+
+    private static ReturnResult BuildReturnsResult(
+        SelectedSeries return1Week,
+        SelectedSeries return1Month,
+        SelectedSeries return3Months,
+        SelectedSeries return6Months,
+        SelectedSeries return12Months)
+        => new(
+            TryReturn(return1Week.Values, TradingDaysPerWeek),
+            TryReturn(return1Month.Values, TradingDaysPerMonth),
+            TryReturn(return3Months.Values, TradingDaysPer3Months),
+            TryReturn(return6Months.Values, TradingDaysPer6Months),
+            TryReturn(return12Months.Values, TradingDaysPer12Months));
+
+    private static SelectedSeries SelectFullSeries(
+        IReadOnlyList<DailyObservation> observations,
+        int minimumRequiredPoints,
+        string metricName)
+        => SelectSeries(observations, observations.Count, minimumRequiredPoints, metricName);
+
+    private static SelectedSeries SelectWindowSeries(
+        IReadOnlyList<DailyObservation> observations,
+        int requiredPoints,
+        string metricName)
+        => SelectSeries(observations, requiredPoints, requiredPoints, metricName);
+
+    private static SelectedSeries SelectSeries(
+        IReadOnlyList<DailyObservation> observations,
+        int pointsToUse,
+        int minimumRequiredPoints,
+        string metricName)
+    {
+        if (observations.Count < minimumRequiredPoints)
+        {
+            return new SelectedSeries(
+                Array.Empty<double>(),
+                new PriceSeriesSelection(
+                    PriceBasis.Unavailable,
+                    $"{metricName} requires at least {minimumRequiredPoints} observations."));
+        }
+
+        if (pointsToUse <= 0)
+        {
+            return new SelectedSeries(
+                Array.Empty<double>(),
+                new PriceSeriesSelection(
+                    PriceBasis.Unavailable,
+                    $"{metricName} has no usable observation window."));
+        }
+
+        var window = observations.Skip(observations.Count - pointsToUse).ToList();
+
+        if (TryBuildAdjustedSeries(window, out var adjustedValues))
+        {
+            return new SelectedSeries(
+                adjustedValues,
+                new PriceSeriesSelection(
+                    PriceBasis.Adjusted,
+                    $"{metricName} used adjusted close for the full required sequence."));
+        }
+
+        if (TryBuildRawSeries(window, out var rawValues))
+        {
+            return new SelectedSeries(
+                rawValues,
+                new PriceSeriesSelection(
+                    PriceBasis.RawFallback,
+                    $"{metricName} fell back to raw close because adjusted close was unavailable or invalid within the required sequence."));
+        }
+
+        return new SelectedSeries(
+            Array.Empty<double>(),
+            new PriceSeriesSelection(
+                PriceBasis.Unavailable,
+                $"{metricName} is unavailable because the required sequence contains no fully valid raw or adjusted close series."));
+    }
+
+    private static bool TryBuildAdjustedSeries(IReadOnlyList<DailyObservation> observations, out double[] values)
+    {
+        values = new double[observations.Count];
+        for (int i = 0; i < observations.Count; i++)
+        {
+            var adjusted = observations[i].AdjustedClose;
+            if (!adjusted.HasValue || adjusted.Value <= 0m)
+            {
+                values = Array.Empty<double>();
+                return false;
+            }
+
+            values[i] = (double)adjusted.Value;
+        }
+
+        return true;
+    }
+
+    private static bool TryBuildRawSeries(IReadOnlyList<DailyObservation> observations, out double[] values)
+    {
+        values = new double[observations.Count];
+        for (int i = 0; i < observations.Count; i++)
+        {
+            if (observations[i].Close <= 0m)
+            {
+                values = Array.Empty<double>();
+                return false;
+            }
+
+            values[i] = (double)observations[i].Close;
+        }
+
+        return true;
+    }
+
+    private sealed record SelectedSeries(double[] Values, PriceSeriesSelection Selection);
 
     // ─── SMA ──────────────────────────────────────────────────────────────────
 
