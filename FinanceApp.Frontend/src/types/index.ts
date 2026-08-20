@@ -720,3 +720,99 @@ export interface StockCatalogPerformanceResponse {
   generatedAtUtc: string;
   items: IndexConstituentPerformanceItem[];
 }
+
+// ── Stock technical analysis ─────────────────────────────────────────────────
+
+export type TechnicalAnalysisSignal =
+  | 'StrongBullish'
+  | 'ModeratelyBullish'
+  | 'Neutral'
+  | 'ModeratelyBearish'
+  | 'StrongBearish';
+
+export interface TechnicalAnalysisFactor {
+  code: string;
+  message: string;
+}
+
+export interface TechnicalAnalysisPriceBasis {
+  metric: string;
+  basis: string;
+  reason: string;
+}
+
+export interface TechnicalAnalysisComponentScores {
+  trend: number | null;
+  momentum: number | null;
+  returns: number | null;
+  risk: number | null;
+  fundamentals: number | null;
+}
+
+export interface TechnicalAnalysisComponentWeights {
+  trend: number;
+  momentum: number;
+  returns: number;
+  risk: number;
+  fundamentals: number;
+}
+
+export interface TechnicalAnalysisHorizonResult {
+  score: number;
+  signal: TechnicalAnalysisSignal;
+  confidence: number;
+  componentScores: TechnicalAnalysisComponentScores | null;
+  componentWeights: TechnicalAnalysisComponentWeights;
+  positiveFactors: TechnicalAnalysisFactor[];
+  negativeFactors: TechnicalAnalysisFactor[];
+  warnings: TechnicalAnalysisFactor[];
+}
+
+export interface TechnicalAnalysisMetrics {
+  latestPrice: number | null;
+  dailyCandleCount: number;
+  adjustedCloseCoverage: number;
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  ema12: number | null;
+  ema26: number | null;
+  rsi14: number | null;
+  macd: number | null;
+  macdSignal: number | null;
+  macdHistogram: number | null;
+  return1Month: number | null;
+  return3Months: number | null;
+  return6Months: number | null;
+  return1Year: number | null;
+  volatilityAnnualized20: number | null;
+  volatilityAnnualized60: number | null;
+  maxDrawdown: number | null;
+  atr14: number | null;
+  priceBasis: TechnicalAnalysisPriceBasis[];
+}
+
+export interface TechnicalAnalysisResponse {
+  stockId: number;
+  ticker: string;
+  name: string;
+  commonName: string;
+  exchange: string;
+  isin: string | null;
+  wkn: string | null;
+  asOfUtc: string | null;
+  isPotentiallyStale: boolean;
+  historyRefreshCadence: string;
+  lastIncrementalHistoryRefreshSucceededAtUtc: string | null;
+  nextIncrementalHistoryRefreshAtUtc: string | null;
+  lastHistoryReconciliationSucceededAtUtc: string | null;
+  nextHistoryReconciliationAtUtc: string | null;
+  lastFullHistoryBackfillSucceededAtUtc: string | null;
+  nextFullHistoryBackfillAtUtc: string | null;
+  metrics: TechnicalAnalysisMetrics;
+  threeMonths: TechnicalAnalysisHorizonResult;
+  sixMonths: TechnicalAnalysisHorizonResult;
+  oneYear: TechnicalAnalysisHorizonResult;
+  twoYears: TechnicalAnalysisHorizonResult;
+  warnings: TechnicalAnalysisFactor[];
+}
