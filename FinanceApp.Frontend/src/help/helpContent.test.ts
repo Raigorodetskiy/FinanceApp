@@ -76,7 +76,7 @@ describe('help content contracts', () => {
     expect(serialized).toContain('per-candle fallback');
     expect(serialized).toContain('AdjustedClose coverage');
     expect(serialized).toContain('не скорректированные High, Low');
-    expect(serialized).toContain('поле API/UI называется MaxDrawdown');
+    expect(serialized).toContain('Поле API/UI называется MaxDrawdown');
     expect(serialized).toContain('Это НЕ максимальная историческая просадка');
     expect(serialized).toContain('null и показывается как «Недостаточно данных»');
     expect(serialized).toContain('не запускает запрос к провайдеру');
