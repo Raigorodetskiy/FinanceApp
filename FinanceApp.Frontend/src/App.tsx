@@ -88,7 +88,7 @@ const App: React.FC = () => {
               }
             />
             <Route
-              path="/help"
+              path="/help/:articleSlug"
               element={
                 <PrivateRoute>
                   <HelpPage />
@@ -96,7 +96,7 @@ const App: React.FC = () => {
               }
             />
             <Route
-              path="/help/:articleSlug"
+              path="/help"
               element={
                 <PrivateRoute>
                   <HelpPage />

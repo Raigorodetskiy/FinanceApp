@@ -111,9 +111,13 @@ const HelpPage: React.FC = () => {
     const id = location.hash.replace(/^#/, '');
     const node = document.getElementById(id);
     if (node) {
-      node.scrollIntoView({ block: 'start' });
+      if (typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({ block: 'start' });
+      }
       node.setAttribute('tabindex', '-1');
-      node.focus();
+      if (typeof node.focus === 'function') {
+        node.focus();
+      }
     }
   }, [location.hash, selectedArticle?.slug]);
 

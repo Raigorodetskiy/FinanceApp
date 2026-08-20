@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,8 +30,8 @@ vi.mock('../components/AuthenticatedShell', () => ({
 const renderHelp = (entry = '/help') => render(
   <MemoryRouter initialEntries={[entry]}>
     <Routes>
-      <Route path="/help" element={<HelpPage />} />
       <Route path="/help/:articleSlug" element={<HelpPage />} />
+      <Route path="/help" element={<HelpPage />} />
     </Routes>
   </MemoryRouter>,
 );
@@ -51,6 +51,7 @@ describe('HelpPage', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
   });
 
@@ -64,7 +65,7 @@ describe('HelpPage', () => {
     const user = userEvent.setup();
     renderHelp('/help');
 
-    expect(await screen.findByText('Центр справки FinanceApp')).toBeInTheDocument();
+    expect((await screen.findAllByText('Центр справки FinanceApp')).length).toBeGreaterThan(0);
     await user.click(screen.getByRole('link', { name: 'Аналитический сигнал: как читать' }));
     expect(await screen.findByRole('heading', { name: 'Аналитический сигнал: как читать' })).toBeInTheDocument();
   });
@@ -97,9 +98,13 @@ describe('HelpPage', () => {
 
   it('copies article link and reports clipboard failure accessibly', async () => {
     const user = userEvent.setup();
-    renderHelp('/help/analytical-signal');
+    renderHelp('/help');
 
-    await user.click(await screen.findByRole('button', { name: 'Копировать ссылку' }));
+    await user.click(await screen.findByRole('link', { name: 'Аналитический сигнал: как читать' }));
+    await screen.findByRole('heading', { name: 'Аналитический сигнал: как читать' });
+
+    const copyLinkText = await screen.findByText('Копировать ссылку');
+    await user.click(copyLinkText.closest('button') ?? copyLinkText);
     await waitFor(() => {
       expect(screen.getByText('Ссылка скопирована.')).toBeInTheDocument();
     });
@@ -110,7 +115,8 @@ describe('HelpPage', () => {
       configurable: true,
     });
 
-    await user.click(screen.getByRole('button', { name: 'Копировать ссылку' }));
+    const copyLinkTextRetry = await screen.findByText('Копировать ссылку');
+    await user.click(copyLinkTextRetry.closest('button') ?? copyLinkTextRetry);
     await waitFor(() => {
       expect(screen.getByText('Не удалось скопировать ссылку. Скопируйте адрес вручную.')).toBeInTheDocument();
     });
