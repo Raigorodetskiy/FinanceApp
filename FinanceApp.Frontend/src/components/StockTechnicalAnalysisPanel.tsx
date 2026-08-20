@@ -325,8 +325,34 @@ const StockTechnicalAnalysisPanel: React.FC<{ stockId: number }> = ({ stockId })
               <div><Text type="secondary">AdjustedClose coverage</Text><div>{formatFractionAsPercent(state.response.metrics.adjustedCloseCoverage, 1)}</div></div>
               <div><Text type="secondary">SMA20 / SMA50 / SMA200</Text><div>{formatTechnicalNumber(state.response.metrics.sma20)} / {formatTechnicalNumber(state.response.metrics.sma50)} / {formatTechnicalNumber(state.response.metrics.sma200)}</div></div>
               <div><Text type="secondary">EMA12 / EMA26</Text><div>{formatTechnicalNumber(state.response.metrics.ema12)} / {formatTechnicalNumber(state.response.metrics.ema26)}</div></div>
-              <div><Text type="secondary">RSI14</Text><div>{formatTechnicalNumber(state.response.metrics.rsi14, 1)}</div></div>
-              <div><Text type="secondary">MACD / Signal / Hist</Text><div>{formatTechnicalNumber(state.response.metrics.macd)} / {formatTechnicalNumber(state.response.metrics.macdSignal)} / {formatTechnicalNumber(state.response.metrics.macdHistogram)}</div></div>
+              <div>
+                <Text type="secondary" className="technical-analysis-panel__metric-label">
+                  RSI14
+                  {' '}
+                  <Link
+                    to="/help/technical-indicators#indicators-rsi14-calculation"
+                    className="technical-analysis-panel__metric-help-link"
+                    aria-label="Открыть справку по RSI14"
+                  >
+                    Справка
+                  </Link>
+                </Text>
+                <div>{formatTechnicalNumber(state.response.metrics.rsi14, 1)}</div>
+              </div>
+              <div>
+                <Text type="secondary" className="technical-analysis-panel__metric-label">
+                  MACD / Signal / Hist
+                  {' '}
+                  <Link
+                    to="/help/technical-indicators#indicators-macd-calculation"
+                    className="technical-analysis-panel__metric-help-link"
+                    aria-label="Открыть справку по MACD"
+                  >
+                    Справка
+                  </Link>
+                </Text>
+                <div>{formatTechnicalNumber(state.response.metrics.macd)} / {formatTechnicalNumber(state.response.metrics.macdSignal)} / {formatTechnicalNumber(state.response.metrics.macdHistogram)}</div>
+              </div>
               <div><Text type="secondary">1м / 3м / 6м / 1г</Text><div>{formatPercentPoints(state.response.metrics.return1Month)} / {formatPercentPoints(state.response.metrics.return3Months)} / {formatPercentPoints(state.response.metrics.return6Months)} / {formatPercentPoints(state.response.metrics.return1Year)}</div></div>
               <div><Text type="secondary">Volatility20 / Volatility60</Text><div>{formatFractionAsPercent(state.response.metrics.volatilityAnnualized20, 1)} / {formatFractionAsPercent(state.response.metrics.volatilityAnnualized60, 1)}</div></div>
               <div><Text type="secondary">Max Drawdown</Text><div>{formatPercentPoints(state.response.metrics.maxDrawdown, 1)}</div></div>
