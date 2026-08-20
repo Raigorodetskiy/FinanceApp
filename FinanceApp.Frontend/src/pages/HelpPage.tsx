@@ -57,9 +57,9 @@ const renderHelpBlock = (block: HelpBlock): React.ReactNode => {
       );
     case 'qa':
       return (
-        <div>
-          <Text strong>{block.question}</Text>
-          <Paragraph>{block.answer}</Paragraph>
+        <div className="help-page__qa-block">
+          <Text strong className="help-page__qa-question">{block.question}</Text>
+          <Paragraph className="help-page__qa-answer">{block.answer}</Paragraph>
         </div>
       );
     default:
@@ -229,7 +229,7 @@ const HelpPage: React.FC = () => {
               </Space>
             </Card>
           ) : (
-            <article>
+            <article className="help-page__article">
               <header className="help-page__article-header">
                 <div>
                   <Title level={2}>{selectedArticle.title}</Title>
@@ -245,7 +245,7 @@ const HelpPage: React.FC = () => {
 
               {selectedArticle.sections.length > 2 && (
                 <Card size="small" title="Содержание" style={{ marginBottom: 16 }}>
-                  <ol>
+                  <ol className="help-page__toc-list">
                     {selectedArticle.sections.map((section) => (
                       <li key={section.slug}>
                         <a href={`#${section.slug}`}>{section.title}</a>

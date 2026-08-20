@@ -494,6 +494,10 @@ The app will be available at `http://localhost:3000`
 npm run build
 ```
 
+### Help Center maintenance note
+
+Any PR that changes user-visible behavior, calculations, data interpretation, routes, workflows, warnings, or known limitations must update the relevant in-app Help Center article (`FinanceApp.Frontend/src/help`) and its focused tests in the same PR.
+
 ---
 
 ## Experimental: finanzen.net Pre-Market Quote Provider
