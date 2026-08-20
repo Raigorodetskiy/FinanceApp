@@ -51,3 +51,48 @@ public class TechnicalAnalysisSchemaMigrationTests
         return new AppDbContext(options);
     }
 }
+
+public class CatalogStockRefreshRunSchemaMigrationTests
+{
+    private const string PreviousMigration = "20260820043053_AddAdjustedCloseAndNonUniqueIsin";
+    private const string CurrentMigration = "20260820072805_FixCatalogStockRefreshRunOccurrenceIndex";
+    private const string DefaultConnectionString = "Server=example.invalid;Port=3306;Database=financeapp";
+
+    [Fact]
+    public void MigrationScript_MakesBusinessDateTimeZoneIndexNonUnique_AndKeepsRunKeyUniqueUntouched()
+    {
+        using var context = CreateMySqlContext();
+        var migrator = context.GetService<IMigrator>();
+
+        var script = migrator.GenerateScript(PreviousMigration, CurrentMigration);
+
+        Assert.Contains("DROP INDEX IF EXISTS `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId` ON `CatalogStockRefreshRuns`", script);
+        Assert.Contains("CREATE INDEX `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId` ON `CatalogStockRefreshRuns` (`BusinessDate`, `TimeZoneId`)", script);
+        Assert.DoesNotContain("CREATE UNIQUE INDEX `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId`", script);
+        Assert.DoesNotContain("IX_CatalogStockRefreshRuns_RunKey", script);
+    }
+
+    [Fact]
+    public void MigrationScript_Rollback_RestoresUniqueBusinessDateTimeZoneIndex()
+    {
+        using var context = CreateMySqlContext();
+        var migrator = context.GetService<IMigrator>();
+
+        var script = migrator.GenerateScript(CurrentMigration, PreviousMigration);
+
+        Assert.Contains("DROP INDEX IF EXISTS `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId` ON `CatalogStockRefreshRuns`", script);
+        Assert.Contains("CREATE UNIQUE INDEX `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId` ON `CatalogStockRefreshRuns` (`BusinessDate`, `TimeZoneId`)", script);
+    }
+
+    private static AppDbContext CreateMySqlContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseMySql(
+                Environment.GetEnvironmentVariable("FINANCEAPP_TEST_MYSQL_CONNECTION")
+                    ?? DefaultConnectionString,
+                new MariaDbServerVersion(new Version(10, 5, 23)))
+            .Options;
+
+        return new AppDbContext(options);
+    }
+}

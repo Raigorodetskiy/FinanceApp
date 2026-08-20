@@ -48,6 +48,22 @@ public class MigrationDiscoveryTests
     }
 
     [Fact]
+    public void GetMigrations_Contains_FixCatalogStockRefreshRunOccurrenceIndex()
+    {
+        using var context = CreateContext();
+
+        var migrations = context.Database.GetMigrations().ToList();
+        Assert.Contains("20260820072805_FixCatalogStockRefreshRunOccurrenceIndex", migrations);
+
+        var migrationType = typeof(AppDbContext).Assembly.GetType("FinanceApp.Data.Migrations.FixCatalogStockRefreshRunOccurrenceIndex");
+        Assert.NotNull(migrationType);
+
+        var migrationAttribute = migrationType!.GetCustomAttribute<MigrationAttribute>();
+        Assert.NotNull(migrationAttribute);
+        Assert.Equal("20260820072805_FixCatalogStockRefreshRunOccurrenceIndex", migrationAttribute!.Id);
+    }
+
+    [Fact]
     public void Model_Contains_StockTracking_And_MembershipHistory_Metadata()
     {
         using var context = CreateContext();
@@ -103,6 +119,36 @@ public class MigrationDiscoveryTests
         var adjustedClose = historicalPriceEntity!.FindProperty(nameof(StockHistoricalPrice.AdjustedClose));
         Assert.NotNull(adjustedClose);
         Assert.Equal("decimal(18,4)", adjustedClose!.GetColumnType());
+    }
+
+    [Fact]
+    public void Model_Contains_CatalogRefreshRunIndexSemantics()
+    {
+        using var context = CreateContext();
+
+        var stockRefreshRunEntity = context.Model.FindEntityType(typeof(CatalogStockRefreshRun));
+        Assert.NotNull(stockRefreshRunEntity);
+
+        Assert.Contains(
+            stockRefreshRunEntity!.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_CatalogStockRefreshRuns_RunKey"
+                && index.IsUnique
+                && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(CatalogStockRefreshRun.RunKey) }));
+
+        Assert.Contains(
+            stockRefreshRunEntity.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId"
+                && !index.IsUnique
+                && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(CatalogStockRefreshRun.BusinessDate), nameof(CatalogStockRefreshRun.TimeZoneId) }));
+
+        var fundamentalsRefreshRunEntity = context.Model.FindEntityType(typeof(CatalogFundamentalsRefreshRun));
+        Assert.NotNull(fundamentalsRefreshRunEntity);
+
+        Assert.Contains(
+            fundamentalsRefreshRunEntity!.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_CatalogFundamentalsRefreshRuns_BusinessWeek_TimeZoneId"
+                && index.IsUnique
+                && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(CatalogFundamentalsRefreshRun.BusinessWeek), nameof(CatalogFundamentalsRefreshRun.TimeZoneId) }));
     }
 
     private static AppDbContext CreateContext()
