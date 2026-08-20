@@ -181,9 +181,33 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             if (!startupCheckCompleted)
             {
                 startupCheckCompleted = true;
-                if (_options.RunCatchUpOnStartup && nowUtc >= snapshot.TodayScheduledRunUtc)
+                if (_options.RunCatchUpOnStartup)
                 {
-                    await RunUntilNotDeferredAsync(snapshot.BusinessDate, snapshot.TodayScheduledRunUtc.UtcDateTime, "startup-catch-up", stoppingToken);
+                    // Select the most recent past scheduled occurrence.
+                    // If we are before today's 22:30, the previous occurrence is yesterday's.
+                    // If we are at or after today's 22:30, the previous occurrence is today's.
+                    // Never attempt to catch up a future occurrence.
+                    DateTimeOffset catchUpOccurrenceUtc;
+                    DateOnly catchUpBusinessDate;
+                    if (nowUtc >= snapshot.TodayScheduledRunUtc)
+                    {
+                        catchUpOccurrenceUtc = snapshot.TodayScheduledRunUtc;
+                        catchUpBusinessDate = snapshot.BusinessDate;
+                    }
+                    else
+                    {
+                        catchUpBusinessDate = snapshot.BusinessDate.AddDays(-1);
+                        catchUpOccurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+                            catchUpBusinessDate, _options.LocalScheduleTime, timeZone);
+                    }
+
+                    _logger.LogInformation(
+                        "Startup catch-up: occurrence={OccurrenceUtc} businessDate={BusinessDate} trigger=startup-catch-up timeZone={TimeZoneId}",
+                        catchUpOccurrenceUtc.UtcDateTime,
+                        catchUpBusinessDate,
+                        timeZone.Id);
+
+                    await RunUntilNotDeferredAsync(catchUpBusinessDate, catchUpOccurrenceUtc.UtcDateTime, "startup-catch-up", stoppingToken);
                 }
             }
 
@@ -271,8 +295,9 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         try
         {
             var timeZone = ResolveTimeZone();
-            var runKey = BuildRunKey(businessDate, timeZone.Id);
-            var run = await GetOrCreateRunAsync(runKey, businessDate, timeZone.Id, scheduledAtUtc, cancellationToken);
+            var runKey = BuildRunKey(timeZone.Id, scheduledAtUtc);
+            var legacyRunKey = BuildLegacyRunKey(businessDate, timeZone.Id);
+            var run = await GetOrCreateRunAsync(runKey, legacyRunKey, businessDate, timeZone.Id, scheduledAtUtc, cancellationToken);
             if (run is null)
             {
                 return RunAttemptOutcome.NotStarted;
@@ -281,6 +306,12 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             runId = run.Id;
             if (run.Status is CatalogStockRefreshRunStatus.Completed or CatalogStockRefreshRunStatus.CompletedWithErrors)
             {
+                _logger.LogInformation(
+                    "Nightly catalog refresh skipped: runKey={RunKey} businessDate={BusinessDate} trigger={Trigger} status={Status} (already completed)",
+                    run.RunKey,
+                    businessDate,
+                    trigger,
+                    run.Status);
                 return RunAttemptOutcome.NotStarted;
             }
 
@@ -297,6 +328,11 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
                     cancellationToken))
             {
                 await ReleaseRunLeaseAsync(runId, cancellationToken);
+                _logger.LogInformation(
+                    "Nightly catalog refresh deferred: runKey={RunKey} businessDate={BusinessDate} trigger={Trigger} (shared maintenance lease held by another instance, will retry)",
+                    runKey,
+                    businessDate,
+                    trigger);
                 return RunAttemptOutcome.DeferredForSharedLease;
             }
 
@@ -972,6 +1008,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
 
     private async Task<CatalogStockRefreshRun?> GetOrCreateRunAsync(
         string runKey,
+        string legacyRunKey,
         DateOnly businessDate,
         string timeZoneId,
         DateTime scheduledAtUtc,
@@ -983,6 +1020,34 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         if (existing is not null)
         {
             return existing;
+        }
+
+        // Backward compatibility: look for a legacy-format row (timezone:date) that represents
+        // the same occurrence. Only resume/skip legacy rows that are for the matching business date
+        // and whose ScheduledAtUtc is within 2 hours of the expected occurrence (to avoid mistakenly
+        // treating an early-morning catch-up for the wrong occurrence as today's scheduled run —
+        // the root cause of the 2026-08-19 production incident).
+        var legacy = await db.CatalogStockRefreshRuns.FirstOrDefaultAsync(x => x.RunKey == legacyRunKey, cancellationToken);
+        if (legacy is not null && legacy.BusinessDate == businessDate)
+        {
+            var drift = Math.Abs((legacy.ScheduledAtUtc - scheduledAtUtc).TotalHours);
+            if (drift <= 2.0)
+            {
+                _logger.LogInformation(
+                    "Nightly catalog refresh: found legacy run key={LegacyRunKey} for occurrence={OccurrenceUtc} — treating as same occurrence (drift={DriftHours:F2}h)",
+                    legacyRunKey,
+                    scheduledAtUtc,
+                    drift);
+                return legacy;
+            }
+
+            _logger.LogInformation(
+                "Nightly catalog refresh: legacy run key={LegacyRunKey} found but ScheduledAtUtc={LegacyScheduledAtUtc} differs from expected occurrence={OccurrenceUtc} by {DriftHours:F2}h (>2h) — creating new run with key={RunKey}",
+                legacyRunKey,
+                legacy.ScheduledAtUtc,
+                scheduledAtUtc,
+                drift,
+                runKey);
         }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -1036,7 +1101,10 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         return TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
     }
 
-    private static string BuildRunKey(DateOnly businessDate, string timeZoneId)
+    private static string BuildRunKey(string timeZoneId, DateTime scheduledAtUtc)
+        => $"{timeZoneId}:{scheduledAtUtc:yyyy-MM-ddTHH:mm:ssZ}";
+
+    private static string BuildLegacyRunKey(DateOnly businessDate, string timeZoneId)
         => $"{timeZoneId}:{businessDate:yyyy-MM-dd}";
 
     private static CatalogStockRefreshRunDetails MapRun(CatalogStockRefreshRun run)
