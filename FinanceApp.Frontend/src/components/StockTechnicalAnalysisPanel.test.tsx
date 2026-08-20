@@ -167,6 +167,9 @@ describe('StockTechnicalAnalysisPanel', () => {
     expect(screen.getByText('Вес: 0%')).toBeInTheDocument();
     expect(screen.getByText('Недостаточно данных')).toBeInTheDocument();
     expect(screen.getByText('71 / 100')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Открыть методику фундаментального компонента' }))
+      .toHaveAttribute('href', '/help/fundamentals#fundamentals-scoring-methodology-overview');
+    expect(getStockTechnicalAnalysisMock).toHaveBeenCalledTimes(1);
   });
 
   it('shows low confidence warning and factor localization/fallback', async () => {

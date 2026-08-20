@@ -291,6 +291,15 @@ const StockTechnicalAnalysisPanel: React.FC<{ stockId: number }> = ({ stockId })
                       <Text strong>{component.label}</Text>
                       <Text type="secondary">Вес: {formatFractionAsPercent(weight, 0)}</Text>
                     </div>
+                    {component.key === 'fundamentals' && (
+                      <Link
+                        to="/help/fundamentals#fundamentals-scoring-methodology-overview"
+                        className="technical-analysis-panel__component-help-link"
+                        aria-label="Открыть методику фундаментального компонента"
+                      >
+                        Как считается фундаментальный компонент?
+                      </Link>
+                    )}
                     {isMissing ? (
                       <Text type="secondary">{TECHNICAL_ANALYSIS_INSUFFICIENT_DATA_TEXT}</Text>
                     ) : (
