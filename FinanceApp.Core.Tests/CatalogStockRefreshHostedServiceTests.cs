@@ -312,6 +312,473 @@ public class CatalogStockRefreshHostedServiceTests
         Assert.NotNull(attribute);
     }
 
+    // -----------------------------------------------------------------------
+    // Regression tests for the 2026-08-19 production incident and related
+    // scheduler occurrence-selection logic.
+    // -----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("2026-08-19T06:00:00Z", "2026-08-18T20:30:00Z", "2026-08-18")] // 08:00 Berlin CEST, before today's 22:30 → yesterday
+    [InlineData("2026-08-19T20:29:59Z", "2026-08-18T20:30:00Z", "2026-08-18")] // 22:29:59 Berlin, just before 22:30 → yesterday
+    [InlineData("2026-08-19T20:30:00Z", "2026-08-19T20:30:00Z", "2026-08-19")] // exactly at 22:30 Berlin → today
+    [InlineData("2026-08-19T21:00:00Z", "2026-08-19T20:30:00Z", "2026-08-19")] // 23:00 Berlin, after 22:30 → today
+    public void CatchUp_OccurrenceSelection_PicksCorrectPastOccurrence(
+        string nowUtcStr,
+        string expectedOccurrenceUtcStr,
+        string expectedBusinessDateStr)
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var nowUtc = DateTimeOffset.Parse(nowUtcStr);
+        var expectedOccurrence = DateTimeOffset.Parse(expectedOccurrenceUtcStr);
+        var expectedBusinessDate = DateOnly.Parse(expectedBusinessDateStr);
+
+        var snapshot = CatalogStockRefreshScheduleCalculator.Snapshot(nowUtc, tz, new TimeSpan(22, 30, 0));
+
+        DateTimeOffset catchUpOccurrenceUtc;
+        DateOnly catchUpBusinessDate;
+        if (nowUtc >= snapshot.TodayScheduledRunUtc)
+        {
+            catchUpOccurrenceUtc = snapshot.TodayScheduledRunUtc;
+            catchUpBusinessDate = snapshot.BusinessDate;
+        }
+        else
+        {
+            catchUpBusinessDate = snapshot.BusinessDate.AddDays(-1);
+            catchUpOccurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(catchUpBusinessDate, new TimeSpan(22, 30, 0), tz);
+        }
+
+        Assert.Equal(expectedOccurrence, catchUpOccurrenceUtc);
+        Assert.Equal(expectedBusinessDate, catchUpBusinessDate);
+    }
+
+    [Fact]
+    public void RunKey_IncludesScheduledUtcOccurrence_NotJustDate()
+    {
+        // Two different occurrences on the same calendar date (e.g., 22:30 summer vs winter)
+        // must produce different run keys.
+        var summerUtc = new DateTime(2026, 8, 19, 20, 30, 0, DateTimeKind.Utc); // CEST
+        var winterUtc = new DateTime(2026, 11, 5, 21, 30, 0, DateTimeKind.Utc); // CET
+
+        var keySummer = $"Europe/Berlin:{summerUtc:yyyy-MM-ddTHH:mm:ssZ}";
+        var keyWinter = $"Europe/Berlin:{winterUtc:yyyy-MM-ddTHH:mm:ssZ}";
+
+        Assert.NotEqual(keySummer, keyWinter);
+        Assert.Equal("Europe/Berlin:2026-08-19T20:30:00Z", keySummer);
+        Assert.Equal("Europe/Berlin:2026-11-05T21:30:00Z", keyWinter);
+    }
+
+    [Fact]
+    public async Task ProductionIncident_MorningCatchUp_DoesNotBlockEveningRun()
+    {
+        // Reproduce the 2026-08-19 production incident:
+        // A morning catch-up ran under businessDate=2026-08-19 with ScheduledAtUtc=2026-08-18T22:00Z
+        // (wrong occurrence). With the new key format, this row must NOT block the real
+        // 2026-08-19 22:30 scheduled run.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var scheduledAug19Utc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(scheduledAug19Utc); // exactly at the evening occurrence
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
+
+        // Seed a row that resembles the production incident:
+        // - RunKey is the legacy date-only format for 2026-08-19
+        // - BusinessDate is 2026-08-19 (same as today's occurrence)
+        // - But ScheduledAtUtc is 2026-08-18T22:00Z — more than 2h before the real occurrence
+        await using (var scope = harness.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.CatalogStockRefreshRuns.Add(new CatalogStockRefreshRun
+            {
+                RunKey = "Europe/Berlin:2026-08-19",
+                BusinessDate = DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+                TimeZoneId = "Europe/Berlin",
+                ScheduledAtUtc = new DateTime(2026, 8, 18, 22, 0, 0, DateTimeKind.Utc), // wrong — from incident
+                Status = CatalogStockRefreshRunStatus.CompletedWithErrors,
+                CreatedAtUtc = new DateTime(2026, 8, 19, 3, 18, 36, DateTimeKind.Utc),
+                UpdatedAtUtc = new DateTime(2026, 8, 19, 5, 0, 46, DateTimeKind.Utc)
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // The evening run should NOT be blocked — it should find no matching row via the
+        // new-format key and, because the legacy row's ScheduledAtUtc drifts >2h, should
+        // create a fresh row and execute successfully.
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+            scheduledAug19Utc.UtcDateTime,
+            "scheduled");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var runs = await verifyDb.CatalogStockRefreshRuns.ToListAsync();
+
+        // Two rows: the legacy incident row and the new correctly-keyed row
+        Assert.Equal(2, runs.Count);
+        var newRun = runs.Single(r => r.RunKey != "Europe/Berlin:2026-08-19");
+        Assert.Equal($"Europe/Berlin:{scheduledAug19Utc.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", newRun.RunKey);
+        Assert.Equal(scheduledAug19Utc.UtcDateTime, newRun.ScheduledAtUtc);
+        Assert.Equal(CatalogStockRefreshRunStatus.Completed, newRun.Status);
+        Assert.Single(quote.ProcessedIds); // stock was actually processed
+    }
+
+    [Fact]
+    public async Task StartupBeforeScheduledTime_CatchUpUsesYesterdayOccurrence_TodayRunsIndependently()
+    {
+        // Morning startup at 08:00 Berlin (06:00 UTC CEST) on 2026-08-19.
+        // Catch-up must use the previous occurrence (2026-08-18T20:30:00Z),
+        // and the evening run for 2026-08-19T20:30:00Z must run independently.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var morningUtc = new DateTimeOffset(2026, 8, 19, 6, 0, 0, TimeSpan.Zero); // 08:00 Berlin
+
+        var aug18OccurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 18)), new TimeSpan(22, 30, 0), tz);
+        var aug19OccurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        Assert.Equal(new DateTimeOffset(2026, 8, 18, 20, 30, 0, TimeSpan.Zero), aug18OccurrenceUtc);
+        Assert.Equal(new DateTimeOffset(2026, 8, 19, 20, 30, 0, TimeSpan.Zero), aug19OccurrenceUtc);
+
+        // Morning catch-up occurs
+        var clock = new FixedTimeProvider(morningUtc);
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
+
+        // Simulate startup catch-up for yesterday's occurrence
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 18)),
+            aug18OccurrenceUtc.UtcDateTime,
+            "startup-catch-up");
+
+        // Advance clock to evening and run today's scheduled occurrence
+        clock.Set(aug19OccurrenceUtc);
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+            aug19OccurrenceUtc.UtcDateTime,
+            "scheduled");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var runs = await verifyDb.CatalogStockRefreshRuns.OrderBy(r => r.ScheduledAtUtc).ToListAsync();
+
+        // Both runs created and completed independently
+        Assert.Equal(2, runs.Count);
+        Assert.Equal($"Europe/Berlin:{aug18OccurrenceUtc.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", runs[0].RunKey);
+        Assert.Equal($"Europe/Berlin:{aug19OccurrenceUtc.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", runs[1].RunKey);
+        Assert.Equal(DateOnly.FromDateTime(new DateTime(2026, 8, 18)), runs[0].BusinessDate);
+        Assert.Equal(DateOnly.FromDateTime(new DateTime(2026, 8, 19)), runs[1].BusinessDate);
+        Assert.Equal(CatalogStockRefreshRunStatus.Completed, runs[0].Status);
+        Assert.Equal(CatalogStockRefreshRunStatus.Completed, runs[1].Status);
+        // Both runs independently processed the stock (each run re-processes all stocks)
+        Assert.Equal(2, quote.ProcessedIds.Count);
+    }
+
+    [Fact]
+    public async Task CompletedPreviousOccurrence_DoesNotBlockNextScheduledOccurrence()
+    {
+        // Completed yesterday catch-up must never block today's evening run.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var aug18OccurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 18)), new TimeSpan(22, 30, 0), tz);
+        var aug19OccurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(aug18OccurrenceUtc);
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
+
+        // Run and complete Aug 18's occurrence
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 18)),
+            aug18OccurrenceUtc.UtcDateTime,
+            "scheduled");
+
+        // Now run Aug 19's occurrence — must NOT be blocked by Aug 18's completed row
+        clock.Set(aug19OccurrenceUtc);
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+            aug19OccurrenceUtc.UtcDateTime,
+            "scheduled");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var runs = await verifyDb.CatalogStockRefreshRuns.OrderBy(r => r.ScheduledAtUtc).ToListAsync();
+
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(CatalogStockRefreshRunStatus.Completed, r.Status));
+        Assert.Equal(2, quote.ProcessedIds.Count);
+    }
+
+    [Fact]
+    public async Task RepeatedRestart_AfterCompletedOccurrence_DoesNotDuplicate()
+    {
+        // After an occurrence completes, repeated restarts/calls must not re-run it.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var occurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(occurrenceUtc);
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
+
+        var businessDate = DateOnly.FromDateTime(new DateTime(2026, 8, 19));
+        await harness.Service.TriggerRunAsync(businessDate, occurrenceUtc.UtcDateTime, "startup-catch-up");
+        var callsAfterFirst = quote.ProcessedIds.Count;
+
+        // Simulate three more restarts
+        await harness.Service.TriggerRunAsync(businessDate, occurrenceUtc.UtcDateTime, "startup-catch-up");
+        await harness.Service.TriggerRunAsync(businessDate, occurrenceUtc.UtcDateTime, "startup-catch-up");
+        await harness.Service.TriggerRunAsync(businessDate, occurrenceUtc.UtcDateTime, "startup-catch-up");
+
+        Assert.Equal(callsAfterFirst, quote.ProcessedIds.Count); // no extra processing
+        Assert.Equal(1, callsAfterFirst); // only processed once
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(1, await verifyDb.CatalogStockRefreshRuns.CountAsync()); // single row
+    }
+
+    [Fact]
+    public async Task LegacyRunKey_ResumedWhenScheduledAtUtcIsClose()
+    {
+        // Legacy row (old key format timezone:date) with ScheduledAtUtc within 2h should be
+        // resumed rather than creating a duplicate new-format row.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var occurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(occurrenceUtc);
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "SAP", StockExchanges.Frankfurt, StockTrackingStatus.CatalogOnly);
+
+        // Seed a pre-existing legacy-format row (from before deployment)
+        await using (var scope = harness.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.CatalogStockRefreshRuns.Add(new CatalogStockRefreshRun
+            {
+                RunKey = "Europe/Berlin:2026-08-19",          // legacy format
+                BusinessDate = DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+                TimeZoneId = "Europe/Berlin",
+                ScheduledAtUtc = occurrenceUtc.UtcDateTime,   // same as expected — within 2h
+                Status = CatalogStockRefreshRunStatus.Running,
+                LeaseOwner = null,
+                LeaseExpiresAtUtc = null,
+                CreatedAtUtc = occurrenceUtc.UtcDateTime,
+                UpdatedAtUtc = occurrenceUtc.UtcDateTime
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // TriggerRunAsync should find the legacy row and resume it (not create a second row)
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+            occurrenceUtc.UtcDateTime,
+            "scheduled");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var runs = await verifyDb.CatalogStockRefreshRuns.ToListAsync();
+        Assert.Single(runs); // only the original legacy row, resumed — no duplicate
+        Assert.Equal("Europe/Berlin:2026-08-19", runs[0].RunKey); // legacy key preserved
+        Assert.Equal(CatalogStockRefreshRunStatus.Completed, runs[0].Status);
+    }
+
+    [Fact]
+    public async Task LegacyRunKey_WithWrongScheduledAtUtc_DoesNotBlockNewRun()
+    {
+        // Legacy row where ScheduledAtUtc drifts >2h from the real occurrence
+        // must NOT be reused — a fresh new-format row must be created.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var occurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(occurrenceUtc);
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
+
+        // Seed the production-incident row: legacy key, same businessDate, but wrong ScheduledAtUtc
+        var wrongScheduledAtUtc = new DateTime(2026, 8, 18, 22, 0, 0, DateTimeKind.Utc); // >2h before real occurrence
+        await using (var scope = harness.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.CatalogStockRefreshRuns.Add(new CatalogStockRefreshRun
+            {
+                RunKey = "Europe/Berlin:2026-08-19",
+                BusinessDate = DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+                TimeZoneId = "Europe/Berlin",
+                ScheduledAtUtc = wrongScheduledAtUtc,
+                Status = CatalogStockRefreshRunStatus.CompletedWithErrors,
+                CreatedAtUtc = wrongScheduledAtUtc,
+                UpdatedAtUtc = wrongScheduledAtUtc
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Real scheduled run must create a new row and complete successfully
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+            occurrenceUtc.UtcDateTime,
+            "scheduled");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var runs = await verifyDb.CatalogStockRefreshRuns.OrderBy(r => r.CreatedAtUtc).ToListAsync();
+        Assert.Equal(2, runs.Count);
+        var newRun = runs.Single(r => r.RunKey != "Europe/Berlin:2026-08-19");
+        Assert.Equal($"Europe/Berlin:{occurrenceUtc.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", newRun.RunKey);
+        Assert.Equal(occurrenceUtc.UtcDateTime, newRun.ScheduledAtUtc);
+        Assert.Equal(CatalogStockRefreshRunStatus.Completed, newRun.Status);
+    }
+
+    [Theory]
+    [InlineData("2026-03-29", 20, 30, 0)] // spring-forward day in Berlin (CEST), 22:30 local = 20:30 UTC
+    [InlineData("2026-10-25", 21, 30, 0)] // fall-back day in Berlin (CET), 22:30 local = 21:30 UTC
+    public void ScheduledUtc_DstTransitionDays_IsCorrect(string dateStr, int expectedHour, int expectedMinute, int expectedSecond)
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var businessDate = DateOnly.Parse(dateStr);
+        var utc = CatalogStockRefreshScheduleCalculator.ToUtc(businessDate, new TimeSpan(22, 30, 0), tz);
+        Assert.Equal(expectedHour, utc.Hour);
+        Assert.Equal(expectedMinute, utc.Minute);
+        Assert.Equal(expectedSecond, utc.Second);
+    }
+
+    [Fact]
+    public async Task ScheduledAtUtc_InRunRecord_MatchesOccurrence_NotArbitraryNow()
+    {
+        // Every run row must have a ScheduledAtUtc that exactly equals the occurrence UTC,
+        // not a stale or incorrect timestamp.
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        var occurrenceUtc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(occurrenceUtc.AddMinutes(5)); // a few minutes after occurrence
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history, options: new CatalogStockRefreshJobOptions
+        {
+            InterRequestDelay = TimeSpan.Zero,
+            RetryLimit = 0
+        });
+        await harness.SeedStockAsync(1, "AAPL", StockExchanges.Nyse, StockTrackingStatus.Tracked);
+
+        // Pass the occurrence UTC (not clock.Now) as scheduledAtUtc
+        await harness.Service.TriggerRunAsync(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)),
+            occurrenceUtc.UtcDateTime, // exact occurrence
+            "scheduled");
+
+        await using var verify = harness.Services.CreateAsyncScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var run = await verifyDb.CatalogStockRefreshRuns.SingleAsync();
+        Assert.Equal(occurrenceUtc.UtcDateTime, run.ScheduledAtUtc);
+        Assert.Equal(DateOnly.FromDateTime(new DateTime(2026, 8, 19)), run.BusinessDate);
+    }
+
+    [Fact]
+    public async Task GetStatus_NextScheduledRunUtc_IsCorrectOccurrenceUtc()
+    {
+        // Status endpoint must report the next occurrence UTC correctly (not just "now + 1 day").
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        // Set clock to 08:00 Berlin CEST (before today's 22:30)
+        var morningUtc = new DateTimeOffset(2026, 8, 19, 6, 0, 0, TimeSpan.Zero);
+        var expectedNextOccurrence = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+
+        var clock = new FixedTimeProvider(morningUtc);
+        var quote = new RecordingQuoteService();
+        var history = new RecordingHistoryService();
+        await using var harness = await Harness.CreateAsync(clock, quote, history);
+
+        var status = await harness.Service.GetStatusAsync();
+        Assert.Equal(expectedNextOccurrence.UtcDateTime, status.NextScheduledRunUtc);
+    }
+
+    [Fact]
+    public void ScheduleCalculator_EuropeBerlin_Winter_IsUtcPlus1()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        // 2026-11-05 is standard CET (UTC+1)
+        var utc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 11, 5)), new TimeSpan(22, 30, 0), tz);
+        Assert.Equal(new DateTimeOffset(2026, 11, 5, 21, 30, 0, TimeSpan.Zero), utc);
+    }
+
+    [Fact]
+    public void ScheduleCalculator_EuropeBerlin_Summer_IsUtcPlus2()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        // 2026-08-19 is CEST (UTC+2)
+        var utc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 8, 19)), new TimeSpan(22, 30, 0), tz);
+        Assert.Equal(new DateTimeOffset(2026, 8, 19, 20, 30, 0, TimeSpan.Zero), utc);
+    }
+
+    [Fact]
+    public void ScheduleCalculator_SpringForwardInvalidTime_SkipsToValidTime()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        // 2026-03-29: clocks spring forward at 02:00 → 03:00, so 02:30 is invalid.
+        // ToUtc must skip forward to the next valid minute.
+        var invalidTime = new TimeSpan(2, 30, 0);
+        var utc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 3, 29)), invalidTime, tz);
+        // Should be valid UTC
+        Assert.False(tz.IsInvalidTime(new DateTime(2026, 3, 29).Add(utc.TimeOfDay)));
+        Assert.True(utc.UtcDateTime > new DateTime(2026, 3, 29, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Fact]
+    public void ScheduleCalculator_FallBackAmbiguousTime_UsesDstOffset()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        // 2026-10-25: clocks fall back at 03:00 → 02:00. 02:30 is ambiguous.
+        // Convention: use the larger (DST / summer) offset — CEST = UTC+2.
+        var ambiguousTime = new TimeSpan(2, 30, 0);
+        var utc = CatalogStockRefreshScheduleCalculator.ToUtc(
+            DateOnly.FromDateTime(new DateTime(2026, 10, 25)), ambiguousTime, tz);
+        // Max offset for ambiguous 02:30 in Europe/Berlin is +02:00 (DST)
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 0, 30, 0, TimeSpan.Zero), utc);
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         private Harness(ServiceProvider services, CatalogStockRefreshHostedService service, FixedTimeProvider clock, CatalogStockRefreshJobOptions options)
