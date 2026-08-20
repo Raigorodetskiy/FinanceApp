@@ -1672,6 +1672,8 @@ public class StocksControllerTests
 
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
 
         public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
@@ -1706,6 +1708,9 @@ public class StocksControllerTests
             _refreshHistoryCalls.Add((stock.Id, stock.Exchange));
             return Task.FromResult(RefreshResponseFactory?.Invoke(stock) ?? new StockHistoryRefreshResponse { StockId = stock.Id });
         }
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
 
         public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.CompletedTask;

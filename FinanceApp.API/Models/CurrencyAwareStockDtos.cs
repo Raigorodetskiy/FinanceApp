@@ -115,6 +115,7 @@ public sealed class StockHistoryRefreshResponse
     public bool RateLimited { get; init; }
     public string? AppliedTier { get; init; }
     public bool SkippedNotDue { get; init; }
+    public bool StockNotFound { get; init; }
     public DateTime? NextDueAtUtc { get; init; }
 }
 

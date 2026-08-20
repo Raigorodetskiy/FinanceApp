@@ -662,6 +662,11 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             return StepOutcome.RateLimited("History provider rate-limited.");
         }
 
+        if (historyResult.StockNotFound)
+        {
+            return StepOutcome.Skipped("Stock record not found for history refresh.");
+        }
+
         if (historyResult.SkippedNotDue)
         {
             var tierSuffix = string.IsNullOrWhiteSpace(historyResult.AppliedTier)

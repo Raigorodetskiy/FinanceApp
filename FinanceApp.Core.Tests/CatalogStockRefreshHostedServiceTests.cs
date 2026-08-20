@@ -949,6 +949,9 @@ public class CatalogStockRefreshHostedServiceTests
                 RateLimited = false
             });
         }
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

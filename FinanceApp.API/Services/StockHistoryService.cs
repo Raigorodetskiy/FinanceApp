@@ -102,7 +102,8 @@ public class StockHistoryService : IStockHistoryService
                     DeletedPoints = 0,
                     ImportedPoints = 0,
                     RateLimited = false,
-                    SkippedNotDue = true,
+                    SkippedNotDue = false,
+                    StockNotFound = true,
                 };
             }
 
@@ -178,18 +179,18 @@ public class StockHistoryService : IStockHistoryService
         }
         catch
         {
-            var persisted = await _dbContext.Stocks.FirstOrDefaultAsync(x => x.Id == stock.Id, cancellationToken);
+            var persisted = await _dbContext.Stocks.FirstOrDefaultAsync(x => x.Id == stock.Id, CancellationToken.None);
             if (persisted is not null)
             {
                 var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
                 var hasHistory = await _dbContext.StockHistoricalPrices
                     .AsNoTracking()
-                    .AnyAsync(x => x.StockId == persisted.Id && x.Interval == "1d", cancellationToken);
+                    .AnyAsync(x => x.StockId == persisted.Id && x.Interval == "1d", CancellationToken.None);
                 var tier = ResolveTier(persisted, hasHistory, trigger, nowUtc);
                 if (tier is not null)
                 {
                     ScheduleRetry(persisted, tier.Value, nowUtc);
-                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    await _dbContext.SaveChangesAsync(CancellationToken.None);
                 }
             }
 
@@ -228,6 +229,7 @@ public class StockHistoryService : IStockHistoryService
             cancellationToken);
         var volumeMetrics = BuildVolumeMetrics(data, interval, conversionContext);
         var asOfUtc = data.LastOrDefault()?.Timestamp;
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
         return new StockHistoryResponse
         {
@@ -242,7 +244,7 @@ public class StockHistoryService : IStockHistoryService
             RateSource = conversionContext.ExchangeRate.Source,
             ConversionWarning = conversionContext.Warning,
             AsOfUtc = asOfUtc,
-            IsPotentiallyStale = IsPotentiallyStale(interval, asOfUtc),
+            IsPotentiallyStale = IsPotentiallyStale(interval, asOfUtc, nowUtc),
             VolumeMetrics = volumeMetrics,
             Points = data
                 .Select(point => _stockQuoteConversionService.BuildHistoryPointResponse(point, conversionContext))
@@ -613,29 +615,56 @@ public class StockHistoryService : IStockHistoryService
 
     private async Task<List<Stock>> LoadDueAutomaticStocksAsync(DateTime nowUtc, CancellationToken cancellationToken)
     {
-        return await _dbContext.Stocks
+        var dueBySchedule = await _dbContext.Stocks
             .Where(s =>
                 s.HistoryRefreshCadence != StockHistoryRefreshCadence.Disabled &&
                 !string.IsNullOrWhiteSpace(s.Ticker) &&
                 (
                     (s.NextFullHistoryBackfillAtUtc.HasValue && s.NextFullHistoryBackfillAtUtc <= nowUtc) ||
                     (s.NextHistoryReconciliationAtUtc.HasValue && s.NextHistoryReconciliationAtUtc <= nowUtc) ||
-                    (s.NextIncrementalHistoryRefreshAtUtc.HasValue && s.NextIncrementalHistoryRefreshAtUtc <= nowUtc) ||
-                    !_dbContext.StockHistoricalPrices.Any(p => p.StockId == s.Id && p.Interval == "1d")
+                    (s.NextIncrementalHistoryRefreshAtUtc.HasValue && s.NextIncrementalHistoryRefreshAtUtc <= nowUtc)
                 ))
             .OrderBy(s => s.Id)
             .Take(_options.MaxAutomaticStocksPerRun)
             .ToListAsync(cancellationToken);
+
+        if (dueBySchedule.Count >= _options.MaxAutomaticStocksPerRun)
+        {
+            return dueBySchedule;
+        }
+
+        var stockIdsWithDailyHistory = await _dbContext.StockHistoricalPrices
+            .AsNoTracking()
+            .Where(x => x.Interval == "1d")
+            .Select(x => x.StockId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var remaining = _options.MaxAutomaticStocksPerRun - dueBySchedule.Count;
+        var noHistoryStocks = await _dbContext.Stocks
+            .Where(s =>
+                s.HistoryRefreshCadence != StockHistoryRefreshCadence.Disabled &&
+                !string.IsNullOrWhiteSpace(s.Ticker) &&
+                !stockIdsWithDailyHistory.Contains(s.Id))
+            .OrderBy(s => s.Id)
+            .Take(remaining)
+            .ToListAsync(cancellationToken);
+
+        return dueBySchedule
+            .Concat(noHistoryStocks)
+            .GroupBy(x => x.Id)
+            .Select(g => g.First())
+            .OrderBy(x => x.Id)
+            .ToList();
     }
 
-    private static bool IsPotentiallyStale(string interval, DateTime? asOfUtc)
+    private static bool IsPotentiallyStale(string interval, DateTime? asOfUtc, DateTime nowUtc)
     {
         if (asOfUtc is null)
         {
             return true;
         }
 
-        var now = DateTime.UtcNow;
         var threshold = interval switch
         {
             "10m" => TimeSpan.FromHours(2),
@@ -645,7 +674,7 @@ public class StockHistoryService : IStockHistoryService
             _ => TimeSpan.FromDays(45),
         };
 
-        return (now - asOfUtc.Value) > threshold;
+        return (nowUtc - asOfUtc.Value) > threshold;
     }
 
     private static void EnsureCadenceDefault(Stock stock)

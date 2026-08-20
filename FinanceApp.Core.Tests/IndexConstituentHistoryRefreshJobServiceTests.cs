@@ -362,6 +362,9 @@ public class IndexConstituentHistoryRefreshJobServiceTests
             _ = context;
             return tracker.InvokeAsync(stock, cancellationToken);
         }
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class NullStockHistoryService : IStockHistoryService
@@ -377,6 +380,9 @@ public class IndexConstituentHistoryRefreshJobServiceTests
 
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class NullMarketIndexHistoryService : IMarketIndexHistoryService

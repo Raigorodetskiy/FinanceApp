@@ -501,6 +501,8 @@ public class CatalogFundamentalsRefreshHostedServiceTests
             => Task.FromResult(new StockHistoryResponse());
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
