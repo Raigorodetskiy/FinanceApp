@@ -48,6 +48,7 @@ import {
   getHistoryRefreshErrorMessage,
   runIndexConstituentHistoryRefreshJob,
 } from './indexConstituentHistoryRefresh';
+import StockTechnicalAnalysisPanel from './StockTechnicalAnalysisPanel';
 import './StockPriceChart.css';
 
 dayjs.extend(utc);
@@ -591,6 +592,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           style={{ marginBottom: 12 }}
         />
       )}
+      <StockTechnicalAnalysisPanel stockId={stockId} />
       <div
         style={{
           display: 'flex',

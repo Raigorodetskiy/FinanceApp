@@ -49,6 +49,7 @@ import type {
   IndexConstituentsBatchQuoteRefreshJobResponse,
   IndexConstituentPerformanceResponse,
   StockCatalogPerformanceResponse,
+  TechnicalAnalysisResponse,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -132,6 +133,8 @@ export const getStockFundamentals = (id: number) =>
   api.get<FundamentalsResponse>(`/Stocks/${id}/fundamentals`);
 export const refreshStockFundamentals = (id: number) =>
   api.post<FundamentalsResponse>(`/Stocks/${id}/fundamentals/refresh`);
+export const getStockTechnicalAnalysis = (id: number, signal?: AbortSignal) =>
+  api.get<TechnicalAnalysisResponse>(`/Stocks/${id}/technical-analysis`, { signal });
 
 // Stock prices
 export const getStockPrice = (symbol: string, exchange: StockExchange, finanzenNetSlug?: string | null) =>
