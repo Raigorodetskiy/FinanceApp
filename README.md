@@ -170,6 +170,52 @@ Operational status endpoint (authenticated): `GET /api/catalog-refresh/status`
 
 Migration: `20260819024150_AddCatalogStockRefreshRunState`
 
+#### Corrective schema note for occurrence-keyed runs (PR #172 follow-up)
+
+Root cause: PR #172 switched scheduler identity to occurrence-keyed `RunKey` (`{timeZoneId}:{scheduledUtc}`),
+but the original DB uniqueness on `(BusinessDate, TimeZoneId)` still allowed only one row per date/timezone.
+That made a legacy malformed row for `2026-08-19` block insertion of the correctly keyed occurrence row.
+
+Corrected index semantics (migration `20260820072805_FixCatalogStockRefreshRunOccurrenceIndex`):
+- `IX_CatalogStockRefreshRuns_RunKey` stays **unique** (idempotency of exact occurrence).
+- `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId` is now **non-unique** (lookup/supporting index only).
+- `CatalogFundamentalsRefreshRuns` weekly uniqueness remains unchanged.
+
+Read-only preflight (safe to run before deployment):
+
+```sql
+SHOW INDEX FROM CatalogStockRefreshRuns
+WHERE Key_name IN (
+  'IX_CatalogStockRefreshRuns_RunKey',
+  'IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId'
+);
+```
+
+Expected post-migration:
+- `IX_CatalogStockRefreshRuns_RunKey` => `Non_unique = 0`
+- `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId` => `Non_unique = 1`
+
+Manually corrected production handling:
+- The corrective migration uses `DROP INDEX IF EXISTS` for
+  `IX_CatalogStockRefreshRuns_BusinessDate_TimeZoneId`, so environments where that index was already
+  replaced manually with the same name are safe.
+- If manual correction used a different custom index name, keep it for the deployment window, apply this
+  migration, then reconcile extra custom indexes in a separate controlled DBA change.
+- No run rows are deleted/rewritten and no `RunKey` values are altered by this migration.
+
+Recommended deployment order:
+1. Back up database.
+2. Run the preflight query above.
+3. Apply migrations (including `20260820072805_FixCatalogStockRefreshRunOccurrenceIndex`).
+4. Deploy/restart backend.
+5. Re-run the preflight query and confirm expected index uniqueness flags.
+
+Rollback caveat:
+- Rolling back binaries is safe.
+- Rolling back this migration attempts to restore unique `(BusinessDate, TimeZoneId)` and can fail if
+  multiple rows now exist for the same date/timezone (which is expected after the fix). Treat DB rollback
+  as a controlled/manual operation in that case.
+
 ### Weekly catalog fundamentals refresh (Tracked + CatalogOnly)
 
 FinanceApp also runs a separate weekly maintenance job that refreshes **fundamental data only** for all durable catalog stocks (`Tracked` and `CatalogOnly`).

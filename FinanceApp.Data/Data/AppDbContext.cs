@@ -603,7 +603,7 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
 
             entity.HasIndex(x => x.RunKey).IsUnique();
-            entity.HasIndex(x => new { x.BusinessDate, x.TimeZoneId }).IsUnique();
+            entity.HasIndex(x => new { x.BusinessDate, x.TimeZoneId });
             entity.HasIndex(x => new { x.Status, x.LeaseExpiresAtUtc });
         });
 
