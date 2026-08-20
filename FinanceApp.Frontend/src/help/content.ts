@@ -233,6 +233,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     related: [
       { articleSlug: 'technical-indicators', label: 'Технические показатели: детали' },
+      { articleSlug: 'fundamental-scoring-methodology', label: 'Фундаментальный компонент: текущая методика' },
       { articleSlug: 'data-quality-and-freshness', label: 'Качество и свежесть данных' },
     ],
   },
@@ -351,6 +352,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ],
     related: [
       { articleSlug: 'analytical-signal', sectionSlug: 'signal-components-weights', label: 'Веса компонентов сигнала' },
+      { articleSlug: 'fundamental-scoring-methodology', sectionSlug: 'fundamental-methodology-component-calculation', label: 'Как считается фундаментальный компонент Score' },
     ],
   },
   {

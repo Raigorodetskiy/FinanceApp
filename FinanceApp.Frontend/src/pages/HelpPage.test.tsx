@@ -75,6 +75,11 @@ describe('HelpPage', () => {
     expect(await screen.findByRole('heading', { name: 'Компоненты и точные веса по горизонтам' })).toBeInTheDocument();
   });
 
+  it('supports direct deep link to fundamental methodology section', async () => {
+    renderHelp('/help/fundamental-scoring-methodology#fundamental-methodology-component-calculation');
+    expect(await screen.findByRole('heading', { name: 'Полный расчёт фундаментального компонента: шаг за шагом' })).toBeInTheDocument();
+  });
+
   it('handles malformed unknown article slug safely', async () => {
     renderHelp('/help/unknown-article');
     expect(await screen.findByText('Статья не найдена')).toBeInTheDocument();

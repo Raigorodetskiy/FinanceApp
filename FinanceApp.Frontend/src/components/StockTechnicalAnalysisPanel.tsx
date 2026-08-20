@@ -288,7 +288,19 @@ const StockTechnicalAnalysisPanel: React.FC<{ stockId: number }> = ({ stockId })
                 return (
                   <article key={component.key} className="technical-analysis-panel__component-card">
                     <div className="technical-analysis-panel__component-header">
-                      <Text strong>{component.label}</Text>
+                      <div>
+                        <Text strong>{component.label}</Text>
+                        {component.key === 'fundamentals' && (
+                          <div>
+                            <Link
+                              to="/help/fundamental-scoring-methodology#fundamental-methodology-component-calculation"
+                              aria-label="Открыть методику расчёта фундаментального компонента"
+                            >
+                              Как рассчитывается
+                            </Link>
+                          </div>
+                        )}
+                      </div>
                       <Text type="secondary">Вес: {formatFractionAsPercent(weight, 0)}</Text>
                     </div>
                     {isMissing ? (
