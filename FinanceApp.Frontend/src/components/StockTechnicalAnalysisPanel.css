@@ -145,6 +145,17 @@
   gap: 8px;
 }
 
+.technical-analysis-panel__metric-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.technical-analysis-panel__metric-help-link {
+  font-size: 12px;
+}
+
 .technical-analysis-panel__price-basis {
   margin-top: 8px;
 }

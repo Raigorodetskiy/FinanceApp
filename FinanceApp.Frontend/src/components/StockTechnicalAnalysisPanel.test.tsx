@@ -241,6 +241,15 @@ describe('StockTechnicalAnalysisPanel', () => {
       expect(screen.getByText('80%')).toBeInTheDocument();
     });
 
+    expect(screen.getByRole('link', { name: 'Открыть справку по RSI14' })).toHaveAttribute(
+      'href',
+      '/help/technical-indicators#indicators-rsi14-calculation',
+    );
+    expect(screen.getByRole('link', { name: 'Открыть справку по MACD' })).toHaveAttribute(
+      'href',
+      '/help/technical-indicators#indicators-macd-calculation',
+    );
+
     expect(getStockTechnicalAnalysisMock).toHaveBeenCalled();
   });
 

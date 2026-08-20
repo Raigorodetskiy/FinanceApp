@@ -75,6 +75,15 @@ describe('HelpPage', () => {
     expect(await screen.findByRole('heading', { name: 'Компоненты и точные веса по горизонтам' })).toBeInTheDocument();
   });
 
+  it('supports direct deep links to RSI14 and MACD sections', async () => {
+    renderHelp('/help/technical-indicators#indicators-rsi14-calculation');
+    expect(await screen.findByRole('heading', { name: 'RSI14: формула, требования к данным и правила Momentum в FinanceApp' })).toBeInTheDocument();
+
+    cleanup();
+    renderHelp('/help/technical-indicators#indicators-macd-calculation');
+    expect(await screen.findByRole('heading', { name: 'MACD 12/26/9: формула, seed и правила Momentum в FinanceApp' })).toBeInTheDocument();
+  });
+
   it('handles malformed unknown article slug safely', async () => {
     renderHelp('/help/unknown-article');
     expect(await screen.findByText('Статья не найдена')).toBeInTheDocument();
