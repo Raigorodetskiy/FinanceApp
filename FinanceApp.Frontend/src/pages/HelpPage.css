@@ -15,17 +15,25 @@
   min-width: 0;
 }
 
+.help-page__article {
+  max-width: 980px;
+}
+
 .help-page__article-list {
   margin: 0;
   padding-left: 18px;
   display: grid;
   gap: 6px;
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .help-page__excerpt {
   color: rgba(0, 0, 0, 0.6);
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.5;
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 
 .help-page__article-header {
@@ -40,6 +48,44 @@
   margin-bottom: 16px;
 }
 
+.help-page__section-body {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.help-page__section-body > :not(.help-page__table-wrap) {
+  max-width: 78ch;
+}
+
+.help-page .help-page__section-body .ant-typography {
+  font-size: inherit;
+  line-height: inherit;
+  margin-bottom: 14px;
+  overflow-wrap: anywhere;
+}
+
+.help-page__section-body p:last-child,
+.help-page__section-body .ant-typography:last-child {
+  margin-bottom: 0;
+}
+
+.help-page .help-page__section-body ul,
+.help-page .help-page__section-body ol {
+  font-size: inherit;
+  line-height: inherit;
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.help-page .help-page__section-body li {
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.help-page .help-page__section-body li:last-child {
+  margin-bottom: 0;
+}
+
 .help-page__section-header {
   display: flex;
   justify-content: space-between;
@@ -49,11 +95,14 @@
 
 .help-page__table-wrap {
   overflow-x: auto;
+  margin-bottom: 14px;
+  max-width: 100%;
 }
 
 .help-page__table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
 }
 
 .help-page__table th,
@@ -62,11 +111,37 @@
   padding: 8px;
   text-align: left;
   vertical-align: top;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.help-page__table th {
+  font-weight: 600;
 }
 
 .help-page__callout-list {
   margin: 0;
   padding-left: 20px;
+}
+
+.help-page .help-page__section-body .ant-alert-description,
+.help-page .help-page__section-body .ant-alert-message,
+.help-page .help-page__qa-question,
+.help-page .help-page__qa-answer,
+.help-page .help-page__toc-list {
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.help-page .help-page__qa-question {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.help-page .help-page__qa-answer {
+  margin-bottom: 14px;
 }
 
 .help-page__live-status {
