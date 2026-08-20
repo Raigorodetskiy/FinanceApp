@@ -51,4 +51,18 @@ describe('AppSidebar directories routes', () => {
     expect(keys).toContain('stocks-directories');
     expect(keys).not.toContain('stocks');
   });
+
+  it('opens only top-level directories for /help', () => {
+    const keys = computeSidebarOpenKeys({
+      portfoliosOpen: false,
+      stocksOpen: false,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: false,
+      selectedKeys: ['help'],
+    });
+
+    expect(keys).toContain('stocks-directories');
+    expect(keys).not.toContain('stocks');
+    expect(keys).not.toContain('market-indices-root');
+  });
 });

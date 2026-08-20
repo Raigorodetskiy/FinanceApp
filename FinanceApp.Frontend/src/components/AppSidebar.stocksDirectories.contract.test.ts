@@ -19,6 +19,7 @@ describe('AppSidebar stocks-directories items contract', () => {
     expect(STOCKS_DIRECTORIES_MENU_ENTRIES).toMatchObject([
       { key: 'sectors', route: '/sectors', label: 'Секторы и отрасли' },
       { key: 'financial-metrics', route: '/financial-metrics', label: 'Финансовые показатели' },
+      { key: 'help', route: '/help', label: 'Справка' },
     ]);
 
     for (const entry of STOCKS_DIRECTORIES_MENU_ENTRIES) {
@@ -30,7 +31,7 @@ describe('AppSidebar stocks-directories items contract', () => {
     const navigatedRoutes: string[] = [];
     const items = buildStocksDirectoriesMenuItems((route) => navigatedRoutes.push(route));
 
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(3);
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       const entry = STOCKS_DIRECTORIES_MENU_ENTRIES[index];
@@ -40,6 +41,6 @@ describe('AppSidebar stocks-directories items contract', () => {
       (item?.onClick as (() => void) | undefined)?.();
     }
 
-    expect(navigatedRoutes).toEqual(['/sectors', '/financial-metrics']);
+    expect(navigatedRoutes).toEqual(['/sectors', '/financial-metrics', '/help']);
   });
 });

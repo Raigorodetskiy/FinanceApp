@@ -7,12 +7,20 @@
 }
 
 .technical-analysis-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
 .technical-analysis-panel__title {
   margin: 0;
   font-size: 16px;
+}
+
+.technical-analysis-panel__help-link {
+  font-size: 14px;
 }
 
 .technical-analysis-panel__loading {

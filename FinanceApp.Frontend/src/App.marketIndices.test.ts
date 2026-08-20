@@ -14,4 +14,9 @@ describe('App market-indices route', () => {
   it('registers /stocks/catalog inside PrivateRoute', () => {
     expect(appSource).toMatch(/path="\/stocks\/catalog"[\s\S]*?<PrivateRoute>[\s\S]*?<StocksPage mode="catalog" \/>/);
   });
+
+  it('registers /help and /help/:articleSlug inside PrivateRoute', () => {
+    expect(appSource).toMatch(/path="\/help"[\s\S]*?<PrivateRoute>[\s\S]*?<HelpPage \/>/);
+    expect(appSource).toMatch(/path="\/help\/:articleSlug"[\s\S]*?<PrivateRoute>[\s\S]*?<HelpPage \/>/);
+  });
 });

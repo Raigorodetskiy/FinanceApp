@@ -1,0 +1,91 @@
+.help-page {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  width: 100%;
+}
+
+.help-page__sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+
+.help-page__content {
+  min-width: 0;
+}
+
+.help-page__article-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.help-page__excerpt {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.help-page__article-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.help-page__section {
+  margin-bottom: 16px;
+}
+
+.help-page__section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.help-page__table-wrap {
+  overflow-x: auto;
+}
+
+.help-page__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.help-page__table th,
+.help-page__table td {
+  border: 1px solid #d9d9d9;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.help-page__callout-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.help-page__live-status {
+  min-height: 20px;
+}
+
+.help-page a:focus-visible,
+.help-page button:focus-visible,
+.help-page input:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 992px) {
+  .help-page {
+    grid-template-columns: 1fr;
+  }
+
+  .help-page__sidebar {
+    position: static;
+  }
+}
