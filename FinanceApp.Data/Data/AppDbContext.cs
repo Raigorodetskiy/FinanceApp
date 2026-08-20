@@ -525,6 +525,15 @@ public class AppDbContext : DbContext
                 .ValueGeneratedNever();
             entity.HasIndex(x => x.TrackingStatus)
                 .HasDatabaseName("IX_Stocks_TrackingStatus");
+            entity.Property(x => x.HistoryRefreshCadence)
+                .HasConversion<int>()
+                .ValueGeneratedNever();
+            entity.HasIndex(x => new { x.HistoryRefreshCadence, x.NextIncrementalHistoryRefreshAtUtc, x.Id })
+                .HasDatabaseName("IX_Stocks_HistoryRefreshCadence_NextIncremental_Id");
+            entity.HasIndex(x => new { x.HistoryRefreshCadence, x.NextHistoryReconciliationAtUtc, x.Id })
+                .HasDatabaseName("IX_Stocks_HistoryRefreshCadence_NextReconciliation_Id");
+            entity.HasIndex(x => new { x.HistoryRefreshCadence, x.NextFullHistoryBackfillAtUtc, x.Id })
+                .HasDatabaseName("IX_Stocks_HistoryRefreshCadence_NextFullBackfill_Id");
             // ProviderSymbol index for deduplication lookups
             entity.Property(x => x.ProviderSymbol).HasMaxLength(50);
             entity.HasIndex(x => x.ProviderSymbol)

@@ -78,19 +78,19 @@ public class StockHistoryRefreshTests
         await context.SaveChangesAsync();
 
         var handler = new CountingHandler(
-            SuccessChartJson(ToUnix(now.AddDays(-300)), 10m),
+            SuccessChartJson(ToUnix(now.AddDays(-1)), 10m),
             SuccessChartJson(ToUnix(now.AddDays(-7)), 20m),
             SuccessChartJson(ToUnix(now.AddDays(-1)), 30m),
             SuccessChartJson(ToUnix(now.AddHours(-6)), 40m),
             SuccessChartJson(ToUnix(now.AddMinutes(-30)), 50m));
         var service = CreateService(context, handler);
 
-        var response = await service.GetHistoryAsync(stock, "1y");
+        var response = await service.GetHistoryAsync(stock, "6m");
 
-        Assert.Equal(5, handler.CallCount);
+        Assert.Equal(1, handler.CallCount);
         Assert.Single(response.Points);
-        Assert.Equal(20m, response.Points[0].CloseRaw);
-        Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == stock.Id && x.Interval == "1wk"));
+        Assert.Equal(10m, response.Points[0].CloseRaw);
+        Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == stock.Id && x.Interval == "1d"));
         Assert.Equal(StockTrackingStatus.CatalogOnly, await context.Stocks.Select(x => x.TrackingStatus).SingleAsync());
         Assert.Equal(1, await context.Stocks.CountAsync());
         Assert.Empty(await context.StockMarketIndices.ToListAsync());
@@ -119,13 +119,13 @@ public class StockHistoryRefreshTests
         var result = await service.RefreshHistoryAsync(target);
 
         Assert.Equal(1, result.StockId);
-        Assert.Equal(1, result.DeletedPoints);
+        Assert.Equal(0, result.DeletedPoints);
         Assert.Equal(5, result.ImportedPoints);
         Assert.All(handler.RequestedUrls, url => Assert.Contains("AMZN.F", url, StringComparison.Ordinal));
 
         var targetRows = await context.StockHistoricalPrices.Where(x => x.StockId == 1).OrderBy(x => x.Interval).ToListAsync();
-        Assert.Equal(5, targetRows.Count);
-        Assert.DoesNotContain(targetRows, row => row.Close == 1m);
+        Assert.Equal(6, targetRows.Count);
+        Assert.Contains(targetRows, row => row.Close == 1m);
         Assert.Contains(targetRows, row => row.Interval == "10m");
         Assert.Equal(1, await context.StockHistoricalPrices.CountAsync(x => x.StockId == 2));
         Assert.Equal(9m, await context.StockHistoricalPrices.Where(x => x.StockId == 2).Select(x => x.Close).SingleAsync());
@@ -217,7 +217,7 @@ public class StockHistoryRefreshTests
         {
             StockId = stock.Id,
             Interval = "1d",
-            Timestamp = DateTimeOffset.FromUnixTimeSeconds(1705276800).UtcDateTime,
+            Timestamp = DateTimeOffset.FromUnixTimeSeconds(1704067200).UtcDateTime,
             Open = 25m,
             High = 25m,
             Low = 25m,
@@ -227,7 +227,7 @@ public class StockHistoryRefreshTests
         await context.SaveChangesAsync();
 
         var handler = new SequenceHandler(
-            SuccessChartJson(1704067200, 10m),
+            SuccessChartJson((1704067200, 10m, 100L, 9m)),
             SuccessChartJson(1704672000, 20m),
             SuccessChartJson((1705276800, 30m, 100L, 29m)),
             SuccessChartJson(1705881600, 40m),
@@ -237,8 +237,8 @@ public class StockHistoryRefreshTests
         await service.SyncHistoricalDataForStockAsync(stock);
 
         var dailyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == stock.Id && x.Interval == "1d");
-        Assert.Equal(30m, dailyRow.Close);
-        Assert.Equal(29m, dailyRow.AdjustedClose);
+        Assert.Equal(10m, dailyRow.Close);
+        Assert.Equal(9m, dailyRow.AdjustedClose);
     }
 
     [Fact]
@@ -270,11 +270,10 @@ public class StockHistoryRefreshTests
 
         var result = await service.RefreshHistoryAsync(stock);
 
-        Assert.Equal(1, result.DeletedPoints);
+        Assert.Equal(0, result.DeletedPoints);
         var rows = await context.StockHistoricalPrices.Where(x => x.StockId == 1).OrderBy(x => x.Interval).ToListAsync();
-        Assert.Equal(4, rows.Count);
-        Assert.DoesNotContain(rows, row => row.Close == 7m);
-        Assert.DoesNotContain(rows, row => row.Interval == "1d");
+        Assert.Equal(5, rows.Count);
+        Assert.Contains(rows, row => row.Close == 7m && row.Interval == "1d");
     }
 
     [Fact]
@@ -300,7 +299,7 @@ public class StockHistoryRefreshTests
         var result = await service.RefreshHistoryAsync(target);
 
         Assert.Equal(5, handler.CallCount);
-        Assert.Equal(1, result.DeletedPoints);
+        Assert.Equal(0, result.DeletedPoints);
         Assert.Equal(5, result.ImportedPoints);
 
         await using var verificationContext = harness.CreateVerificationContext();
@@ -309,7 +308,7 @@ public class StockHistoryRefreshTests
             .OrderBy(x => x.Interval)
             .ThenBy(x => x.Timestamp)
             .ToListAsync();
-        Assert.Equal(5, targetRows.Count);
+        Assert.Equal(6, targetRows.Count);
         Assert.Equal(1, await verificationContext.StockHistoricalPrices.CountAsync(x => x.StockId == 2));
     }
 
@@ -394,7 +393,7 @@ public class StockHistoryRefreshTests
     }
 
     [Fact]
-    public async Task SyncHistoricalDataForAllStocksAsync_ProcessesOnlyTrackedStocks()
+    public async Task SyncHistoricalDataForAllStocksAsync_ProcessesTrackedAndCatalogByCadence()
     {
         await using var context = CreateInMemoryContext();
         context.Stocks.AddRange(
@@ -412,10 +411,158 @@ public class StockHistoryRefreshTests
 
         await service.SyncHistoricalDataForAllStocksAsync();
 
-        Assert.Equal(5, handler.CallCount);
-        Assert.All(handler.RequestedUrls, url => Assert.Contains("TRACK", url, StringComparison.Ordinal));
-        Assert.DoesNotContain(handler.RequestedUrls, url => url.Contains("CATONLY", StringComparison.Ordinal));
-        Assert.False(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == 2));
+        Assert.Equal(2, handler.CallCount);
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("TRACK", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("CATONLY", StringComparison.Ordinal));
+        Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == 2 && x.Interval == "1d"));
+    }
+
+    [Fact]
+    public async Task SyncHistoricalDataForAllStocksAsync_UsesTierPrecedence_AndSingleProviderRequestPerStock()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AAPL",
+            Exchange = StockExchanges.Nyse,
+            Name = "Apple",
+            TrackingStatus = StockTrackingStatus.Tracked,
+            HistoryRefreshCadence = StockHistoryRefreshCadence.Daily,
+            NextIncrementalHistoryRefreshAtUtc = now.AddDays(-1),
+            NextHistoryReconciliationAtUtc = now.AddDays(-1),
+            NextFullHistoryBackfillAtUtc = now.AddDays(-1),
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "1d",
+            Timestamp = now.AddDays(-2),
+            Open = 1m,
+            High = 1m,
+            Low = 1m,
+            Close = 1m,
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new CountingHandler(SuccessChartJson(ToUnix(now.AddDays(-1)), 10m));
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
+
+        await service.SyncHistoricalDataForAllStocksAsync();
+
+        Assert.Equal(1, handler.CallCount);
+        Assert.Single(handler.RequestedUrls);
+        Assert.Contains("interval=1d", handler.RequestedUrls[0], StringComparison.Ordinal);
+        Assert.Contains("period1=", handler.RequestedUrls[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SyncHistoricalDataForAllStocksAsync_NotDueStock_SkipsProviderCall()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AAPL",
+            Exchange = StockExchanges.Nyse,
+            Name = "Apple",
+            TrackingStatus = StockTrackingStatus.Tracked,
+            HistoryRefreshCadence = StockHistoryRefreshCadence.Daily,
+            NextIncrementalHistoryRefreshAtUtc = now.AddDays(1),
+            NextHistoryReconciliationAtUtc = now.AddDays(2),
+            NextFullHistoryBackfillAtUtc = now.AddDays(3),
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "1d",
+            Timestamp = now.AddDays(-2),
+            Open = 1m,
+            High = 1m,
+            Low = 1m,
+            Close = 1m,
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new CountingHandler(SuccessChartJson(ToUnix(now.AddDays(-1)), 10m));
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
+
+        await service.SyncHistoricalDataForAllStocksAsync();
+
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task SyncHistoricalDataForAllStocksAsync_DisabledCadence_SkipsProviderCall()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc);
+        context.Stocks.Add(new Stock
+        {
+            Id = 1,
+            Ticker = "AAPL",
+            Exchange = StockExchanges.Nyse,
+            Name = "Apple",
+            TrackingStatus = StockTrackingStatus.Tracked,
+            HistoryRefreshCadence = StockHistoryRefreshCadence.Disabled,
+            NextIncrementalHistoryRefreshAtUtc = now.AddDays(-1),
+            NextHistoryReconciliationAtUtc = now.AddDays(-1),
+            NextFullHistoryBackfillAtUtc = now.AddDays(-1),
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new CountingHandler(SuccessChartJson(ToUnix(now.AddDays(-1)), 10m));
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
+
+        await service.SyncHistoricalDataForAllStocksAsync();
+
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task RefreshHistoryAsync_AutomaticRateLimit_SetsTierRetryWithoutSuccessTimestamp()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AAPL",
+            Exchange = StockExchanges.Nyse,
+            Name = "Apple",
+            TrackingStatus = StockTrackingStatus.Tracked,
+            HistoryRefreshCadence = StockHistoryRefreshCadence.Daily,
+            NextFullHistoryBackfillAtUtc = now.AddMinutes(-10)
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "1d",
+            Timestamp = now.AddDays(-2),
+            Open = 1m,
+            High = 1m,
+            Low = 1m,
+            Close = 1m,
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new StatusSequenceHandler(HttpStatusCode.TooManyRequests);
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
+
+        var result = await service.RefreshHistoryAsync(stock, StockHistoryRefreshTrigger.Automatic);
+
+        Assert.True(result.RateLimited);
+        var persisted = await context.Stocks.SingleAsync(x => x.Id == stock.Id);
+        Assert.Null(persisted.LastFullHistoryBackfillSucceededAtUtc);
+        Assert.Equal(now.AddHours(2), persisted.NextFullHistoryBackfillAtUtc);
     }
 
     [Fact]
@@ -663,7 +810,11 @@ public class StockHistoryRefreshTests
         return new AppDbContext(options);
     }
 
-    private static StockHistoryService CreateService(AppDbContext context, HttpMessageHandler handler)
+    private static StockHistoryService CreateService(
+        AppDbContext context,
+        HttpMessageHandler handler,
+        TimeProvider? timeProvider = null,
+        StockHistoryRefreshOptions? refreshOptions = null)
     {
         var coordinator = new YahooRequestCoordinator(
             new FixedHttpClientFactory(new HttpClient(handler)),
@@ -679,7 +830,14 @@ public class StockHistoryRefreshTests
             context,
             coordinator,
             new StubStockQuoteConversionService(),
+            timeProvider ?? TimeProvider.System,
+            Options.Create(refreshOptions ?? new StockHistoryRefreshOptions()),
             NullLogger<StockHistoryService>.Instance);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private static string SuccessChartJson(long unixTimestamp, decimal close, long volume = 100L) =>

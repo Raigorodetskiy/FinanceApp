@@ -82,6 +82,8 @@ public class StockHistoryLookbackTests : IDisposable
             _dbContext,
             coordinator,
             new StubStockQuoteConversionService(),
+            TimeProvider.System,
+            Options.Create(new StockHistoryRefreshOptions()),
             NullLogger<StockHistoryService>.Instance);
 
         await service.RefreshHistoryAsync(stock, CancellationToken.None);
