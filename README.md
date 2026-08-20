@@ -132,11 +132,91 @@ HAVING COUNT(*) > 1;
   restores the previous unique ISIN index, so it should only be done before any newly allowed
   same-ISIN multi-listing rows are inserted.
 
-#### Remaining Phase 2 work
+### Multi-horizon technical analysis API (read-only, authenticated)
 
-- Adjusted OHLC support (if a provider/source is added)
-- Public technical-analysis endpoints/UI
-- Scoring/ranking features on top of the explicit price-basis metadata
+Endpoint: `GET /api/stocks/{id}/technical-analysis`
+
+This endpoint returns analytical information (not personalized investment advice) for four horizons in one payload:
+
+- `ThreeMonths`
+- `SixMonths`
+- `OneYear`
+- `TwoYears`
+
+The endpoint is **read-only over persisted data**:
+
+- uses stored daily history and persisted fundamentals snapshots;
+- never triggers provider requests;
+- never mutates history refresh scheduling state.
+
+#### Response highlights
+
+- stock identifiers (`Id`, `Ticker`, `Name`, `CommonName`, `Exchange`, `ISIN`, `WKN`);
+- latest candle `AsOfUtc`;
+- `IsPotentiallyStale`;
+- history cadence/scheduling metadata (`HistoryRefreshCadence`, last-success and next-run timestamps);
+- common metrics (`SMA20/50/200`, `EMA12/26`, `RSI14`, `MACD`, 1m/3m/6m/1y returns, volatility, drawdown, `ATR14`, adjusted-coverage);
+- per-horizon:
+  - `Score` (0..100),
+  - `Signal` (`StrongBullish`, `ModeratelyBullish`, `Neutral`, `ModeratelyBearish`, `StrongBearish`),
+  - `Confidence` (0..1),
+  - component scores and explicit weights,
+  - positive/negative factors and warnings.
+
+#### Signal thresholds
+
+- `80..100` → `StrongBullish`
+- `65..79.999...` → `ModeratelyBullish`
+- `45..64.999...` → `Neutral`
+- `30..44.999...` → `ModeratelyBearish`
+- `0..29.999...` → `StrongBearish`
+
+#### Component weights (must sum to 1.0 per horizon)
+
+| Component | 3 months | 6 months | 1 year | 2 years |
+|---|---:|---:|---:|---:|
+| Trend | 0.35 | 0.35 | 0.30 | 0.15 |
+| Momentum | 0.35 | 0.25 | 0.15 | 0.05 |
+| Returns | 0.20 | 0.20 | 0.20 | 0.15 |
+| Risk | 0.10 | 0.15 | 0.15 | 0.20 |
+| Fundamentals | 0.00 | 0.05 | 0.20 | 0.45 |
+
+Missing component handling is deterministic: the final score renormalizes to available component weights, emits warnings, and lowers confidence.
+
+#### Price/indicator semantics
+
+- Close-based calculations prefer `AdjustedClose` per candle and fall back to raw `Close` for that candle when adjusted data is unavailable.
+- `ATR14` uses unadjusted OHLC only (adjusted OHLC is not persisted).
+- Candles are sorted/deduplicated deterministically by timestamp (last record wins on duplicate timestamp).
+
+#### Confidence semantics
+
+`Confidence` is data sufficiency/quality (not signal strength) and combines:
+
+- horizon history coverage;
+- latest-candle freshness;
+- adjusted-close coverage;
+- component availability/missingness;
+- long-horizon fundamentals availability/freshness.
+
+Long-horizon limitations are explicitly surfaced:
+
+- if historical fundamentals trend coverage is insufficient, `TwoYears` includes warning code
+  `FUNDAMENTAL_HISTORY_INSUFFICIENT`;
+- stale/missing fundamentals lower `OneYear`/`TwoYears` confidence.
+
+#### Performance notes
+
+- EF queries use `AsNoTracking`.
+- Only required columns are selected.
+- Daily-history read is bounded (`Take(800)`), then normalized in-memory.
+
+#### Local verification (no provider calls required)
+
+```bash
+dotnet build FinanceApp.sln
+dotnet test FinanceApp.Core.Tests/FinanceApp.Core.Tests.csproj --filter FullyQualifiedName~StockTechnicalAnalysisScoringTests
+```
 
 ### Nightly catalog refresh (Tracked + CatalogOnly)
 

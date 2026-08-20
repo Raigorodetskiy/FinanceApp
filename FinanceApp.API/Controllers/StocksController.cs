@@ -253,6 +253,21 @@ public class StocksController : ControllerBase
         return PrepareStockForResponse(stock);
     }
 
+    [HttpGet("{id}/technical-analysis")]
+    public async Task<ActionResult<TechnicalAnalysisResponse>> GetTechnicalAnalysis(
+        int id,
+        [FromServices] IStockTechnicalAnalysisService technicalAnalysisService,
+        CancellationToken cancellationToken = default)
+    {
+        var analysis = await technicalAnalysisService.GetTechnicalAnalysisAsync(id, cancellationToken);
+        if (analysis is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(analysis);
+    }
+
     [HttpGet("{id}/history")]
     public async Task<ActionResult> GetHistory(int id, [FromQuery] string range = "5y", CancellationToken cancellationToken = default)
     {
