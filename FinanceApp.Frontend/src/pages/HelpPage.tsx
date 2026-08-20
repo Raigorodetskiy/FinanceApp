@@ -16,11 +16,11 @@ const { Title, Paragraph, Text } = Typography;
 const renderHelpBlock = (block: HelpBlock): React.ReactNode => {
   switch (block.type) {
     case 'paragraph':
-      return <Paragraph>{block.text}</Paragraph>;
+      return <Paragraph className="help-page__body-text">{block.text}</Paragraph>;
     case 'list': {
       const ListTag = block.ordered ? 'ol' : 'ul';
       return (
-        <ListTag>
+        <ListTag className="help-page__body-list">
           {block.items.map((item) => <li key={item}>{item}</li>)}
         </ListTag>
       );
@@ -57,13 +57,13 @@ const renderHelpBlock = (block: HelpBlock): React.ReactNode => {
       );
     case 'qa':
       return (
-        <div>
-          <Text strong>{block.question}</Text>
-          <Paragraph>{block.answer}</Paragraph>
+        <div className="help-page__qa-block">
+          <Text strong className="help-page__qa-question">{block.question}</Text>
+          <Paragraph className="help-page__body-text help-page__qa-answer">{block.answer}</Paragraph>
         </div>
       );
     default:
-      return <Paragraph type="secondary">Содержимое этого блока пока не поддерживается текущей версией справки.</Paragraph>;
+      return <Paragraph className="help-page__body-text" type="secondary">Содержимое этого блока пока не поддерживается текущей версией справки.</Paragraph>;
   }
 };
 
@@ -217,7 +217,7 @@ const HelpPage: React.FC = () => {
           {!selectedArticle ? (
             <Card>
               <Title level={3}>Центр справки FinanceApp</Title>
-              <Paragraph>
+              <Paragraph className="help-page__body-text">
                 Выберите статью слева или начните с быстрого старта.
               </Paragraph>
               <Space direction="vertical" size={8}>
@@ -233,7 +233,7 @@ const HelpPage: React.FC = () => {
               <header className="help-page__article-header">
                 <div>
                   <Title level={2}>{selectedArticle.title}</Title>
-                  <Paragraph>{selectedArticle.summary}</Paragraph>
+                  <Paragraph className="help-page__body-text">{selectedArticle.summary}</Paragraph>
                   <Space wrap>
                     {selectedArticle.keywords.map((keyword) => <Tag key={keyword}>{keyword}</Tag>)}
                   </Space>
@@ -245,7 +245,7 @@ const HelpPage: React.FC = () => {
 
               {selectedArticle.sections.length > 2 && (
                 <Card size="small" title="Содержание" style={{ marginBottom: 16 }}>
-                  <ol>
+                  <ol className="help-page__toc-list">
                     {selectedArticle.sections.map((section) => (
                       <li key={section.slug}>
                         <a href={`#${section.slug}`}>{section.title}</a>
