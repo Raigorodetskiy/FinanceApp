@@ -494,6 +494,10 @@ The app will be available at `http://localhost:3000`
 npm run build
 ```
 
+### Help Center maintenance note for contributors
+
+When a PR changes user-visible behavior, calculations, data interpretation, routes, workflows, warnings, or documented limitations, update the relevant in-app Help Center article under «Справочники» and add/update focused tests for that Help Center content in the same PR.
+
 ---
 
 ## Experimental: finanzen.net Pre-Market Quote Provider

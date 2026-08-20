@@ -3,6 +3,25 @@
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 16px;
   width: 100%;
+  --help-page-body-font-size: 16px;
+  --help-page-body-line-height: 1.6;
+  --help-page-nav-font-size: 15px;
+  --help-page-nav-line-height: 1.5;
+}
+
+.help-page__sidebar,
+.help-page__content {
+  min-width: 0;
+}
+
+.help-page__sidebar p,
+.help-page__sidebar .ant-typography,
+.help-page__sidebar .help-page__article-list li,
+.help-page__sidebar .help-page__article-list a,
+.help-page__sidebar .ant-card-head-title {
+  font-size: var(--help-page-nav-font-size);
+  line-height: var(--help-page-nav-line-height);
+  overflow-wrap: anywhere;
 }
 
 .help-page__sidebar {
@@ -12,7 +31,41 @@
 }
 
 .help-page__content {
-  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.help-page__content article p,
+.help-page__content article li,
+.help-page__content article .ant-alert-description,
+.help-page__content article .ant-alert-description li {
+  font-size: var(--help-page-body-font-size);
+  line-height: var(--help-page-body-line-height);
+  overflow-wrap: anywhere;
+}
+
+.help-page__content article p {
+  margin-bottom: 0.9em;
+}
+
+.help-page__content article ul,
+.help-page__content article ol {
+  margin-top: 0;
+  margin-bottom: 1em;
+  padding-left: 22px;
+}
+
+.help-page__content article li + li {
+  margin-top: 0.45em;
+}
+
+.help-page__content h2.ant-typography {
+  font-size: 30px;
+  line-height: 1.35;
+}
+
+.help-page__content h3.ant-typography {
+  font-size: 24px;
+  line-height: 1.4;
 }
 
 .help-page__article-list {
@@ -24,7 +77,8 @@
 
 .help-page__excerpt {
   color: rgba(0, 0, 0, 0.6);
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.45;
   margin-top: 2px;
 }
 
@@ -53,6 +107,7 @@
 
 .help-page__table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
 }
 
@@ -62,6 +117,9 @@
   padding: 8px;
   text-align: left;
   vertical-align: top;
+  font-size: var(--help-page-nav-font-size);
+  line-height: var(--help-page-nav-line-height);
+  overflow-wrap: anywhere;
 }
 
 .help-page__callout-list {
@@ -87,5 +145,15 @@
 
   .help-page__sidebar {
     position: static;
+  }
+}
+
+@media (max-width: 768px) {
+  .help-page__content article p,
+  .help-page__content article li,
+  .help-page__content article .ant-alert-description,
+  .help-page__content article .ant-alert-description li {
+    font-size: 16px;
+    line-height: 1.6;
   }
 }
