@@ -75,6 +75,11 @@ describe('HelpPage', () => {
     expect(await screen.findByRole('heading', { name: 'Компоненты и точные веса по горизонтам' })).toBeInTheDocument();
   });
 
+  it('supports deep link to technical indicator methodology section', async () => {
+    renderHelp('/help/technical-indicators#indicators-methodology');
+    expect(await screen.findByRole('heading', { name: 'Методология backend: какие данные берутся и что происходит до формул' })).toBeInTheDocument();
+  });
+
   it('handles malformed unknown article slug safely', async () => {
     renderHelp('/help/unknown-article');
     expect(await screen.findByText('Статья не найдена')).toBeInTheDocument();

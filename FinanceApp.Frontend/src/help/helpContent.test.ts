@@ -36,13 +36,44 @@ describe('help content contracts', () => {
     expect(serialized).toContain('не является персональной инвестиционной рекомендацией');
   });
 
-  it('documents AdjustedClose/Close fallback and ATR unadjusted OHLC semantics', () => {
+  it('documents complete technical-indicator methodology semantics and formulas', () => {
     const article = HELP_ARTICLES.find((item) => item.slug === 'technical-indicators');
+    expect(article).toBeDefined();
     const serialized = JSON.stringify(article);
+
+    expect(article?.sections.some((section) => section.slug === 'indicators-methodology')).toBe(true);
+    expect(serialized).toContain('не вызывает провайдеров');
+    expect(serialized).toContain('AsNoTracking');
+    expect(serialized).toContain('last value kept');
+    expect(serialized).toContain('AdjustedCloseCoverage');
+
+    expect(serialized).toContain('SMA(N) = (Σ Close_i за последние N точек) / N');
+    expect(serialized).toContain('k = 2/(period+1)');
+    expect(serialized).toContain('RSI=100-100/(1+RS)');
+    expect(serialized).toContain('MACD line = EMA12 - EMA26');
+    expect(serialized).toContain('Histogram = MACD line - Signal');
+    expect(serialized).toContain('Return% = (latest / price_N_days_ago - 1) × 100');
+    expect(serialized).toContain('r_t = ln(P_t / P_(t-1))');
+    expect(serialized).toContain('Drawdown% = (latest / maxCloseInWindow - 1) × 100');
+    expect(serialized).toContain('TR = max(High-Low, |High-PrevClose|, |Low-PrevClose|)');
+
+    expect(serialized).toContain('26 + 9 - 1');
+    expect(serialized).toContain('минимум 15 положительных close');
+    expect(serialized).toContain('минимум 15 дневных свечей');
+
+    expect(serialized).toContain('RSI 55..70 = +10');
+    expect(serialized).toContain('Histogram >= 0 даёт +12');
+    expect(serialized).toContain('<=20% даёт +12');
+    expect(serialized).toContain('drawdown >= -10% даёт +10');
+    expect(serialized).toContain('atrPct <= 2% даёт +6');
+
     expect(serialized).toContain('AdjustedClose');
     expect(serialized).toContain('fallback на Close');
     expect(serialized).toContain('ATR14');
-    expect(serialized).toContain('не-скорректированному OHLC');
+    expect(serialized).toContain('raw OHLC');
+    expect(serialized).toContain('поле DTO/UI называется `MaxDrawdown`');
+    expect(serialized).toContain('ренормализуются по доступным компонентам');
+    expect(serialized).toContain('не персональная инвестиционная рекомендация');
   });
 
   it('covers stale/missing fundamentals and data quality caveats', () => {
@@ -70,6 +101,8 @@ describe('help search behavior', () => {
   it('matches title, keywords, headings and body', () => {
     expect(searchHelpArticles('Аналитический сигнал').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
     expect(searchHelpArticles('AdjustedClose').some((result) => result.articleSlug === 'technical-indicators')).toBe(true);
+    expect(searchHelpArticles('Wilder').some((result) => result.articleSlug === 'technical-indicators')).toBe(true);
+    expect(searchHelpArticles('True Range').some((result) => result.articleSlug === 'technical-indicators')).toBe(true);
     expect(searchHelpArticles('где находится').some((result) => result.articleSlug === 'faq')).toBe(true);
     expect(searchHelpArticles('ренормализует веса').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
   });
