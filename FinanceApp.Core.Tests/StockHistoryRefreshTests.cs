@@ -132,6 +132,116 @@ public class StockHistoryRefreshTests
     }
 
     [Fact]
+    public async Task RefreshHistoryAsync_PersistsAlignedAdjustedClose_WithoutReplacingRawClose()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var handler = new SequenceHandler(
+            SuccessChartJson((1704067200, 10m, 100L, 9m)),
+            SuccessChartJson((1704672000, 20m, 100L, 19m)),
+            SuccessChartJson((1705276800, 30m, 100L, 29m)),
+            SuccessChartJson((1705881600, 40m, 100L, 39m)),
+            SuccessChartJson(1706486400, 50m));
+        var service = CreateService(context, handler);
+
+        await service.RefreshHistoryAsync(stock);
+
+        var dailyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == stock.Id && x.Interval == "1d");
+        var hourlyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == stock.Id && x.Interval == "1h");
+        var tenMinuteRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == stock.Id && x.Interval == "10m");
+
+        Assert.Equal(30m, dailyRow.Close);
+        Assert.Equal(29m, dailyRow.AdjustedClose);
+        Assert.Equal(39m, hourlyRow.AdjustedClose);
+        Assert.Null(tenMinuteRow.AdjustedClose);
+    }
+
+    [Fact]
+    public async Task RefreshHistoryAsync_MissingAdjustedClose_LeavesAdjustedCloseNull()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var handler = new SequenceHandler(
+            SuccessChartJson(1704067200, 10m),
+            SuccessChartJson(1704672000, 20m),
+            SuccessChartJson(1705276800, 30m),
+            SuccessChartJson(1705881600, 40m),
+            SuccessChartJson(1706486400, 50m));
+        var service = CreateService(context, handler);
+
+        await service.RefreshHistoryAsync(stock);
+
+        var dailyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == stock.Id && x.Interval == "1d");
+        Assert.Null(dailyRow.AdjustedClose);
+    }
+
+    [Fact]
+    public async Task RefreshHistoryAsync_InvalidAdjustedClosePayloads_AreIgnoredSafely()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        var handler = new SequenceHandler(
+            RawChartJson("1704067200", "10", "10", "10", "10", "100", "\"adjclose\":[null]"),
+            RawChartJson("1704672000", "20", "20", "20", "20", "100", "\"adjclose\":[0]"),
+            RawChartJson("1705276800", "30", "30", "30", "30", "100", "\"adjclose\":[-1]"),
+            RawChartJson("1705881600", "40", "40", "40", "40", "100", "\"adjclose\":[40,41]"),
+            RawChartJson("1706486400", "50", "50", "50", "50", "100", null));
+        var service = CreateService(context, handler);
+
+        await service.RefreshHistoryAsync(stock);
+
+        var rows = await context.StockHistoricalPrices
+            .Where(x => x.StockId == stock.Id && x.Interval != "10m")
+            .OrderBy(x => x.Interval)
+            .ToListAsync();
+
+        Assert.All(rows, row => Assert.Null(row.AdjustedClose));
+    }
+
+    [Fact]
+    public async Task SyncHistoricalDataForStockAsync_UpdatesAdjustedCloseOnExistingTimestampedRows()
+    {
+        await using var context = CreateInMemoryContext();
+        var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "1d",
+            Timestamp = DateTimeOffset.FromUnixTimeSeconds(1705276800).UtcDateTime,
+            Open = 25m,
+            High = 25m,
+            Low = 25m,
+            Close = 25m,
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new SequenceHandler(
+            SuccessChartJson(1704067200, 10m),
+            SuccessChartJson(1704672000, 20m),
+            SuccessChartJson((1705276800, 30m, 100L, 29m)),
+            SuccessChartJson(1705881600, 40m),
+            SuccessChartJson(1706486400, 50m));
+        var service = CreateService(context, handler);
+
+        await service.SyncHistoricalDataForStockAsync(stock);
+
+        var dailyRow = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == stock.Id && x.Interval == "1d");
+        Assert.Equal(30m, dailyRow.Close);
+        Assert.Equal(29m, dailyRow.AdjustedClose);
+    }
+
+    [Fact]
     public async Task RefreshHistoryAsync_WhenProviderReturnsNoData_PreservesExistingHistory()
     {
         await using var context = CreateInMemoryContext();
@@ -576,6 +686,9 @@ public class StockHistoryRefreshTests
         SuccessChartJson((unixTimestamp, close, volume));
 
     private static string SuccessChartJson(params (long Timestamp, decimal Close, long Volume)[] candles)
+        => SuccessChartJson(candles.Select(x => (x.Timestamp, x.Close, x.Volume, (decimal?)null)).ToArray());
+
+    private static string SuccessChartJson(params (long Timestamp, decimal Close, long Volume, decimal? AdjustedClose)[] candles)
     {
         var timestamps = string.Join(",", candles.Select(x => x.Timestamp));
         var opens = string.Join(",", candles.Select(x => x.Close));
@@ -583,7 +696,26 @@ public class StockHistoryRefreshTests
         var lows = string.Join(",", candles.Select(x => x.Close));
         var closes = string.Join(",", candles.Select(x => x.Close));
         var volumes = string.Join(",", candles.Select(x => x.Volume));
-        return $@"{{""chart"":{{""result"":[{{""meta"":{{""currency"":""USD"",""financialCurrency"":""USD""}},""timestamp"":[{timestamps}],""indicators"":{{""quote"":[{{""open"":[{opens}],""high"":[{highs}],""low"":[{lows}],""close"":[{closes}],""volume"":[{volumes}]}}]}}}}]}}}}";
+        var hasAdjustedClose = candles.Any(x => x.AdjustedClose.HasValue);
+        var adjustedCloseSection = hasAdjustedClose
+            ? $@",""adjclose"":[{{""adjclose"":[{string.Join(",", candles.Select(x => x.AdjustedClose?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null"))}]}}]"
+            : string.Empty;
+        return $@"{{""chart"":{{""result"":[{{""meta"":{{""currency"":""USD"",""financialCurrency"":""USD""}},""timestamp"":[{timestamps}],""indicators"":{{""quote"":[{{""open"":[{opens}],""high"":[{highs}],""low"":[{lows}],""close"":[{closes}],""volume"":[{volumes}]}}]{adjustedCloseSection}}}}}]}}}}";
+    }
+
+    private static string RawChartJson(
+        string timestamps,
+        string opens,
+        string highs,
+        string lows,
+        string closes,
+        string volumes,
+        string? adjcloseArray)
+    {
+        var adjcloseSection = adjcloseArray is null
+            ? string.Empty
+            : $@",""adjclose"":[{{{adjcloseArray}}}]";
+        return $@"{{""chart"":{{""result"":[{{""meta"":{{""currency"":""USD"",""financialCurrency"":""USD""}},""timestamp"":[{timestamps}],""indicators"":{{""quote"":[{{""open"":[{opens}],""high"":[{highs}],""low"":[{lows}],""close"":[{closes}],""volume"":[{volumes}]}}]{adjcloseSection}}}}}]}}}}";
     }
 
     private static string EmptyChartJson() => """{"chart":{"result":[]}}""";

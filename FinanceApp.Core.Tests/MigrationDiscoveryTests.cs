@@ -56,6 +56,12 @@ public class MigrationDiscoveryTests
             index => index.GetDatabaseName() == "IX_Stocks_ProviderSymbol"
                 && index.GetFilter() == "`ProviderSymbol` IS NOT NULL"
                 && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(Stock.ProviderSymbol) }));
+        Assert.Contains(
+            stockEntity.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_Stocks_Isin"
+                && !index.IsUnique
+                && index.GetFilter() == "`Isin` IS NOT NULL"
+                && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(Stock.Isin) }));
 
         var membershipEntity = context.Model.FindEntityType(typeof(StockMarketIndex));
         Assert.NotNull(membershipEntity);
@@ -74,6 +80,13 @@ public class MigrationDiscoveryTests
                     nameof(StockMarketIndex.StockId),
                     nameof(StockMarketIndex.MarketIndexId)
                 }));
+
+        var historicalPriceEntity = context.Model.FindEntityType(typeof(StockHistoricalPrice));
+        Assert.NotNull(historicalPriceEntity);
+
+        var adjustedClose = historicalPriceEntity!.FindProperty(nameof(StockHistoricalPrice.AdjustedClose));
+        Assert.NotNull(adjustedClose);
+        Assert.Equal("decimal(18,4)", adjustedClose!.GetColumnType());
     }
 
     private static AppDbContext CreateContext()

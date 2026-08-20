@@ -473,6 +473,93 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
+    public async Task RefreshConstituents_SameIsinDifferentListings_CreatesDistinctStocks()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5906,
+            Name = "Listing Identity Test",
+            NormalizedName = "LISTING IDENTITY TEST",
+            Code = "LIT5906",
+            NormalizedCode = "LIT5906",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            [
+                new IndexConstituentEntry("SAP.DE", "SAP", "SAP SE Frankfurt", StockExchanges.Frankfurt, "DE0007164600"),
+                new IndexConstituentEntry("SAP", "SAP", "SAP ADR", StockExchanges.Nyse, "DE0007164600")
+            ]));
+
+        var controller = CreateController(context, provider: provider);
+        var result = await controller.RefreshConstituents(5906);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+
+        var stocks = await context.Stocks
+            .OrderBy(x => x.Exchange)
+            .ThenBy(x => x.ProviderSymbol)
+            .ToListAsync();
+
+        Assert.Equal(2, stocks.Count);
+        Assert.All(stocks, stock => Assert.Equal("DE0007164600", stock.Isin));
+        Assert.Contains(stocks, stock => stock.Exchange == StockExchanges.Frankfurt && stock.ProviderSymbol == "SAP.DE");
+        Assert.Contains(stocks, stock => stock.Exchange == StockExchanges.Nyse && stock.ProviderSymbol == "SAP");
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_MatchingListing_BackfillsIsinWithoutCreatingDuplicate()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5907,
+            Name = "Backfill Test",
+            NormalizedName = "BACKFILL TEST",
+            Code = "BFT5907",
+            NormalizedCode = "BFT5907",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.Add(new Stock
+        {
+            Id = 59071,
+            Ticker = "SAP",
+            Name = "SAP Existing",
+            CommonName = "SAP Existing",
+            Exchange = StockExchanges.Frankfurt,
+            ProviderSymbol = "SAP.DE",
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            [new IndexConstituentEntry("SAP.DE", "SAP", "SAP Updated", StockExchanges.Frankfurt, "DE0007164600")]));
+
+        var controller = CreateController(context, provider: provider);
+        var result = await controller.RefreshConstituents(5907);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Single(await context.Stocks.ToListAsync());
+
+        var stock = await context.Stocks.SingleAsync();
+        Assert.Equal("DE0007164600", stock.Isin);
+        Assert.Equal("SAP Updated", stock.Name);
+    }
+
+    [Fact]
     public async Task GetConstituentHistory_CurrentTrackedMember_ReturnsHistory()
     {
         await using var context = await CreateSqliteContextAsync();
@@ -1480,6 +1567,14 @@ public class MarketIndicesControllerTests
 
         public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
             => Task.FromResult(IndexConstituentsResult.Unsupported(ProviderName));
+    }
+
+    private sealed class StaticIndexConstituentsProvider(IndexConstituentsResult result) : IIndexConstituentsProvider
+    {
+        public string ProviderName => result.ProviderName;
+
+        public Task<IndexConstituentsResult> GetConstituentsAsync(MarketIndex index, CancellationToken cancellationToken = default)
+            => Task.FromResult(result);
     }
 
     private sealed class NullStockHistoryService : IStockHistoryService

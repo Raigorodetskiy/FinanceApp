@@ -105,6 +105,70 @@ public class StocksControllerTests
     }
 
     [Fact]
+    public async Task Create_SameIsinOnDifferentExchanges_IsAllowed()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var first = await controller.Create(new Stock
+        {
+            Ticker = "SAP",
+            Name = "SAP SE Frankfurt",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 100m,
+            Isin = " de0007164600 "
+        });
+
+        var second = await controller.Create(new Stock
+        {
+            Ticker = "SAP",
+            Name = "SAP ADR",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 101m,
+            Isin = "DE0007164600"
+        });
+
+        Assert.IsType<CreatedAtActionResult>(first.Result);
+        Assert.IsType<CreatedAtActionResult>(second.Result);
+        Assert.Equal(2, await context.Stocks.CountAsync());
+        Assert.All(await context.Stocks.OrderBy(x => x.Id).ToListAsync(), stock => Assert.Equal("DE0007164600", stock.Isin));
+    }
+
+    [Fact]
+    public async Task Create_DuplicateTickerAndExchange_IsRejectedEvenWhenIsinDiffers()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var first = await controller.Create(new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 190m,
+            Isin = "US0378331005"
+        });
+
+        var second = await controller.Create(new Stock
+        {
+            Ticker = "AAPL",
+            Name = "Apple Clone",
+            CommonName = "Apple Clone",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 191m,
+            Isin = "US0378331006"
+        });
+
+        Assert.IsType<CreatedAtActionResult>(first.Result);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(second.Result);
+        Assert.Equal("Акция с тикером «AAPL» на бирже «NYSE» уже существует.", badRequest.Value);
+        Assert.Single(context.Stocks);
+    }
+
+    [Fact]
     public async Task Update_PriceOnlyRefresh_PreservesExistingMetadata()
     {
         await using var context = CreateContext();

@@ -231,6 +231,7 @@ public class StockHistoryService : IStockHistoryService
                     High = candle.High,
                     Low = candle.Low,
                     Close = candle.Close,
+                    AdjustedClose = candle.AdjustedClose,
                     QuoteCurrency = entry.Batch.QuoteCurrency,
                     FinancialCurrency = entry.Batch.FinancialCurrency,
                     NormalizedQuoteCurrency = entry.Batch.NormalizedQuoteCurrency,
@@ -318,6 +319,7 @@ public class StockHistoryService : IStockHistoryService
                 High = row.High,
                 Low = row.Low,
                 Close = row.Close,
+                AdjustedClose = row.AdjustedClose,
                 QuoteCurrency = row.QuoteCurrency,
                 FinancialCurrency = row.FinancialCurrency,
                 NormalizedQuoteCurrency = row.NormalizedQuoteCurrency,
@@ -541,6 +543,7 @@ public class StockHistoryService : IStockHistoryService
                 row.High = candle.High;
                 row.Low = candle.Low;
                 row.Close = candle.Close;
+                row.AdjustedClose = candle.AdjustedClose;
                 row.QuoteCurrency = candleBatch.QuoteCurrency;
                 row.FinancialCurrency = candleBatch.FinancialCurrency;
                 row.NormalizedQuoteCurrency = candleBatch.NormalizedQuoteCurrency;
@@ -558,6 +561,7 @@ public class StockHistoryService : IStockHistoryService
                     High = candle.High,
                     Low = candle.Low,
                     Close = candle.Close,
+                    AdjustedClose = candle.AdjustedClose,
                     QuoteCurrency = candleBatch.QuoteCurrency,
                     FinancialCurrency = candleBatch.FinancialCurrency,
                     NormalizedQuoteCurrency = candleBatch.NormalizedQuoteCurrency,
@@ -641,17 +645,28 @@ public class StockHistoryService : IStockHistoryService
         }
 
         var quote = quoteArray[0];
-        // NOTE: We read from indicators.quote.close (unadjusted raw close price).
-        // The Yahoo Finance v8 chart API also provides indicators.adjclose which contains
-        // split-and-dividend-adjusted closes, but it is intentionally NOT used here.
-        // StockHistoricalPrice.Close therefore stores unadjusted prices.
-        // Phase 1 technical indicators (SMA, EMA, RSI, MACD, volatility, drawdown, ATR) use
-        // unadjusted closes, which is acceptable for trend/momentum signals when splits are
-        // infrequent. Multi-period return calculations may be affected by corporate actions.
-        // Phase 2 should introduce adjusted-close support.
+        // Yahoo quote.close remains the canonical raw/unadjusted close stored in StockHistoricalPrice.Close.
+        // Where indicators.adjclose is present and aligned, we additionally persist it into
+        // StockHistoricalPrice.AdjustedClose for split/dividend-aware close-based analytics.
+        // Raw OHLC remains unchanged because Yahoo does not expose adjusted OHLC in this model.
         if (!quote.TryGetProperty("close", out var closeArray))
         {
             return CandleBatch.Empty;
+        }
+
+        JsonElement adjustedCloseArray = default;
+        if (indicators.TryGetProperty("adjclose", out var adjCloseWrapperArray) &&
+            adjCloseWrapperArray.ValueKind == JsonValueKind.Array &&
+            adjCloseWrapperArray.GetArrayLength() > 0)
+        {
+            var adjustedCloseWrapper = adjCloseWrapperArray[0];
+            if (adjustedCloseWrapper.ValueKind == JsonValueKind.Object &&
+                adjustedCloseWrapper.TryGetProperty("adjclose", out var parsedAdjustedCloseArray) &&
+                parsedAdjustedCloseArray.ValueKind == JsonValueKind.Array &&
+                parsedAdjustedCloseArray.GetArrayLength() == timestamps.GetArrayLength())
+            {
+                adjustedCloseArray = parsedAdjustedCloseArray;
+            }
         }
 
         var openArray = quote.TryGetProperty("open", out var openElement) ? openElement : default;
@@ -677,6 +692,9 @@ public class StockHistoryService : IStockHistoryService
             var high = TryGetDecimal(highArray, i, out var parsedHigh) ? parsedHigh : close;
             var low = TryGetDecimal(lowArray, i, out var parsedLow) ? parsedLow : close;
             var volume = TryGetInt64(volumeArray, i, out var parsedVolume) ? parsedVolume : 0L;
+            decimal? adjustedClose = TryGetAdjustedClose(adjustedCloseArray, i, out var parsedAdjustedClose)
+                ? parsedAdjustedClose
+                : null;
 
             candles.Add(new CandleData(
                 DateTimeOffset.FromUnixTimeSeconds(unixTimestamp).UtcDateTime,
@@ -684,6 +702,7 @@ public class StockHistoryService : IStockHistoryService
                 high,
                 low,
                 close,
+                adjustedClose,
                 volume));
         }
 
@@ -720,6 +739,7 @@ public class StockHistoryService : IStockHistoryService
                     ordered.Max(x => x.High),
                     ordered.Min(x => x.Low),
                     ordered.Last().Close,
+                    null,
                     ordered.Sum(x => x.Volume));
             })
             .ToList();
@@ -802,12 +822,23 @@ public class StockHistoryService : IStockHistoryService
         return false;
     }
 
+    private static bool TryGetAdjustedClose(JsonElement arrayElement, int index, out decimal value)
+    {
+        if (!TryGetDecimal(arrayElement, index, out value))
+        {
+            return false;
+        }
+
+        return value > 0m;
+    }
+
     private sealed record CandleData(
         DateTime Timestamp,
         decimal Open,
         decimal High,
         decimal Low,
         decimal Close,
+        decimal? AdjustedClose,
         long Volume);
 
     private sealed record CandleBatch(

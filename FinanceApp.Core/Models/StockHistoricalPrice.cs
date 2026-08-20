@@ -29,6 +29,15 @@ public class StockHistoricalPrice
     [Column(TypeName = "decimal(18,4)")]
     public decimal Close { get; set; }
 
+    /// <summary>
+    /// Split- and dividend-adjusted close price when the upstream provider exposes a valid
+    /// <c>indicators.adjclose</c> value aligned to this candle. Null when unavailable, malformed,
+    /// non-positive, or not provided for the interval. Raw <see cref="Close"/> remains the
+    /// canonical audit value and is never overwritten by this field.
+    /// </summary>
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal? AdjustedClose { get; set; }
+
     public string? QuoteCurrency { get; set; }
     public string? FinancialCurrency { get; set; }
     public string? NormalizedQuoteCurrency { get; set; }

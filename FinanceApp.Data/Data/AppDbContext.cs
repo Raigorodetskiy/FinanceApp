@@ -507,7 +507,7 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Isin).HasMaxLength(12);
             entity.Property(x => x.CurrentPriceDelayWarning).HasMaxLength(300);
             entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");
-            entity.HasIndex(x => x.Isin).IsUnique().HasFilter("`Isin` IS NOT NULL");
+            entity.HasIndex(x => x.Isin).HasFilter("`Isin` IS NOT NULL");
             entity.Property(x => x.FinanzenNetSlug).HasMaxLength(120);
             entity.HasOne(x => x.Industry)
                 .WithMany(x => x.Stocks)
