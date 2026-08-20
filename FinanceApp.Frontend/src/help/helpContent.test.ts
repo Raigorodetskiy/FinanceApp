@@ -101,6 +101,79 @@ describe('help content contracts', () => {
     expect(JSON.stringify(quality)).toContain('confidence');
   });
 
+  it('documents current fundamental scoring rules, weights, limitations and disclaimer', () => {
+    const article = ALL_HELP_ARTICLES.find((item) => item.slug === 'fundamental-scoring-methodology');
+    expect(article).toBeDefined();
+    const serialized = JSON.stringify(article);
+
+    for (const sectionSlug of [
+      'fundamental-methodology-basics',
+      'fundamental-methodology-inputs-and-refresh',
+      'fundamental-methodology-metric-net-income',
+      'fundamental-methodology-metric-fcf',
+      'fundamental-methodology-metric-debt-to-ebitda',
+      'fundamental-methodology-metric-pe-pb-dy',
+      'fundamental-methodology-component-calculation',
+      'fundamental-methodology-horizons-and-weights',
+      'fundamental-methodology-sector-limitations',
+      'fundamental-methodology-history-and-confidence',
+      'fundamental-methodology-disclaimer',
+    ]) {
+      expect(serialized).toContain(sectionSlug);
+    }
+
+    for (const expected of [
+      'score всегда начинается с 50',
+      'clamp) диапазоном 0..100',
+      'NetIncomeTtm > 0',
+      'FreeCashFlowTtm > 0',
+      'DebtToEbitda = TotalDebt / EbitdaTtm',
+      'DebtToEbitda < 2',
+      'DebtToEbitda > 6',
+      'DebtToEbitda > 4 и <= 6',
+      '5 <= P/E <= 35',
+      'P/E > 60',
+      '0.5 <= P/B <= 8',
+      'P/B > 15',
+      '1 <= DY <= 6',
+      'DY > 10',
+      'DIVIDEND_YIELD_EXTREME',
+      'FUNDAMENTALS_UNUSABLE',
+      'FUNDAMENTALS_MISSING',
+      'FUNDAMENTALS_STALE',
+      'FUNDAMENTAL_HISTORY_INSUFFICIENT',
+      'COMPONENTS_MISSING',
+      'Финальный score = weightedScore / 0,8',
+      '3 месяца',
+      '6 месяцев',
+      '1 год',
+      '2 года',
+      '0%',
+      '5%',
+      '20%',
+      '45%',
+      'не использует sector/industry',
+      'cash-adjusted debt',
+      'банков и страховщиков',
+      'REIT/real estate',
+      'utilities',
+      'technology/growth',
+      'циклических и временно убыточных',
+      'confidence умножается на 0.7',
+      'confidence умножается на 0.8',
+      'не вычисляются',
+      'не intrinsic valuation',
+      'не прогноз будущей цены',
+      'не персональная инвестиционная рекомендация',
+      'не запускает provider refresh',
+    ]) {
+      expect(serialized).toContain(expected);
+    }
+
+    expect(article?.related?.length).toBeGreaterThanOrEqual(3);
+    expect(JSON.stringify(article?.related ?? [])).toContain('fundamentals-limitations-and-signal-impact');
+  });
+
   it('contains required top-level categories and FAQ article', () => {
     const categorySlugs = new Set(HELP_CATEGORIES.map((category) => category.slug));
     expect(categorySlugs).toEqual(new Set(['quick-start', 'analytics', 'data-quality', 'stocks-and-indices', 'portfolios', 'faq']));
@@ -119,6 +192,10 @@ describe('help search behavior', () => {
     expect(searchHelpArticles('формула Уайлдера').some((result) => result.articleSlug === 'technical-indicator-formulas')).toBe(true);
     expect(searchHelpArticles('где находится').some((result) => result.articleSlug === 'faq')).toBe(true);
     expect(searchHelpArticles('ренормализует веса').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
+    expect(searchHelpArticles('фундаментальный анализ').some((result) => result.articleSlug === 'fundamental-scoring-methodology')).toBe(true);
+    expect(searchHelpArticles('DebtToEbitda').some((result) => result.articleSlug === 'fundamental-scoring-methodology')).toBe(true);
+    expect(searchHelpArticles('FUNDAMENTAL_HISTORY_INSUFFICIENT').some((result) => result.articleSlug === 'fundamental-scoring-methodology')).toBe(true);
+    expect(searchHelpArticles('sector/industry').some((result) => result.articleSlug === 'fundamental-scoring-methodology')).toBe(true);
   });
 
   it('keeps deterministic ranking with exact title before broad matches', () => {
