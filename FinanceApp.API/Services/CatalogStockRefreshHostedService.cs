@@ -655,11 +655,24 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
             Id = stock.StockId,
             Ticker = stock.Ticker,
             Exchange = stock.Exchange
-        }, cancellationToken);
+        }, StockHistoryRefreshTrigger.Automatic, cancellationToken);
 
         if (historyResult.RateLimited)
         {
             return StepOutcome.RateLimited("History provider rate-limited.");
+        }
+
+        if (historyResult.StockNotFound)
+        {
+            return StepOutcome.Skipped("Stock record not found for history refresh.");
+        }
+
+        if (historyResult.SkippedNotDue)
+        {
+            var tierSuffix = string.IsNullOrWhiteSpace(historyResult.AppliedTier)
+                ? string.Empty
+                : $" (tier={historyResult.AppliedTier})";
+            return StepOutcome.Skipped($"History refresh not due{tierSuffix}.");
         }
 
         return StepOutcome.Succeeded();

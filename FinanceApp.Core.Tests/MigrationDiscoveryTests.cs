@@ -64,6 +64,22 @@ public class MigrationDiscoveryTests
     }
 
     [Fact]
+    public void GetMigrations_Contains_AddStockHistoryRefreshCadenceAndScheduling()
+    {
+        using var context = CreateContext();
+
+        var migrations = context.Database.GetMigrations().ToList();
+        Assert.Contains("20260820094806_AddStockHistoryRefreshCadenceAndScheduling", migrations);
+
+        var migrationType = typeof(AppDbContext).Assembly.GetType("FinanceApp.Data.Migrations.AddStockHistoryRefreshCadenceAndScheduling");
+        Assert.NotNull(migrationType);
+
+        var migrationAttribute = migrationType!.GetCustomAttribute<MigrationAttribute>();
+        Assert.NotNull(migrationAttribute);
+        Assert.Equal("20260820094806_AddStockHistoryRefreshCadenceAndScheduling", migrationAttribute!.Id);
+    }
+
+    [Fact]
     public void Model_Contains_StockTracking_And_MembershipHistory_Metadata()
     {
         using var context = CreateContext();
@@ -94,6 +110,23 @@ public class MigrationDiscoveryTests
                 && !index.IsUnique
                 && index.GetFilter() == "`Isin` IS NOT NULL"
                 && index.Properties.Select(property => property.Name).SequenceEqual(new[] { nameof(Stock.Isin) }));
+
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.HistoryRefreshCadence)));
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.LastIncrementalHistoryRefreshSucceededAtUtc)));
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.NextIncrementalHistoryRefreshAtUtc)));
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.LastHistoryReconciliationSucceededAtUtc)));
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.NextHistoryReconciliationAtUtc)));
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.LastFullHistoryBackfillSucceededAtUtc)));
+        Assert.NotNull(stockEntity.FindProperty(nameof(Stock.NextFullHistoryBackfillAtUtc)));
+        Assert.Contains(
+            stockEntity.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_Stocks_HistoryRefreshCadence_NextIncremental_Id");
+        Assert.Contains(
+            stockEntity.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_Stocks_HistoryRefreshCadence_NextReconciliation_Id");
+        Assert.Contains(
+            stockEntity.GetIndexes(),
+            index => index.GetDatabaseName() == "IX_Stocks_HistoryRefreshCadence_NextFullBackfill_Id");
 
         var membershipEntity = context.Model.FindEntityType(typeof(StockMarketIndex));
         Assert.NotNull(membershipEntity);

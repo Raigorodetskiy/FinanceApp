@@ -1590,6 +1590,8 @@ public class MarketIndicesControllerTests
 
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class TestStockHistoryService(
@@ -1651,6 +1653,9 @@ public class MarketIndicesControllerTests
                 Interlocked.Decrement(ref _activeCalls);
             }
         }
+
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class TestStockHistoryReadService : IStockHistoryService
@@ -1677,6 +1682,8 @@ public class MarketIndicesControllerTests
 
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
     }
 
     private sealed class NullIndexConstituentHistoryRefreshJobService : IIndexConstituentHistoryRefreshJobService

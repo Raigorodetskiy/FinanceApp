@@ -1014,6 +1014,8 @@ public class StockTrackingStatusTests
 
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = stock.Id });
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default)
+            => RefreshHistoryAsync(stock, cancellationToken);
 
         public Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
             => Task.CompletedTask;

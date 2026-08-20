@@ -72,6 +72,60 @@ public class CatalogStockRefreshRunSchemaMigrationTests
         Assert.DoesNotContain("IX_CatalogStockRefreshRuns_RunKey", script);
     }
 
+    public class StockHistoryRefreshCadenceSchemaMigrationTests
+    {
+        private const string PreviousMigration = "20260820072805_FixCatalogStockRefreshRunOccurrenceIndex";
+        private const string CurrentMigration = "20260820094806_AddStockHistoryRefreshCadenceAndScheduling";
+        private const string DefaultConnectionString = "Server=example.invalid;Port=3306;Database=financeapp";
+
+        [Fact]
+        public void MigrationScript_AddsCadenceSchedulingColumns_AndDueIndexes()
+        {
+            using var context = CreateMySqlContext();
+            var migrator = context.GetService<IMigrator>();
+
+            var script = migrator.GenerateScript(PreviousMigration, CurrentMigration);
+
+            Assert.Contains("HistoryRefreshCadence", script);
+            Assert.Contains("NextIncrementalHistoryRefreshAtUtc", script);
+            Assert.Contains("NextHistoryReconciliationAtUtc", script);
+            Assert.Contains("NextFullHistoryBackfillAtUtc", script);
+            Assert.Contains("IX_Stocks_HistoryRefreshCadence_NextIncremental_Id", script);
+            Assert.Contains("IX_Stocks_HistoryRefreshCadence_NextReconciliation_Id", script);
+            Assert.Contains("IX_Stocks_HistoryRefreshCadence_NextFullBackfill_Id", script);
+            Assert.Contains("UPDATE `Stocks` s", script);
+        }
+
+        [Fact]
+        public void MigrationScript_Rollback_DropsCadenceSchedulingColumns_AndDueIndexes()
+        {
+            using var context = CreateMySqlContext();
+            var migrator = context.GetService<IMigrator>();
+
+            var script = migrator.GenerateScript(CurrentMigration, PreviousMigration);
+
+            Assert.Contains("IX_Stocks_HistoryRefreshCadence_NextIncremental_Id", script);
+            Assert.Contains("IX_Stocks_HistoryRefreshCadence_NextReconciliation_Id", script);
+            Assert.Contains("IX_Stocks_HistoryRefreshCadence_NextFullBackfill_Id", script);
+            Assert.Contains("DROP COLUMN `HistoryRefreshCadence`", script);
+            Assert.Contains("DROP COLUMN `NextIncrementalHistoryRefreshAtUtc`", script);
+            Assert.Contains("DROP COLUMN `NextHistoryReconciliationAtUtc`", script);
+            Assert.Contains("DROP COLUMN `NextFullHistoryBackfillAtUtc`", script);
+        }
+
+        private static AppDbContext CreateMySqlContext()
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseMySql(
+                    Environment.GetEnvironmentVariable("FINANCEAPP_TEST_MYSQL_CONNECTION")
+                        ?? DefaultConnectionString,
+                    new MariaDbServerVersion(new Version(10, 5, 23)))
+                .Options;
+
+            return new AppDbContext(options);
+        }
+    }
+
     [Fact]
     public void MigrationScript_Rollback_RestoresUniqueBusinessDateTimeZoneIndex()
     {

@@ -155,6 +155,8 @@ public class StockHistoryServiceProviderSymbolTests
             context,
             coordinator,
             new StubStockQuoteConversionService(),
+            TimeProvider.System,
+            Options.Create(new StockHistoryRefreshOptions()),
             NullLogger<StockHistoryService>.Instance);
 
         await service.SyncHistoricalDataForStockAsync(stock);

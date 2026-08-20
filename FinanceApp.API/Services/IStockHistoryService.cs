@@ -9,4 +9,5 @@ public interface IStockHistoryService
     Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default);
     Task<StockHistoryResponse> GetHistoryAsync(Stock stock, string range, CancellationToken cancellationToken = default);
     Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default);
+    Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, StockHistoryRefreshTrigger trigger, CancellationToken cancellationToken = default);
 }

@@ -183,6 +183,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<IndexConstituentsB
 builder.Services.AddScoped<IStockQuoteFetchService, StockQuoteFetchService>();
 builder.Services.Configure<CatalogStockRefreshJobOptions>(
     builder.Configuration.GetSection("CatalogStockRefreshJob"));
+builder.Services.Configure<StockHistoryRefreshOptions>(
+    builder.Configuration.GetSection("StockHistoryRefresh"));
 builder.Services.Configure<CatalogFundamentalsRefreshJobOptions>(
     builder.Configuration.GetSection("CatalogFundamentalsRefreshJob"));
 builder.Services.AddScoped<ITechnicalAnalysisSourceResolver, TechnicalAnalysisSourceResolver>();

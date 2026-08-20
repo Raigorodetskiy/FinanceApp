@@ -216,6 +216,70 @@ Rollback caveat:
   multiple rows now exist for the same date/timezone (which is expected after the fix). Treat DB rollback
   as a controlled/manual operation in that case.
 
+### Multi-tier stock history refresh strategy
+
+History refresh now uses tiered windows and durable per-stock schedule metadata instead of forcing a long-range fetch for every catalog stock on every pass.
+
+- **Incremental** (default lookback: `10` calendar days): overlapping near-term upsert for daily candles (`OHLC`, `Volume`, `AdjustedClose`, currency/source metadata).
+- **Reconciliation** (default lookback: `183` days): wider repair pass for provider corrections and late backfills.
+- **FullBackfill** (default lookback: `730` days): broad re-sync for initial/no-history stocks and explicit/manual refreshes.
+
+Cadence policy is stored on `Stocks.HistoryRefreshCadence`:
+- `Daily` (default for `Tracked`)
+- `Weekly` (default for `CatalogOnly`)
+- `Disabled` (excluded from automatic history refresh)
+
+Durable scheduler fields:
+- `LastIncrementalHistoryRefreshSucceededAtUtc`
+- `NextIncrementalHistoryRefreshAtUtc`
+- `LastHistoryReconciliationSucceededAtUtc`
+- `NextHistoryReconciliationAtUtc`
+- `LastFullHistoryBackfillSucceededAtUtc`
+- `NextFullHistoryBackfillAtUtc`
+
+Precedence and retries:
+- one provider history request per stock/pass using `FullBackfill > Reconciliation > Incremental`;
+- failures and rate limits schedule bounded retry via `TransientFailureRetryDelay` (default `02:00:00`);
+- success timestamps advance **only** on successful provider fetch + persistence.
+
+Distribution / deployment behavior:
+- migration `20260820094806_AddStockHistoryRefreshCadenceAndScheduling` backfills cadence from `TrackingStatus` (`Tracked => Daily`, `CatalogOnly => Weekly`);
+- initial due timestamps are deterministically spread using stock `Id` over day/week/month windows to avoid rollout spikes;
+- stocks without daily history are made immediately due for initial full backfill (unless cadence is `Disabled`).
+
+Indexes added for due-work selection:
+- `IX_Stocks_HistoryRefreshCadence_NextIncremental_Id`
+- `IX_Stocks_HistoryRefreshCadence_NextReconciliation_Id`
+- `IX_Stocks_HistoryRefreshCadence_NextFullBackfill_Id`
+
+Configuration (`StockHistoryRefresh` in `appsettings`):
+
+| Option | Default |
+|---|---|
+| `IncrementalLookbackDays` | `10` |
+| `ReconciliationLookbackDays` | `183` |
+| `FullBackfillLookbackDays` | `730` |
+| `IncrementalDailyCadence` | `1.00:00:00` |
+| `IncrementalWeeklyCadence` | `7.00:00:00` |
+| `ReconciliationTrackedCadence` | `7.00:00:00` |
+| `ReconciliationCatalogCadence` | `30.00:00:00` |
+| `FullBackfillTrackedCadence` | `30.00:00:00` |
+| `FullBackfillCatalogCadence` | `30.00:00:00` |
+| `TransientFailureRetryDelay` | `02:00:00` |
+| `MaxAutomaticStocksPerRun` | `100` |
+
+Operational verification after deploy:
+1. backup DB;
+2. apply migrations;
+3. deploy/restart backend;
+4. verify `Stocks` new cadence/schedule columns are populated and due indexes exist;
+5. inspect logs for tiered messages (`tier=Incremental|Reconciliation|FullBackfill`) and `not due` skips.
+
+Rollback caveat:
+- binary rollback is safe;
+- DB rollback drops cadence/schedule columns and due indexes, so do it only as a controlled migration rollback.
+- future portfolio/watchlist/index/manual-priority and corporate-action-triggered full backfills can extend this model by overriding cadence/tier selection without schema redesign.
+
 ### Weekly catalog fundamentals refresh (Tracked + CatalogOnly)
 
 FinanceApp also runs a separate weekly maintenance job that refreshes **fundamental data only** for all durable catalog stocks (`Tracked` and `CatalogOnly`).

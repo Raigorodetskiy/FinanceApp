@@ -6,6 +6,7 @@ using FinanceApp.Core.Models;
 using FinanceApp.Data.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Options;
 
 namespace FinanceApp.API.Services;
 
@@ -19,35 +20,38 @@ public class StockHistoryService : IStockHistoryService
     private readonly AppDbContext _dbContext;
     private readonly IYahooRequestCoordinator _yahooRequestCoordinator;
     private readonly IStockQuoteConversionService _stockQuoteConversionService;
+    private readonly TimeProvider _timeProvider;
+    private readonly StockHistoryRefreshOptions _options;
     private readonly ILogger<StockHistoryService> _logger;
 
     public StockHistoryService(
         AppDbContext dbContext,
         IYahooRequestCoordinator yahooRequestCoordinator,
         IStockQuoteConversionService stockQuoteConversionService,
+        TimeProvider timeProvider,
+        IOptions<StockHistoryRefreshOptions> options,
         ILogger<StockHistoryService> logger)
     {
         _dbContext = dbContext;
         _yahooRequestCoordinator = yahooRequestCoordinator;
         _stockQuoteConversionService = stockQuoteConversionService;
+        _timeProvider = timeProvider;
+        _options = NormalizeOptions(options.Value);
         _logger = logger;
     }
 
     public async Task SyncHistoricalDataForAllStocksAsync(CancellationToken cancellationToken = default)
     {
-        var stocks = await _dbContext.Stocks
-            .Where(s => s.Ticker != null && s.Ticker != string.Empty
-                        && s.TrackingStatus == StockTrackingStatus.Tracked)
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var stocks = await LoadDueAutomaticStocksAsync(nowUtc, cancellationToken);
 
         foreach (var stock in stocks)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var syncResult = await SyncHistoricalDataForStockCoreAsync(stock, cancellationToken);
-                if (syncResult.WasRateLimited)
+                var syncResult = await RefreshHistoryAsync(stock, StockHistoryRefreshTrigger.Automatic, cancellationToken);
+                if (syncResult.RateLimited)
                 {
                     _logger.LogInformation("Stopping Yahoo history refresh cycle early because a shared cooldown is active.");
                     break;
@@ -62,10 +66,18 @@ public class StockHistoryService : IStockHistoryService
 
     public async Task SyncHistoricalDataForStockAsync(Stock stock, CancellationToken cancellationToken = default)
     {
-        await SyncHistoricalDataForStockCoreAsync(stock, cancellationToken);
+        await RefreshHistoryAsync(stock, StockHistoryRefreshTrigger.Automatic, cancellationToken);
     }
 
     public async Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock stock, CancellationToken cancellationToken = default)
+    {
+        return await RefreshHistoryAsync(stock, StockHistoryRefreshTrigger.Manual, cancellationToken);
+    }
+
+    public async Task<StockHistoryRefreshResponse> RefreshHistoryAsync(
+        Stock stock,
+        StockHistoryRefreshTrigger trigger,
+        CancellationToken cancellationToken = default)
     {
         if (stock is null)
         {
@@ -81,31 +93,108 @@ public class StockHistoryService : IStockHistoryService
         await stockLock.WaitAsync(cancellationToken);
         try
         {
-            var fetchResult = await FetchHistoryBatchesAsync(stock, cancellationToken);
-            if (fetchResult.WasRateLimited)
+            var persisted = await _dbContext.Stocks.FirstOrDefaultAsync(x => x.Id == stock.Id, cancellationToken);
+            if (persisted is null)
             {
-                _logger.LogInformation("Skipping history replacement for stock {StockId} because Yahoo cooldown is active.", stock.Id);
                 return new StockHistoryRefreshResponse
                 {
                     StockId = stock.Id,
                     DeletedPoints = 0,
                     ImportedPoints = 0,
-                    RateLimited = true
+                    RateLimited = false,
+                    SkippedNotDue = false,
+                    StockNotFound = true,
+                };
+            }
+
+            if (!StockExchanges.TryNormalize(persisted.Exchange, out var normalizedExchange))
+            {
+                throw new InvalidOperationException("Stock ticker and exchange must be valid before refreshing history.");
+            }
+
+            persisted.Exchange = normalizedExchange;
+            EnsureCadenceDefault(persisted);
+
+            var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            var hasHistory = await _dbContext.StockHistoricalPrices
+                .AsNoTracking()
+                .AnyAsync(x => x.StockId == persisted.Id && x.Interval == "1d", cancellationToken);
+
+            var tier = ResolveTier(persisted, hasHistory, trigger, nowUtc);
+            if (tier is null)
+            {
+                _logger.LogDebug("History refresh skipped as not due for stock {StockId}", persisted.Id);
+                return new StockHistoryRefreshResponse
+                {
+                    StockId = persisted.Id,
+                    DeletedPoints = 0,
+                    ImportedPoints = 0,
+                    RateLimited = false,
+                    AppliedTier = null,
+                    SkippedNotDue = true,
+                    NextDueAtUtc = ComputeNextDueAtUtc(persisted, nowUtc),
+                };
+            }
+
+            _logger.LogInformation(
+                "History refresh due for stock {StockId}: tier={Tier} trigger={Trigger}",
+                persisted.Id,
+                tier.Value,
+                trigger);
+
+            var fetchResult = trigger == StockHistoryRefreshTrigger.Manual
+                ? await FetchHistoryBatchesAsync(persisted, cancellationToken)
+                : await FetchTierHistoryBatchesAsync(persisted, tier.Value, nowUtc, cancellationToken);
+            if (fetchResult.WasRateLimited)
+            {
+                _logger.LogInformation("Skipping history replacement for stock {StockId} because Yahoo cooldown is active.", stock.Id);
+                ScheduleRetry(persisted, tier.Value, nowUtc);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                return new StockHistoryRefreshResponse
+                {
+                    StockId = persisted.Id,
+                    DeletedPoints = 0,
+                    ImportedPoints = 0,
+                    RateLimited = true,
+                    AppliedTier = tier.Value.ToString(),
+                    NextDueAtUtc = ComputeNextDueAtUtc(persisted, nowUtc),
                 };
             }
 
             var batches = fetchResult.Batches;
-            var replacementRows = BuildReplacementRows(stock.Id, batches);
-            var importedPoints = replacementRows.Count;
-            var deletedPoints = await ReplaceHistoryAsync(stock.Id, replacementRows, cancellationToken);
+            var importedPoints = batches.Sum(batch => batch.Batch.Candles.Count);
+            await UpsertHistoryBatchesAsync(persisted.Id, batches, cancellationToken);
+            MarkTierSuccess(persisted, tier.Value, nowUtc);
+            await _dbContext.SaveChangesAsync(cancellationToken);
 
             return new StockHistoryRefreshResponse
             {
-                StockId = stock.Id,
-                DeletedPoints = deletedPoints,
+                StockId = persisted.Id,
+                DeletedPoints = 0,
                 ImportedPoints = importedPoints,
-                RateLimited = false
+                RateLimited = false,
+                AppliedTier = tier.Value.ToString(),
+                NextDueAtUtc = ComputeNextDueAtUtc(persisted, nowUtc),
             };
+        }
+        catch
+        {
+            var persisted = await _dbContext.Stocks.FirstOrDefaultAsync(x => x.Id == stock.Id, CancellationToken.None);
+            if (persisted is not null)
+            {
+                var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                var hasHistory = await _dbContext.StockHistoricalPrices
+                    .AsNoTracking()
+                    .AnyAsync(x => x.StockId == persisted.Id && x.Interval == "1d", CancellationToken.None);
+                var tier = ResolveTier(persisted, hasHistory, trigger, nowUtc);
+                if (tier is not null)
+                {
+                    ScheduleRetry(persisted, tier.Value, nowUtc);
+                    await _dbContext.SaveChangesAsync(CancellationToken.None);
+                }
+            }
+
+            throw;
         }
         finally
         {
@@ -139,6 +228,8 @@ public class StockHistoryService : IStockHistoryService
             currencyMetadata?.FinancialCurrency,
             cancellationToken);
         var volumeMetrics = BuildVolumeMetrics(data, interval, conversionContext);
+        var asOfUtc = data.LastOrDefault()?.Timestamp;
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
         return new StockHistoryResponse
         {
@@ -152,29 +243,13 @@ public class StockHistoryService : IStockHistoryService
             RateTimestampUtc = conversionContext.ExchangeRate.RateTimestampUtc,
             RateSource = conversionContext.ExchangeRate.Source,
             ConversionWarning = conversionContext.Warning,
+            AsOfUtc = asOfUtc,
+            IsPotentiallyStale = IsPotentiallyStale(interval, asOfUtc, nowUtc),
             VolumeMetrics = volumeMetrics,
             Points = data
                 .Select(point => _stockQuoteConversionService.BuildHistoryPointResponse(point, conversionContext))
                 .ToList()
         };
-    }
-
-    private async Task<StockHistorySyncResult> SyncHistoricalDataForStockCoreAsync(Stock stock, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(stock.Ticker))
-        {
-            return StockHistorySyncResult.Success();
-        }
-
-        var fetchResult = await FetchHistoryBatchesAsync(stock, cancellationToken);
-        if (fetchResult.WasRateLimited)
-        {
-            _logger.LogInformation("Skipping Yahoo history sync for stock {StockId} because a shared cooldown is active.", stock.Id);
-            return StockHistorySyncResult.RateLimited();
-        }
-
-        await UpsertHistoryBatchesAsync(stock.Id, fetchResult.Batches, cancellationToken);
-        return StockHistorySyncResult.Success();
     }
 
     private async Task<HistoryBatchFetchResult> FetchHistoryBatchesAsync(Stock stock, CancellationToken cancellationToken)
@@ -203,6 +278,30 @@ public class StockHistoryService : IStockHistoryService
             new IntervalBatch("1h", hourly),
             new IntervalBatch("10m", tenMinute),
         ]);
+    }
+
+    private async Task<HistoryBatchFetchResult> FetchTierHistoryBatchesAsync(
+        Stock stock,
+        StockHistoryRefreshTier tier,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+        var lookbackDays = tier switch
+        {
+            StockHistoryRefreshTier.Incremental => _options.IncrementalLookbackDays,
+            StockHistoryRefreshTier.Reconciliation => _options.ReconciliationLookbackDays,
+            _ => _options.FullBackfillLookbackDays,
+        };
+
+        var fromUtc = nowUtc.Date.AddDays(-lookbackDays);
+        var daily = await FetchCandlesByDateRangeAsync(providerSymbol, "1d", fromUtc, nowUtc, cancellationToken);
+        if (daily.WasRateLimited)
+        {
+            return HistoryBatchFetchResult.RateLimited();
+        }
+
+        return HistoryBatchFetchResult.Success([new IntervalBatch("1d", daily)]);
     }
 
     private async Task UpsertHistoryBatchesAsync(int stockId, IEnumerable<IntervalBatch> batches, CancellationToken cancellationToken)
@@ -514,6 +613,201 @@ public class StockHistoryService : IStockHistoryService
         string.IsNullOrWhiteSpace(price.NormalizedQuoteCurrency) ||
         price.QuoteUnitMultiplier <= 0m;
 
+    private async Task<List<Stock>> LoadDueAutomaticStocksAsync(DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        var dueBySchedule = await _dbContext.Stocks
+            .Where(s =>
+                s.HistoryRefreshCadence != StockHistoryRefreshCadence.Disabled &&
+                !string.IsNullOrWhiteSpace(s.Ticker) &&
+                (
+                    (s.NextFullHistoryBackfillAtUtc.HasValue && s.NextFullHistoryBackfillAtUtc <= nowUtc) ||
+                    (s.NextHistoryReconciliationAtUtc.HasValue && s.NextHistoryReconciliationAtUtc <= nowUtc) ||
+                    (s.NextIncrementalHistoryRefreshAtUtc.HasValue && s.NextIncrementalHistoryRefreshAtUtc <= nowUtc)
+                ))
+            .OrderBy(s => s.Id)
+            .Take(_options.MaxAutomaticStocksPerRun)
+            .ToListAsync(cancellationToken);
+
+        if (dueBySchedule.Count >= _options.MaxAutomaticStocksPerRun)
+        {
+            return dueBySchedule;
+        }
+
+        var stockIdsWithDailyHistory = await _dbContext.StockHistoricalPrices
+            .AsNoTracking()
+            .Where(x => x.Interval == "1d")
+            .Select(x => x.StockId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var remaining = _options.MaxAutomaticStocksPerRun - dueBySchedule.Count;
+        var noHistoryStocks = await _dbContext.Stocks
+            .Where(s =>
+                s.HistoryRefreshCadence != StockHistoryRefreshCadence.Disabled &&
+                !string.IsNullOrWhiteSpace(s.Ticker) &&
+                !stockIdsWithDailyHistory.Contains(s.Id))
+            .OrderBy(s => s.Id)
+            .Take(remaining)
+            .ToListAsync(cancellationToken);
+
+        return dueBySchedule
+            .Concat(noHistoryStocks)
+            .GroupBy(x => x.Id)
+            .Select(g => g.First())
+            .OrderBy(x => x.Id)
+            .ToList();
+    }
+
+    private static bool IsPotentiallyStale(string interval, DateTime? asOfUtc, DateTime nowUtc)
+    {
+        if (asOfUtc is null)
+        {
+            return true;
+        }
+
+        var threshold = interval switch
+        {
+            "10m" => TimeSpan.FromHours(2),
+            "1h" => TimeSpan.FromHours(8),
+            "1d" => TimeSpan.FromDays(4),
+            "1wk" => TimeSpan.FromDays(14),
+            _ => TimeSpan.FromDays(45),
+        };
+
+        return (nowUtc - asOfUtc.Value) > threshold;
+    }
+
+    private static void EnsureCadenceDefault(Stock stock)
+    {
+        if (Enum.IsDefined(stock.HistoryRefreshCadence))
+        {
+            return;
+        }
+
+        stock.HistoryRefreshCadence = stock.TrackingStatus == StockTrackingStatus.CatalogOnly
+            ? StockHistoryRefreshCadence.Weekly
+            : StockHistoryRefreshCadence.Daily;
+    }
+
+    private StockHistoryRefreshTier? ResolveTier(Stock stock, bool hasHistory, StockHistoryRefreshTrigger trigger, DateTime nowUtc)
+    {
+        if (trigger == StockHistoryRefreshTrigger.Manual)
+        {
+            return StockHistoryRefreshTier.FullBackfill;
+        }
+
+        if (stock.HistoryRefreshCadence == StockHistoryRefreshCadence.Disabled)
+        {
+            return null;
+        }
+
+        if (!hasHistory)
+        {
+            return StockHistoryRefreshTier.FullBackfill;
+        }
+
+        if (stock.NextFullHistoryBackfillAtUtc is null || stock.NextFullHistoryBackfillAtUtc <= nowUtc)
+        {
+            return StockHistoryRefreshTier.FullBackfill;
+        }
+
+        if (stock.NextHistoryReconciliationAtUtc is null || stock.NextHistoryReconciliationAtUtc <= nowUtc)
+        {
+            return StockHistoryRefreshTier.Reconciliation;
+        }
+
+        if (stock.NextIncrementalHistoryRefreshAtUtc is null || stock.NextIncrementalHistoryRefreshAtUtc <= nowUtc)
+        {
+            return StockHistoryRefreshTier.Incremental;
+        }
+
+        return null;
+    }
+
+    private void MarkTierSuccess(Stock stock, StockHistoryRefreshTier tier, DateTime nowUtc)
+    {
+        switch (tier)
+        {
+            case StockHistoryRefreshTier.Incremental:
+                stock.LastIncrementalHistoryRefreshSucceededAtUtc = nowUtc;
+                stock.NextIncrementalHistoryRefreshAtUtc = nowUtc + GetIncrementalCadence(stock);
+                break;
+            case StockHistoryRefreshTier.Reconciliation:
+                stock.LastHistoryReconciliationSucceededAtUtc = nowUtc;
+                stock.NextHistoryReconciliationAtUtc = nowUtc + GetReconciliationCadence(stock);
+                if (stock.NextIncrementalHistoryRefreshAtUtc is null || stock.NextIncrementalHistoryRefreshAtUtc < nowUtc)
+                {
+                    stock.NextIncrementalHistoryRefreshAtUtc = nowUtc + GetIncrementalCadence(stock);
+                }
+                break;
+            case StockHistoryRefreshTier.FullBackfill:
+                stock.LastFullHistoryBackfillSucceededAtUtc = nowUtc;
+                stock.NextFullHistoryBackfillAtUtc = nowUtc + GetFullBackfillCadence(stock);
+                if (stock.NextHistoryReconciliationAtUtc is null || stock.NextHistoryReconciliationAtUtc < nowUtc)
+                {
+                    stock.NextHistoryReconciliationAtUtc = nowUtc + GetReconciliationCadence(stock);
+                }
+
+                if (stock.NextIncrementalHistoryRefreshAtUtc is null || stock.NextIncrementalHistoryRefreshAtUtc < nowUtc)
+                {
+                    stock.NextIncrementalHistoryRefreshAtUtc = nowUtc + GetIncrementalCadence(stock);
+                }
+                break;
+        }
+    }
+
+    private void ScheduleRetry(Stock stock, StockHistoryRefreshTier tier, DateTime nowUtc)
+    {
+        var retryAtUtc = nowUtc + _options.TransientFailureRetryDelay;
+        switch (tier)
+        {
+            case StockHistoryRefreshTier.Incremental:
+                stock.NextIncrementalHistoryRefreshAtUtc = retryAtUtc;
+                break;
+            case StockHistoryRefreshTier.Reconciliation:
+                stock.NextHistoryReconciliationAtUtc = retryAtUtc;
+                break;
+            case StockHistoryRefreshTier.FullBackfill:
+                stock.NextFullHistoryBackfillAtUtc = retryAtUtc;
+                break;
+        }
+    }
+
+    private DateTime? ComputeNextDueAtUtc(Stock stock, DateTime nowUtc)
+    {
+        if (stock.HistoryRefreshCadence == StockHistoryRefreshCadence.Disabled)
+        {
+            return null;
+        }
+
+        var due = new[] {
+            stock.NextIncrementalHistoryRefreshAtUtc,
+            stock.NextHistoryReconciliationAtUtc,
+            stock.NextFullHistoryBackfillAtUtc
+        }
+        .Where(x => x.HasValue)
+        .Select(x => x!.Value)
+        .OrderBy(x => x)
+        .FirstOrDefault();
+
+        return due == default ? nowUtc : due;
+    }
+
+    private TimeSpan GetIncrementalCadence(Stock stock)
+        => stock.HistoryRefreshCadence == StockHistoryRefreshCadence.Weekly
+            ? _options.IncrementalWeeklyCadence
+            : _options.IncrementalDailyCadence;
+
+    private TimeSpan GetReconciliationCadence(Stock stock)
+        => stock.TrackingStatus == StockTrackingStatus.CatalogOnly
+            ? _options.ReconciliationCatalogCadence
+            : _options.ReconciliationTrackedCadence;
+
+    private TimeSpan GetFullBackfillCadence(Stock stock)
+        => stock.TrackingStatus == StockTrackingStatus.CatalogOnly
+            ? _options.FullBackfillCatalogCadence
+            : _options.FullBackfillTrackedCadence;
+
     private async Task UpsertCandlesAsync(int stockId, string interval, CandleBatch candleBatch, CancellationToken cancellationToken)
     {
         var candles = candleBatch.Candles;
@@ -574,11 +868,39 @@ public class StockHistoryService : IStockHistoryService
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    private async Task<CandleFetchResult> FetchCandlesByDateRangeAsync(
+        string symbol,
+        string interval,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken)
+    {
+        var period1 = new DateTimeOffset(DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc)).ToUnixTimeSeconds();
+        var period2 = new DateTimeOffset(DateTime.SpecifyKind(toUtc, DateTimeKind.Utc)).ToUnixTimeSeconds();
+        if (period2 <= period1)
+        {
+            period2 = period1 + 3600;
+        }
+
+        var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}?interval={interval}&period1={period1}&period2={period2}";
+        var requestLabel = $"history:{interval}:{period1}-{period2}";
+        return await FetchCandlesInternalAsync(url, requestLabel, interval, $"{fromUtc:yyyy-MM-dd}..{toUtc:yyyy-MM-dd}", cancellationToken);
+    }
+
     private async Task<CandleFetchResult> FetchCandlesAsync(string symbol, string interval, string range, CancellationToken cancellationToken)
     {
         var url = $"https://query2.finance.yahoo.com/v8/finance/chart/{Uri.EscapeDataString(symbol)}?interval={interval}&range={range}";
         var requestLabel = $"history:{interval}:{range}";
+        return await FetchCandlesInternalAsync(url, requestLabel, interval, range, cancellationToken);
+    }
 
+    private async Task<CandleFetchResult> FetchCandlesInternalAsync(
+        string url,
+        string requestLabel,
+        string interval,
+        string rangeLabel,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var response = await _yahooRequestCoordinator.GetAsync(
@@ -595,7 +917,7 @@ public class StockHistoryService : IStockHistoryService
                 _logger.LogWarning(
                     "Yahoo history request rate limited for interval={Interval} range={Range}; cooldownUntilUtc={CooldownUntilUtc}",
                     interval,
-                    range,
+                    rangeLabel,
                     response.CooldownUntilUtc);
                 return CandleFetchResult.RateLimited();
             }
@@ -605,7 +927,7 @@ public class StockHistoryService : IStockHistoryService
                 _logger.LogWarning(
                     "Yahoo history request failed for interval={Interval} range={Range}: {StatusCode}",
                     interval,
-                    range,
+                    rangeLabel,
                     (int)response.StatusCode);
                 return CandleFetchResult.Success(CandleBatch.Empty);
             }
@@ -615,12 +937,12 @@ public class StockHistoryService : IStockHistoryService
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Yahoo history request timed out for interval={Interval} range={Range}", interval, range);
+            _logger.LogWarning(ex, "Yahoo history request timed out for interval={Interval} range={Range}", interval, rangeLabel);
             throw;
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "Yahoo history request failed for interval={Interval} range={Range}", interval, range);
+            _logger.LogWarning(ex, "Yahoo history request failed for interval={Interval} range={Range}", interval, rangeLabel);
             throw;
         }
     }
@@ -832,6 +1154,24 @@ public class StockHistoryService : IStockHistoryService
         return value > 0m;
     }
 
+    private static StockHistoryRefreshOptions NormalizeOptions(StockHistoryRefreshOptions raw)
+    {
+        return new StockHistoryRefreshOptions
+        {
+            IncrementalLookbackDays = raw.IncrementalLookbackDays > 0 ? raw.IncrementalLookbackDays : 10,
+            ReconciliationLookbackDays = raw.ReconciliationLookbackDays > 0 ? raw.ReconciliationLookbackDays : 183,
+            FullBackfillLookbackDays = raw.FullBackfillLookbackDays > 0 ? raw.FullBackfillLookbackDays : 730,
+            IncrementalDailyCadence = raw.IncrementalDailyCadence > TimeSpan.Zero ? raw.IncrementalDailyCadence : TimeSpan.FromDays(1),
+            IncrementalWeeklyCadence = raw.IncrementalWeeklyCadence > TimeSpan.Zero ? raw.IncrementalWeeklyCadence : TimeSpan.FromDays(7),
+            ReconciliationTrackedCadence = raw.ReconciliationTrackedCadence > TimeSpan.Zero ? raw.ReconciliationTrackedCadence : TimeSpan.FromDays(7),
+            ReconciliationCatalogCadence = raw.ReconciliationCatalogCadence > TimeSpan.Zero ? raw.ReconciliationCatalogCadence : TimeSpan.FromDays(30),
+            FullBackfillTrackedCadence = raw.FullBackfillTrackedCadence > TimeSpan.Zero ? raw.FullBackfillTrackedCadence : TimeSpan.FromDays(30),
+            FullBackfillCatalogCadence = raw.FullBackfillCatalogCadence > TimeSpan.Zero ? raw.FullBackfillCatalogCadence : TimeSpan.FromDays(30),
+            TransientFailureRetryDelay = raw.TransientFailureRetryDelay > TimeSpan.Zero ? raw.TransientFailureRetryDelay : TimeSpan.FromHours(2),
+            MaxAutomaticStocksPerRun = raw.MaxAutomaticStocksPerRun > 0 ? raw.MaxAutomaticStocksPerRun : 100,
+        };
+    }
+
     private sealed record CandleData(
         DateTime Timestamp,
         decimal Open,
@@ -863,12 +1203,6 @@ public class StockHistoryService : IStockHistoryService
     {
         public static HistoryBatchFetchResult Success(IReadOnlyList<IntervalBatch> batches) => new(batches, false);
         public static HistoryBatchFetchResult RateLimited() => new(Array.Empty<IntervalBatch>(), true);
-    }
-
-    private sealed record StockHistorySyncResult(bool WasRateLimited)
-    {
-        public static StockHistorySyncResult Success() => new(false);
-        public static StockHistorySyncResult RateLimited() => new(true);
     }
 
     private sealed record LatestMetricsContext(

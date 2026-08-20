@@ -75,6 +75,8 @@ public sealed class StockHistoryResponse
     public DateTime? RateTimestampUtc { get; init; }
     public string? RateSource { get; init; }
     public string? ConversionWarning { get; init; }
+    public DateTime? AsOfUtc { get; init; }
+    public bool IsPotentiallyStale { get; init; }
     public StockHistoryVolumeMetricsResponse VolumeMetrics { get; init; } = new();
     public IReadOnlyList<StockHistoryPointResponse> Points { get; init; } = Array.Empty<StockHistoryPointResponse>();
 }
@@ -111,6 +113,10 @@ public sealed class StockHistoryRefreshResponse
     public int DeletedPoints { get; init; }
     public int ImportedPoints { get; init; }
     public bool RateLimited { get; init; }
+    public string? AppliedTier { get; init; }
+    public bool SkippedNotDue { get; init; }
+    public bool StockNotFound { get; init; }
+    public DateTime? NextDueAtUtc { get; init; }
 }
 
 public sealed class StockHistoryPointResponse

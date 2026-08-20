@@ -919,6 +919,8 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
             => Task.FromResult(new StockHistoryResponse());
         public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock s, CancellationToken ct = default)
             => Task.FromResult(new StockHistoryRefreshResponse { StockId = s.Id });
+        public Task<StockHistoryRefreshResponse> RefreshHistoryAsync(Stock s, StockHistoryRefreshTrigger trigger, CancellationToken ct = default)
+            => RefreshHistoryAsync(s, ct);
     }
 
     private sealed class NullIndexConstituentHistoryRefreshJobService : IIndexConstituentHistoryRefreshJobService

@@ -67,6 +67,20 @@ public class Stock
     public StockTrackingStatus TrackingStatus { get; set; } = StockTrackingStatus.Tracked;
 
     /// <summary>
+    /// Automatic history-refresh cadence used by background jobs.
+    /// Tracked stocks default to Daily; catalog-only stocks default to Weekly.
+    /// Disabled stocks are skipped by automatic history refresh.
+    /// </summary>
+    public StockHistoryRefreshCadence HistoryRefreshCadence { get; set; } = StockHistoryRefreshCadence.Daily;
+
+    public DateTime? LastIncrementalHistoryRefreshSucceededAtUtc { get; set; }
+    public DateTime? NextIncrementalHistoryRefreshAtUtc { get; set; }
+    public DateTime? LastHistoryReconciliationSucceededAtUtc { get; set; }
+    public DateTime? NextHistoryReconciliationAtUtc { get; set; }
+    public DateTime? LastFullHistoryBackfillSucceededAtUtc { get; set; }
+    public DateTime? NextFullHistoryBackfillAtUtc { get; set; }
+
+    /// <summary>
     /// Symbol as provided by the data provider used to import this stock (e.g. Yahoo Finance).
     /// Distinct from the user-editable <see cref="Ticker"/>; preserved for deduplication and
     /// re-import matching. Max 50 characters; null when unknown or not imported via a provider.
