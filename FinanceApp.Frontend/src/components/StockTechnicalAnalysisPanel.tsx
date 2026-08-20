@@ -319,6 +319,14 @@ const StockTechnicalAnalysisPanel: React.FC<{ stockId: number }> = ({ stockId })
 
           <details className="technical-analysis-panel__metrics">
             <summary>Показатели</summary>
+            <p>
+              <Link
+                to="/help/technical-indicator-formulas#indicator-methodology"
+                aria-label="Открыть справку о формулах технических показателей"
+              >
+                Как рассчитываются показатели?
+              </Link>
+            </p>
             <div className="technical-analysis-panel__metrics-grid">
               <div><Text type="secondary">Последняя цена</Text><div>{formatTechnicalNumber(state.response.metrics.latestPrice)}</div></div>
               <div><Text type="secondary">Свечей (Daily)</Text><div>{formatTechnicalNumber(state.response.metrics.dailyCandleCount, 0)}</div></div>

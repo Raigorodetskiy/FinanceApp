@@ -224,7 +224,7 @@ describe('StockTechnicalAnalysisPanel', () => {
     expect(document.activeElement).toBe(tab);
   });
 
-  it('formats metrics in disclosure area and does not call unrelated endpoints', async () => {
+  it('formats metrics and links the disclosure to the exact formula methodology section', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -241,7 +241,9 @@ describe('StockTechnicalAnalysisPanel', () => {
       expect(screen.getByText('80%')).toBeInTheDocument();
     });
 
-    expect(getStockTechnicalAnalysisMock).toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'Открыть справку о формулах технических показателей' }))
+      .toHaveAttribute('href', '/help/technical-indicator-formulas#indicator-methodology');
+    expect(getStockTechnicalAnalysisMock).toHaveBeenCalledTimes(1);
   });
 
   it('handles aborted request safely', async () => {
