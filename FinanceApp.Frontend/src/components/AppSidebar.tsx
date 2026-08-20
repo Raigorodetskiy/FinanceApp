@@ -8,6 +8,7 @@ import {
   FolderOpenOutlined,
   GlobalOutlined,
   LogoutOutlined,
+  QuestionCircleOutlined,
   StockOutlined,
   UnorderedListOutlined,
   UserOutlined,
@@ -81,7 +82,7 @@ export interface AppSidebarProps {
 }
 
 export interface StocksDirectoriesMenuEntry {
-  key: 'sectors' | 'financial-metrics';
+  key: 'sectors' | 'financial-metrics' | 'help';
   label: string;
   route: string;
   icon: React.ReactElement;
@@ -104,6 +105,12 @@ export const STOCKS_DIRECTORIES_MENU_ENTRIES: StocksDirectoriesMenuEntry[] = [
     route: '/financial-metrics',
     icon: <CalculatorOutlined />,
   },
+  {
+    key: 'help',
+    label: 'Справка',
+    route: '/help',
+    icon: <QuestionCircleOutlined />,
+  },
 ];
 
 export function buildStocksDirectoriesMenuItems(
@@ -121,6 +128,7 @@ export function isStocksDirectoriesSelectedKey(key: string): boolean {
   return key === STOCKS_DIRECTORIES_PARENT_KEY
     || key === 'sectors'
     || key === 'financial-metrics'
+    || key === 'help'
     || key.startsWith('sectors-');
 }
 

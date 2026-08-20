@@ -7,6 +7,7 @@ import axios from 'axios';
 import StockTechnicalAnalysisPanel from './StockTechnicalAnalysisPanel';
 import { TECHNICAL_ANALYSIS_HORIZON_STORAGE_KEY } from './technicalAnalysis';
 import type { TechnicalAnalysisResponse } from '../types';
+import { MemoryRouter } from 'react-router-dom';
 
 const getStockTechnicalAnalysisMock = vi.fn();
 
@@ -109,7 +110,11 @@ describe('StockTechnicalAnalysisPanel', () => {
   });
 
   it('renders four horizon controls, defaults to 3 months and shows score/confidence separately', async () => {
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByRole('status', { name: 'Загрузка аналитического сигнала' })).toBeInTheDocument();
     await screen.findByText('Аналитический сигнал');
@@ -123,13 +128,18 @@ describe('StockTechnicalAnalysisPanel', () => {
     expect(screen.getByText('91%')).toBeInTheDocument();
     expect(screen.getByText('Умеренно бычий')).toBeInTheDocument();
     expect(screen.getByText('Данные аналитического сигнала могут быть устаревшими.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Открыть справку по аналитическому сигналу' })).toHaveAttribute('href', '/help/analytical-signal#signal-location');
   });
 
   it('restores valid local-storage horizon, falls back on malformed value, and persists selection', async () => {
     window.localStorage.setItem(TECHNICAL_ANALYSIS_HORIZON_STORAGE_KEY, 'twoYears');
     const user = userEvent.setup();
 
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
     await screen.findByText('Сильный медвежий');
     expect(screen.getByRole('tab', { name: '2 года' })).toHaveAttribute('aria-selected', 'true');
 
@@ -138,12 +148,20 @@ describe('StockTechnicalAnalysisPanel', () => {
 
     cleanup();
     window.localStorage.setItem(TECHNICAL_ANALYSIS_HORIZON_STORAGE_KEY, 'bad-value');
-    render(<StockTechnicalAnalysisPanel stockId={8} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={8} />
+      </MemoryRouter>,
+    );
     expect(await screen.findByRole('tab', { name: '3 месяца' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('renders component scores and weights, showing null score as insufficient data and 0% fundamentals weight', async () => {
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
 
     await screen.findByText('Компоненты');
     expect(screen.getByText('Вес: 0%')).toBeInTheDocument();
@@ -153,7 +171,11 @@ describe('StockTechnicalAnalysisPanel', () => {
 
   it('shows low confidence warning and factor localization/fallback', async () => {
     const user = userEvent.setup();
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
 
     await user.click(await screen.findByRole('tab', { name: '6 месяцев' }));
     expect(screen.getByText('Низкая уверенность сигнала: 45%.')).toBeInTheDocument();
@@ -169,7 +191,11 @@ describe('StockTechnicalAnalysisPanel', () => {
       .mockRejectedValueOnce({ response: { status: 500 } })
       .mockResolvedValueOnce({ data: baseResponse });
 
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
     expect(await screen.findByText('Не удалось загрузить аналитический сигнал. Попробуйте снова.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Повторить' }));
@@ -178,13 +204,21 @@ describe('StockTechnicalAnalysisPanel', () => {
 
   it('renders 404 state and keeps selector keyboard-focusable', async () => {
     getStockTechnicalAnalysisMock.mockRejectedValueOnce({ response: { status: 404 } });
-    render(<StockTechnicalAnalysisPanel stockId={999} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={999} />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Аналитический сигнал недоступен: акция не найдена.');
 
     cleanup();
     getStockTechnicalAnalysisMock.mockResolvedValueOnce({ data: baseResponse });
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
     const tab = await screen.findByRole('tab', { name: '1 год' });
     tab.focus();
     expect(document.activeElement).toBe(tab);
@@ -192,7 +226,11 @@ describe('StockTechnicalAnalysisPanel', () => {
 
   it('formats metrics in disclosure area and does not call unrelated endpoints', async () => {
     const user = userEvent.setup();
-    render(<StockTechnicalAnalysisPanel stockId={7} />);
+    render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
 
     const disclosure = await screen.findByText('Показатели');
     await user.click(disclosure);
@@ -215,7 +253,11 @@ describe('StockTechnicalAnalysisPanel', () => {
       return { data: baseResponse };
     });
 
-    const { unmount } = render(<StockTechnicalAnalysisPanel stockId={7} />);
+    const { unmount } = render(
+      <MemoryRouter>
+        <StockTechnicalAnalysisPanel stockId={7} />
+      </MemoryRouter>,
+    );
     unmount();
     await waitFor(() => expect(getStockTechnicalAnalysisMock).toHaveBeenCalledTimes(1));
   });

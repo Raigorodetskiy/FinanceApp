@@ -4,6 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import type { AxiosError } from 'axios';
+import { Link } from 'react-router-dom';
 import { getStockFundamentals, refreshStockFundamentals } from '../services/api';
 import type { EarningsDateStatus, EarningsEventDto, FinancialPeriodDto, FundamentalsResponse, Stock } from '../types';
 
@@ -326,6 +327,11 @@ const StockFundamentalsDrawer: React.FC<StockFundamentalsDrawerProps> = ({ stock
               <Text type="secondary">
                 Источник: {snapshot.source} · символ {snapshot.sourceSymbol}
               </Text>
+              <div>
+                <Link to="/help/fundamentals#fundamentals-where-and-fields">
+                  Как читать фундаментальные показатели
+                </Link>
+              </div>
             </div>
             <Space>
               <Tag color={data.state === 'Fresh' ? 'green' : 'gold'}>

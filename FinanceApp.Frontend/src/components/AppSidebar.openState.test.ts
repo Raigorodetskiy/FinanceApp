@@ -76,6 +76,20 @@ describe('AppSidebar open state', () => {
     expect(keys).not.toContain('market-indices-root');
   });
 
+  it('opens top-level directories independently for /help', () => {
+    const keys = computeSidebarOpenKeys({
+      portfoliosOpen: false,
+      stocksOpen: false,
+      stocksDirectoriesOpen: false,
+      marketIndicesOpen: false,
+      selectedKeys: ['help'],
+    });
+
+    expect(keys).toContain('stocks-directories');
+    expect(keys).not.toContain('stocks');
+    expect(keys).not.toContain('market-indices-root');
+  });
+
   it('route-required parents win over stale persisted preferences', () => {
     const keys = computeSidebarOpenKeys({
       portfoliosOpen: false,

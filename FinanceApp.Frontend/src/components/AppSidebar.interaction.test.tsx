@@ -395,4 +395,15 @@ describe('AppSidebar real DOM interaction — Market Indices toggle', () => {
     // Preference must still be "1" (open) after navigation
     expect(localStorage.getItem(LS_MI)).toBe('1');
   });
+
+  it('13. Справочники leaf «Справка» navigates to /help and keeps drawer-closing navigation path logic', async () => {
+    const user = userEvent.setup();
+    renderSidebar({ localState: { [LS_STOCKS_DIR]: '1' } });
+
+    await act(async () => {
+      await user.click(screen.getByText('Справка'));
+    });
+
+    expect(capturedPathname).toBe('/help');
+  });
 });

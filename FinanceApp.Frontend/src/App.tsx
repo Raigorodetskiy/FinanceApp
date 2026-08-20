@@ -13,6 +13,7 @@ import SectorsPage from './pages/SectorsPage';
 import MarketIndicesPage from './pages/MarketIndicesPage';
 import FinancialMetricsPage from './pages/FinancialMetricsPage';
 import ProfilePage from './pages/ProfilePage';
+import HelpPage from './pages/HelpPage';
 
 const App: React.FC = () => {
   return (
@@ -83,6 +84,22 @@ const App: React.FC = () => {
               element={
                 <PrivateRoute>
                   <FinancialMetricsPage />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/help"
+              element={
+                <PrivateRoute>
+                  <HelpPage />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/help/:articleSlug"
+              element={
+                <PrivateRoute>
+                  <HelpPage />
                 </PrivateRoute>
               }
             />

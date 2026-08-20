@@ -3,6 +3,7 @@ import { Alert, Button, Spin, Tag, Typography, Progress } from 'antd';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { Link } from 'react-router-dom';
 import { getStockTechnicalAnalysis } from '../services/api';
 import type {
   TechnicalAnalysisComponentScores,
@@ -187,6 +188,13 @@ const StockTechnicalAnalysisPanel: React.FC<{ stockId: number }> = ({ stockId })
     <section className="technical-analysis-panel" aria-labelledby={`analysis-title-${stockId}`}>
       <div className="technical-analysis-panel__header">
         <h3 id={`analysis-title-${stockId}`} className="technical-analysis-panel__title">Аналитический сигнал</h3>
+        <Link
+          to="/help/analytical-signal#signal-location"
+          className="technical-analysis-panel__help-link"
+          aria-label="Открыть справку по аналитическому сигналу"
+        >
+          Как это работает
+        </Link>
       </div>
 
       <div aria-live="polite" aria-atomic="true">
