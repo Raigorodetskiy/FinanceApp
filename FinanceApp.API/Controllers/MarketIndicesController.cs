@@ -25,6 +25,7 @@ public class MarketIndicesController : ControllerBase
     private readonly IStockHistoryService _stockHistoryService;
     private readonly IIndexConstituentHistoryRefreshJobService _constituentHistoryRefreshJobs;
     private readonly IIndexConstituentsBatchQuoteRefreshJobService _constituentsBatchQuoteRefreshJobs;
+    private readonly IStockMetadataEnrichmentService? _stockMetadataEnrichmentService;
     private readonly ILogger<MarketIndicesController> _logger;
 
     public MarketIndicesController(
@@ -34,7 +35,8 @@ public class MarketIndicesController : ControllerBase
         IStockHistoryService stockHistoryService,
         IIndexConstituentHistoryRefreshJobService constituentHistoryRefreshJobs,
         IIndexConstituentsBatchQuoteRefreshJobService constituentsBatchQuoteRefreshJobs,
-        ILogger<MarketIndicesController> logger)
+        ILogger<MarketIndicesController> logger,
+        IStockMetadataEnrichmentService? stockMetadataEnrichmentService = null)
     {
         _context = context;
         _historyService = historyService;
@@ -42,6 +44,7 @@ public class MarketIndicesController : ControllerBase
         _stockHistoryService = stockHistoryService;
         _constituentHistoryRefreshJobs = constituentHistoryRefreshJobs;
         _constituentsBatchQuoteRefreshJobs = constituentsBatchQuoteRefreshJobs;
+        _stockMetadataEnrichmentService = stockMetadataEnrichmentService;
         _logger = logger;
     }
 
@@ -737,6 +740,7 @@ public class MarketIndicesController : ControllerBase
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
             var seenStocks = new HashSet<Stock>(ReferenceEqualityComparer.Instance);
+            var stocksToEnrich = new HashSet<Stock>(ReferenceEqualityComparer.Instance);
             try
             {
                 foreach (var constituent in normalizedConstituents)
@@ -770,6 +774,7 @@ public class MarketIndicesController : ControllerBase
                         _context.Stocks.Add(stock);
                         byProviderSymbol[stock.ProviderSymbol!] = stock;
                         byTickerExchange[$"{stock.Ticker}|{stock.Exchange}"] = stock;
+                        stocksToEnrich.Add(stock);
                     }
                     else
                     {
@@ -793,6 +798,7 @@ public class MarketIndicesController : ControllerBase
                         {
                             stock.ProviderSymbol = constituent.ProviderSymbol;
                             stockChanged = true;
+                            stocksToEnrich.Add(stock);
                         }
                         if (stockChanged)
                         {
@@ -856,6 +862,21 @@ public class MarketIndicesController : ControllerBase
                 }
 
                 await _context.SaveChangesAsync(cancellationToken);
+
+                if (_stockMetadataEnrichmentService is not null && stocksToEnrich.Count > 0)
+                {
+                    try
+                    {
+                        await _stockMetadataEnrichmentService.EnqueueSelectedAsync(
+                            stocksToEnrich.Where(x => x.Id > 0).Select(x => x.Id).Distinct(),
+                            "system-index-import",
+                            cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to enqueue stock metadata enrichment after index refresh for index {MarketIndexId}.", id);
+                    }
+                }
             }
             catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
             {

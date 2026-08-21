@@ -187,8 +187,16 @@ builder.Services.Configure<StockHistoryRefreshOptions>(
     builder.Configuration.GetSection("StockHistoryRefresh"));
 builder.Services.Configure<CatalogFundamentalsRefreshJobOptions>(
     builder.Configuration.GetSection("CatalogFundamentalsRefreshJob"));
+builder.Services.Configure<StockMetadataEnrichmentOptions>(
+    builder.Configuration.GetSection("StockMetadataEnrichment"));
 builder.Services.AddScoped<ITechnicalAnalysisSourceResolver, TechnicalAnalysisSourceResolver>();
 builder.Services.AddScoped<IStockTechnicalAnalysisService, StockTechnicalAnalysisService>();
+builder.Services.AddSingleton<IStockMetadataCuratedSnapshotService, StockMetadataCuratedSnapshotService>();
+builder.Services.AddSingleton<IYahooAssetProfileService, YahooAssetProfileService>();
+builder.Services.AddSingleton<StockMetadataEnrichmentService>();
+builder.Services.AddSingleton<IStockMetadataEnrichmentService>(sp =>
+    sp.GetRequiredService<StockMetadataEnrichmentService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<StockMetadataEnrichmentService>());
 builder.Services.AddSingleton<ICatalogMaintenanceLeaseService, CatalogMaintenanceLeaseService>();
 builder.Services.AddSingleton<CatalogStockRefreshHostedService>();
 builder.Services.AddSingleton<ICatalogStockRefreshStatusService>(sp =>

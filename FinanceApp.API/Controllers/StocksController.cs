@@ -17,17 +17,20 @@ public class StocksController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IStockHistoryService _stockHistoryService;
     private readonly StockQuoteSnapshotPersistenceService _stockQuoteSnapshotPersistenceService;
+    private readonly IStockMetadataEnrichmentService? _stockMetadataEnrichmentService;
     private readonly ILogger<StocksController> _logger;
 
     public StocksController(
         AppDbContext context,
         IStockHistoryService stockHistoryService,
         StockQuoteSnapshotPersistenceService stockQuoteSnapshotPersistenceService,
-        ILogger<StocksController> logger)
+        ILogger<StocksController> logger,
+        IStockMetadataEnrichmentService? stockMetadataEnrichmentService = null)
     {
         _context = context;
         _stockHistoryService = stockHistoryService;
         _stockQuoteSnapshotPersistenceService = stockQuoteSnapshotPersistenceService;
+        _stockMetadataEnrichmentService = stockMetadataEnrichmentService;
         _logger = logger;
     }
 
@@ -437,6 +440,19 @@ public class StocksController : ControllerBase
             return BadRequest(BuildCreateDuplicateMessage(stock.Wkn, stock.ProviderSymbol, stock.Ticker, stock.Exchange));
         }
 
+        if (_stockMetadataEnrichmentService is not null)
+        {
+            try
+            {
+                var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                await _stockMetadataEnrichmentService.EnqueueSelectedAsync([stock.Id], userId, HttpContext.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to enqueue metadata enrichment for stock {StockId}", stock.Id);
+            }
+        }
+
         try
         {
             await _stockHistoryService.SyncHistoricalDataForStockAsync(stock, HttpContext.RequestAborted);
@@ -498,9 +514,6 @@ public class StocksController : ControllerBase
         var identifierError = ValidateIdentifiers(wkn, isin);
         if (identifierError is not null) return identifierError;
 
-        var duplicateWknError = await ValidateWknUniquenessAsync(wkn, id);
-        if (duplicateWknError is not null) return duplicateWknError;
-
         var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
         if (industryValidationError != null) return industryValidationError;
 
@@ -532,7 +545,7 @@ public class StocksController : ControllerBase
         }
         catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
         {
-            return BadRequest(BuildWknDuplicateMessage(wkn));
+            return BadRequest("Нарушено ограничение уникальности. Проверьте тикер/биржу и provider symbol.");
         }
 
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous";
@@ -704,15 +717,9 @@ public class StocksController : ControllerBase
         var duplicates = await _context.Stocks
             .AsNoTracking()
             .Where(x =>
-                (stock.Wkn != null && x.Wkn == stock.Wkn) ||
                 (stock.ProviderSymbol != null && x.ProviderSymbol == stock.ProviderSymbol) ||
                 (x.Ticker == stock.Ticker && x.Exchange == stock.Exchange))
             .ToListAsync();
-
-        if (stock.Wkn != null && duplicates.Any(x => x.Wkn == stock.Wkn))
-        {
-            return BadRequest(BuildWknDuplicateMessage(stock.Wkn));
-        }
 
         if (stock.ProviderSymbol != null && duplicates.Any(x => x.ProviderSymbol == stock.ProviderSymbol))
         {
@@ -725,20 +732,6 @@ public class StocksController : ControllerBase
         }
 
         return null;
-    }
-
-    private async Task<ActionResult?> ValidateWknUniquenessAsync(string? wkn, int existingStockId)
-    {
-        if (wkn is null)
-        {
-            return null;
-        }
-
-        var duplicateExists = await _context.Stocks
-            .AsNoTracking()
-            .AnyAsync(x => x.Id != existingStockId && x.Wkn == wkn);
-
-        return duplicateExists ? BadRequest(BuildWknDuplicateMessage(wkn)) : null;
     }
 
     private async Task<Stock> LoadStockWithClassificationAsync(int id)
@@ -871,17 +864,10 @@ public class StocksController : ControllerBase
 
     private static string BuildCreateDuplicateMessage(string? wkn, string? providerSymbol, string ticker, string exchange)
     {
-        if (wkn != null)
-            return BuildWknDuplicateMessage(wkn);
         if (providerSymbol != null)
             return BuildProviderSymbolDuplicateMessage(providerSymbol);
         return BuildListingDuplicateMessage(ticker, exchange);
     }
-
-    private static string BuildWknDuplicateMessage(string? wkn)
-        => wkn != null
-            ? $"Акция с WKN «{wkn}» уже существует."
-            : "Акция с указанной WKN уже существует.";
 
     private static string BuildProviderSymbolDuplicateMessage(string providerSymbol)
         => $"Акция с ProviderSymbol «{providerSymbol}» уже существует.";
