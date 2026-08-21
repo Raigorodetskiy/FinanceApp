@@ -1618,6 +1618,7 @@ public class MarketIndicesControllerTests
             new NullMarketIndexHistoryService(),
             provider ?? new NullIndexConstituentsProvider(),
             stockHistoryService ?? new NullStockHistoryService(),
+            new StockPerformanceCalculationService(context, TimeProvider.System),
             constituentHistoryJobService ?? new NullIndexConstituentHistoryRefreshJobService(),
             new NullIndexConstituentsBatchQuoteRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)

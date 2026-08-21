@@ -204,6 +204,7 @@ public class StockTechnicalAnalysisScoringTests
         var controller = new StocksController(
             db,
             new StubStockHistoryService(),
+            new StockPerformanceCalculationService(db, TimeProvider.System),
             new StockQuoteSnapshotPersistenceService(db, TimeProvider.System, NullLogger<StockQuoteSnapshotPersistenceService>.Instance),
             NullLogger<StocksController>.Instance);
         controller.ControllerContext = new ControllerContext

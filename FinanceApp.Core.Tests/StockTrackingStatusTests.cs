@@ -945,6 +945,7 @@ public class StockTrackingStatusTests
         return new StocksController(
             context,
             new NullStockHistoryService(),
+            new StockPerformanceCalculationService(context, TimeProvider.System),
             new StockQuoteSnapshotPersistenceService(
                 context,
                 TimeProvider.System,
@@ -964,6 +965,7 @@ public class StockTrackingStatusTests
             new NullMarketIndexHistoryService(),
             provider ?? new NullIndexConstituentsProvider(),
             new NullStockHistoryService(),
+            new StockPerformanceCalculationService(context, TimeProvider.System),
             new NullIndexConstituentHistoryRefreshJobService(),
             new NullIndexConstituentsBatchQuoteRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)
