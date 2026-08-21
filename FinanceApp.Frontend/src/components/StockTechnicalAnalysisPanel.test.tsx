@@ -224,7 +224,7 @@ describe('StockTechnicalAnalysisPanel', () => {
     expect(document.activeElement).toBe(tab);
   });
 
-  it('formats metrics and links the disclosure to the exact formula methodology section', async () => {
+  it('formats metrics, keeps exact metric help anchors, and does not refetch on details/help interactions', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -243,6 +243,27 @@ describe('StockTechnicalAnalysisPanel', () => {
 
     expect(screen.getByRole('link', { name: 'Открыть справку о формулах технических показателей' }))
       .toHaveAttribute('href', '/help/technical-indicator-formulas#indicator-methodology');
+
+    const metricAnchors: Array<{ label: string; href: string }> = [
+      { label: 'Последняя цена', href: '/help/technical-indicator-formulas#indicator-methodology' },
+      { label: 'Свечей (Daily)', href: '/help/technical-indicator-formulas#indicator-methodology' },
+      { label: 'AdjustedClose coverage', href: '/help/technical-indicator-formulas#indicator-methodology' },
+      { label: 'SMA20 / SMA50 / SMA200', href: '/help/technical-indicator-formulas#indicator-sma-ema' },
+      { label: 'EMA12 / EMA26', href: '/help/technical-indicator-formulas#indicator-sma-ema' },
+      { label: 'RSI14', href: '/help/technical-indicator-formulas#indicator-rsi14' },
+      { label: 'MACD / Signal / Hist', href: '/help/technical-indicator-formulas#indicator-macd' },
+      { label: '1м / 3м / 6м / 1г', href: '/help/technical-indicator-formulas#indicator-returns' },
+      { label: 'Volatility20 / Volatility60', href: '/help/technical-indicator-formulas#indicator-volatility-drawdown' },
+      { label: 'Max Drawdown', href: '/help/technical-indicator-formulas#indicator-volatility-drawdown' },
+      { label: 'ATR14', href: '/help/technical-indicator-formulas#indicator-atr14' },
+    ];
+
+    for (const anchor of metricAnchors) {
+      expect(screen.getByRole('link', { name: anchor.label })).toHaveAttribute('href', anchor.href);
+    }
+
+    await user.click(screen.getByRole('link', { name: 'Открыть справку о формулах технических показателей' }));
+    await user.click(screen.getByRole('link', { name: 'Открыть справку по аналитическому сигналу' }));
     expect(getStockTechnicalAnalysisMock).toHaveBeenCalledTimes(1);
   });
 

@@ -12,7 +12,7 @@ export const TECHNICAL_INDICATOR_FORMULAS_ARTICLE: HelpArticle = {
   keywords: [
     'формулы', 'технический анализ', 'что такое скользящая средняя', 'SMA20', 'SMA50', 'SMA200',
     'EMA12', 'EMA26', 'экспоненциальная средняя', 'RSI14', 'формула RSI', 'Relative Strength Index',
-    'Wilder', 'MACD 12/26/9', 'MACD Signal Histogram', 'доходнос��ь', 'логарифмическая доходность',
+    'Wilder', 'формула Уайлдера', 'MACD 12/26/9', 'MACD Signal Histogram', 'доходность', 'логарифмическая доходность',
     'Volatility20', 'Volatility60', 'Current Drawdown', 'MaxDrawdown', 'ATR14', 'True Range',
     'AdjustedClose fallback', 'Close', 'Score', 'Confidence', 'Недостаточно данных',
   ],
