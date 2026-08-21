@@ -1168,7 +1168,7 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
-    public async Task GetConstituentPerformance_24h_UsesCurrentSnapshotFallback_WhenIntradayHistoryIsSparse()
+    public async Task GetConstituentPerformance_24h_WithSparseIntradayHistory_ReturnsInsufficientData()
     {
         await using var context = await CreateSqliteContextAsync();
         var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDX24A", SortOrder = 980 };
@@ -1211,10 +1211,8 @@ public class MarketIndicesControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
         var item = Assert.Single(dto.Items);
-        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
-        Assert.Equal(5.0, item.ChangePercent!.Value, precision: 6);
-        Assert.Equal(100m, item.StartPrice);
-        Assert.Equal(105m, item.EndPrice);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Null(item.ChangePercent);
     }
 
     [Fact]

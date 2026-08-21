@@ -44,7 +44,6 @@ public sealed class StockPerformanceCalculationService(
 
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
         var interval = GetInterval(normalizedRange);
-        var canUseCurrentSnapshotFallback = normalizedRange is "24h" or "today";
 
         var rangeByStockId = subjects.ToDictionary(
             x => x.StockId,
@@ -67,7 +66,10 @@ public sealed class StockPerformanceCalculationService(
                 x.Timestamp,
                 x.Close,
                 x.QuoteUnitMultiplier,
-                x.NormalizedQuoteCurrency))
+                x.QuoteCurrency,
+                x.FinancialCurrency,
+                x.NormalizedQuoteCurrency,
+                x.IsQuoteDerived))
             .ToListAsync(cancellationToken);
 
         var pointsByStock = historicalRows
@@ -79,57 +81,44 @@ public sealed class StockPerformanceCalculationService(
         {
             if (!pointsByStock.TryGetValue(subject.StockId, out var points) || points.Count == 0)
             {
-                if (canUseCurrentSnapshotFallback &&
-                    TryBuildCurrentSnapshotPerformanceItem(subject, out var fallbackItem))
+                results.Add(new IndexConstituentPerformanceItemDto
                 {
-                    results.Add(fallbackItem);
-                }
-                else
-                {
-                    results.Add(new IndexConstituentPerformanceItemDto
-                    {
-                        StockId = subject.StockId,
-                        DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                    });
-                }
+                    StockId = subject.StockId,
+                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
+                });
 
                 continue;
             }
 
             var rangeSpec = rangeByStockId[subject.StockId];
-            var latestHistoryPoint = points[^1];
             var baseline = ResolveBaseline(points, rangeSpec.BoundaryUtc);
             if (baseline is null)
             {
-                if (canUseCurrentSnapshotFallback &&
-                    TryBuildCurrentSnapshotPerformanceItem(subject, out var fallbackItem))
+                results.Add(new IndexConstituentPerformanceItemDto
                 {
-                    results.Add(fallbackItem);
-                }
-                else
-                {
-                    results.Add(new IndexConstituentPerformanceItemDto
-                    {
-                        StockId = subject.StockId,
-                        DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                    });
-                }
+                    StockId = subject.StockId,
+                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
+                });
 
                 continue;
             }
 
-            if (points.Count < 2 && canUseCurrentSnapshotFallback &&
-                TryBuildCurrentSnapshotPerformanceItem(subject, out var sparseFallbackItem))
+            var latestCompatibleHistoryPoint = ResolveLatestCompatibleHistoryPoint(points, baseline.Value);
+            if (latestCompatibleHistoryPoint is null)
             {
-                results.Add(sparseFallbackItem);
+                results.Add(new IndexConstituentPerformanceItemDto
+                {
+                    StockId = subject.StockId,
+                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
+                });
                 continue;
             }
 
             var startNorm = baseline.Value.Close * baseline.Value.QuoteUnitMultiplier;
-            var endNorm = latestHistoryPoint.Close * latestHistoryPoint.QuoteUnitMultiplier;
-            var endAtUtc = latestHistoryPoint.Timestamp;
+            var endNorm = latestCompatibleHistoryPoint.Value.Close * latestCompatibleHistoryPoint.Value.QuoteUnitMultiplier;
+            var endAtUtc = latestCompatibleHistoryPoint.Value.Timestamp;
 
-            if (TryBuildCurrentEndpoint(subject, nowUtc, latestHistoryPoint, out var currentEndpoint))
+            if (TryBuildCurrentEndpoint(subject, nowUtc, baseline.Value, latestCompatibleHistoryPoint.Value, out var currentEndpoint))
             {
                 endNorm = currentEndpoint.EndPrice;
                 endAtUtc = currentEndpoint.EndAtUtc;
@@ -137,13 +126,6 @@ public sealed class StockPerformanceCalculationService(
 
             if (startNorm <= 0m || endNorm <= 0m || baseline.Value.Timestamp >= endAtUtc)
             {
-                if (canUseCurrentSnapshotFallback &&
-                    TryBuildCurrentSnapshotPerformanceItem(subject, out var fallbackItem))
-                {
-                    results.Add(fallbackItem);
-                    continue;
-                }
-
                 results.Add(new IndexConstituentPerformanceItemDto
                 {
                     StockId = subject.StockId,
@@ -242,52 +224,31 @@ public sealed class StockPerformanceCalculationService(
         return points[0];
     }
 
-    private static bool TryBuildCurrentSnapshotPerformanceItem(
-        StockPerformanceSubject subject,
-        out IndexConstituentPerformanceItemDto item)
+    private static HistoricalPoint? ResolveLatestCompatibleHistoryPoint(
+        IReadOnlyList<HistoricalPoint> points,
+        HistoricalPoint baseline)
     {
-        item = default!;
-
-        if (subject.CurrentPrice is decimal endPrice
-            && subject.CurrentPriceChange is decimal change
-            && endPrice > 0m)
+        for (var i = points.Count - 1; i >= 0; i--)
         {
-            var startPrice = endPrice - change;
-            if (startPrice > 0m)
+            if (points[i].Timestamp < baseline.Timestamp)
             {
-                item = new IndexConstituentPerformanceItemDto
-                {
-                    StockId = subject.StockId,
-                    StartPrice = startPrice,
-                    EndPrice = endPrice,
-                    ChangePercent = (double)((endPrice - startPrice) / startPrice * 100m),
-                    EndAtUtc = subject.CurrentPriceAtUtc,
-                    DataStatus = ConstituentPerformanceDataStatus.Available,
-                };
-                return true;
+                break;
+            }
+
+            if (ArePointsComparable(baseline, points[i]))
+            {
+                return points[i];
             }
         }
 
-        if (subject.CurrentPriceChangePercent is decimal percent)
-        {
-            item = new IndexConstituentPerformanceItemDto
-            {
-                StockId = subject.StockId,
-                EndPrice = subject.CurrentPrice,
-                ChangePercent = (double)percent,
-                EndAtUtc = subject.CurrentPriceAtUtc,
-                DataStatus = ConstituentPerformanceDataStatus.Available,
-            };
-            return true;
-        }
-
-        return false;
+        return null;
     }
 
     private static bool TryBuildCurrentEndpoint(
         StockPerformanceSubject subject,
         DateTime nowUtc,
-        HistoricalPoint latestHistoryPoint,
+        HistoricalPoint baseline,
+        HistoricalPoint selectedHistoricalEndpoint,
         out Endpoint endpoint)
     {
         endpoint = default;
@@ -297,7 +258,7 @@ public sealed class StockPerformanceCalculationService(
         }
 
         var currentAtUtc = subject.CurrentPriceAtUtc.Value;
-        if (currentAtUtc <= latestHistoryPoint.Timestamp || currentAtUtc > nowUtc)
+        if (currentAtUtc <= selectedHistoricalEndpoint.Timestamp || currentAtUtc > nowUtc)
         {
             return false;
         }
@@ -307,14 +268,71 @@ public sealed class StockPerformanceCalculationService(
             return false;
         }
 
-        var normalizedQuoteCurrency = latestHistoryPoint.NormalizedQuoteCurrency?.Trim();
-        if (!string.Equals(normalizedQuoteCurrency, "EUR", StringComparison.OrdinalIgnoreCase))
+        if (!IsComparableToNormalizedEur(baseline))
         {
             return false;
         }
 
         endpoint = new Endpoint(subject.CurrentPrice, currentAtUtc);
         return true;
+    }
+
+    private static bool ArePointsComparable(HistoricalPoint baseline, HistoricalPoint endpoint)
+    {
+        if (TryGetCompatibilityCurrencyKey(baseline, out var baselineCurrencyKey) &&
+            TryGetCompatibilityCurrencyKey(endpoint, out var endpointCurrencyKey))
+        {
+            return string.Equals(baselineCurrencyKey, endpointCurrencyKey, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return !TryGetCompatibilityCurrencyKey(baseline, out _) &&
+               !TryGetCompatibilityCurrencyKey(endpoint, out _) &&
+               string.Equals(NormalizeCurrencyValue(baseline.QuoteCurrency), NormalizeCurrencyValue(endpoint.QuoteCurrency), StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(NormalizeCurrencyValue(baseline.FinancialCurrency), NormalizeCurrencyValue(endpoint.FinancialCurrency), StringComparison.OrdinalIgnoreCase) &&
+               baseline.QuoteUnitMultiplier == endpoint.QuoteUnitMultiplier;
+    }
+
+    private static bool IsComparableToNormalizedEur(HistoricalPoint point)
+        => TryGetCompatibilityCurrencyKey(point, out var currencyKey) &&
+           string.Equals(currencyKey, "EUR", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetCompatibilityCurrencyKey(HistoricalPoint point, out string currencyKey)
+    {
+        var normalizedCurrency = NormalizeCurrencyValue(point.NormalizedQuoteCurrency);
+        if (normalizedCurrency is not null)
+        {
+            currencyKey = normalizedCurrency;
+            return true;
+        }
+
+        var quoteCurrency = NormalizeCurrencyValue(point.QuoteCurrency);
+        var financialCurrency = NormalizeCurrencyValue(point.FinancialCurrency);
+        if (quoteCurrency is not null &&
+            point.QuoteUnitMultiplier == 1m &&
+            string.Equals(quoteCurrency, "EUR", StringComparison.OrdinalIgnoreCase) &&
+            (financialCurrency is null || string.Equals(financialCurrency, "EUR", StringComparison.OrdinalIgnoreCase)))
+        {
+            currencyKey = "EUR";
+            return true;
+        }
+
+        if (quoteCurrency is null &&
+            financialCurrency is null &&
+            point.QuoteUnitMultiplier == 1m &&
+            point.IsQuoteDerived)
+        {
+            currencyKey = "EUR";
+            return true;
+        }
+
+        currencyKey = string.Empty;
+        return false;
+    }
+
+    private static string? NormalizeCurrencyValue(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed.ToUpperInvariant();
     }
 
     private static TimeZoneInfo ResolveDefaultBusinessTimeZone()
@@ -339,6 +357,9 @@ public sealed class StockPerformanceCalculationService(
         DateTime Timestamp,
         decimal Close,
         decimal QuoteUnitMultiplier,
-        string? NormalizedQuoteCurrency);
+        string? QuoteCurrency,
+        string? FinancialCurrency,
+        string? NormalizedQuoteCurrency,
+        bool IsQuoteDerived);
     private readonly record struct Endpoint(decimal EndPrice, DateTime EndAtUtc);
 }
