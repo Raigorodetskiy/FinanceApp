@@ -1,0 +1,59 @@
+.directories-typography {
+  --directories-min-font-size: 18px;
+  --directories-min-line-height: 1.5;
+}
+
+.directories-typography .ant-btn,
+.directories-typography .ant-input,
+.directories-typography .ant-input-affix-wrapper,
+.directories-typography .ant-input-number-input,
+.directories-typography .ant-select-selector,
+.directories-typography .ant-select-selection-item,
+.directories-typography .ant-select-selection-placeholder,
+.directories-typography .ant-select-item-option-content,
+.directories-typography .ant-table,
+.directories-typography .ant-table-thead > tr > th,
+.directories-typography .ant-table-tbody > tr > td,
+.directories-typography .ant-tag,
+.directories-typography .ant-empty-description,
+.directories-typography .ant-alert-message,
+.directories-typography .ant-alert-description,
+.directories-typography .ant-form-item-label > label,
+.directories-typography .ant-form-item-explain-error,
+.directories-typography .ant-form-item-extra,
+.directories-typography .ant-pagination-item,
+.directories-typography .ant-pagination-prev .ant-pagination-item-link,
+.directories-typography .ant-pagination-next .ant-pagination-item-link,
+.directories-typography .ant-spin-text,
+.directories-typography .ant-typography code,
+.directories-typography code {
+  font-size: var(--directories-min-font-size);
+  line-height: var(--directories-min-line-height);
+}
+
+.directories-overlay-typography .ant-btn,
+.directories-overlay-typography .ant-input,
+.directories-overlay-typography .ant-input-affix-wrapper,
+.directories-overlay-typography .ant-input-number-input,
+.directories-overlay-typography .ant-select-selector,
+.directories-overlay-typography .ant-select-selection-item,
+.directories-overlay-typography .ant-select-selection-placeholder,
+.directories-overlay-typography .ant-select-item-option-content,
+.directories-overlay-typography .ant-form-item-label > label,
+.directories-overlay-typography .ant-form-item-explain-error,
+.directories-overlay-typography .ant-modal-title,
+.directories-overlay-typography .ant-modal-body,
+.directories-overlay-typography .ant-modal-footer,
+.directories-overlay-typography .ant-popconfirm-title,
+.directories-overlay-typography .ant-popconfirm-description,
+.directories-overlay-typography .ant-popconfirm-message-title,
+.directories-overlay-typography .ant-popconfirm-message-description,
+.directories-overlay-typography .ant-tooltip-inner {
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.directories-typography .ant-btn .anticon,
+.directories-overlay-typography .ant-btn .anticon {
+  font-size: 16px;
+}
