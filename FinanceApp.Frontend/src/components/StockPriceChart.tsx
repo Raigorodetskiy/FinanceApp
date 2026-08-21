@@ -24,7 +24,9 @@ import {
 } from './stockPriceChartSummary';
 import {
   buildHistoryChartData,
+  compressIntradaySessionGaps,
   formatHistoryTimestamp,
+  resolveTimestampMsForDisplayX,
   usesUtcDateLabels,
 } from './stockPriceChartData';
 import type { HistoryChartPoint } from './stockPriceChartData';
@@ -177,6 +179,8 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   const [historyResponse, setHistoryResponse] = useState<StockHistoryResponse | null>(null);
   const historyRefreshAbortRef = useRef<AbortController | null>(null);
   const historyRefreshStateChangeRef = useRef(onIndexHistoryRefreshStateChange);
+  const chartLayoutRef = useRef<HTMLDivElement | null>(null);
+  const [chartLayoutWidth, setChartLayoutWidth] = useState(0);
 
   useEffect(() => {
     historyRefreshStateChangeRef.current = onIndexHistoryRefreshStateChange;
@@ -212,6 +216,30 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory, refreshToken]);
+
+  useEffect(() => {
+    const container = chartLayoutRef.current;
+    if (container == null) {
+      return undefined;
+    }
+
+    const updateWidth = () => {
+      const width = container.getBoundingClientRect().width;
+      setChartLayoutWidth((previousWidth) =>
+        Math.abs(previousWidth - width) < 0.5 ? previousWidth : width);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const handleRefreshHistory = useCallback(async () => {
     if (historyRefreshing) {
@@ -413,17 +441,29 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     [baseHistoryChartData, currentQuoteOverlay, historyData, historyRange],
   );
 
+  const displayHistoryChartData = useMemo(
+    () => historyRange === '24h'
+      ? compressIntradaySessionGaps(historyChartData, chartLayoutWidth)
+      : historyChartData,
+    [chartLayoutWidth, historyChartData, historyRange],
+  );
+
+  const resolveCompressedTs = useCallback(
+    (displayX: number) => resolveTimestampMsForDisplayX(displayHistoryChartData, displayX),
+    [displayHistoryChartData],
+  );
+
   const weeklyIndexToTimestampMs = useMemo(() => {
     const map = new Map<number, number>();
     if (historyRange === '1w') {
-      historyChartData.forEach((pt) => {
+      displayHistoryChartData.forEach((pt) => {
         if (pt.chartIndex !== undefined) {
           map.set(pt.chartIndex, pt.timestampMs);
         }
       });
     }
     return map;
-  }, [historyRange, historyChartData]);
+  }, [displayHistoryChartData, historyRange]);
 
   const resolveWeeklyTs = useCallback(
     (idx: number) => weeklyIndexToTimestampMs.get(Math.round(idx)),
@@ -528,6 +568,21 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           return ts != null
             ? formatHistoryTimestamp(ts, '1w', xAxisFormatByRange['1w'])
             : '';
+        }}
+      />
+    ) : historyRange === '24h' ? (
+      <XAxis
+        hide={hide}
+        type="number"
+        dataKey="displayX"
+        scale="linear"
+        domain={['dataMin', 'dataMax']}
+        tick={{ fontSize: 16 }}
+        tickFormatter={(value: number) => {
+          const ts = resolveCompressedTs(value);
+          return ts == null
+            ? ''
+            : formatHistoryTimestamp(ts, historyRange, xAxisFormatByRange[historyRange]);
         }}
       />
     ) : (
@@ -845,9 +900,10 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
               </div>
             </div>
           </div>
+          <div ref={chartLayoutRef}>
           <div style={{ width: '100%', height: 240 }}>
             <ResponsiveContainer>
-              <LineChart data={historyChartData} syncId={`stock-history-${stockId}`}>
+              <LineChart data={displayHistoryChartData} syncId={`stock-history-${stockId}`}>
                 <CartesianGrid strokeDasharray="3 3" />
                 {renderXAxis()}
                 <YAxis
@@ -865,6 +921,10 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     if (historyRange === '1w') {
                       const ts = resolveWeeklyTs(value);
                       return ts != null ? formatHistoryTimestamp(ts, '1w', 'DD.MM.YYYY HH:mm') : '';
+                    }
+                    if (historyRange === '24h') {
+                      const ts = resolveCompressedTs(value);
+                      return ts != null ? formatHistoryTimestamp(ts, historyRange, 'DD.MM.YYYY HH:mm') : '';
                     }
                     return formatHistoryTimestamp(
                       value,
@@ -903,7 +963,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           </div>
           <div style={{ width: '100%', height: 128 }}>
             <ResponsiveContainer>
-              <BarChart data={historyChartData} syncId={`stock-history-${stockId}`}>
+              <BarChart data={displayHistoryChartData} syncId={`stock-history-${stockId}`}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 {renderXAxis(true)}
                 <YAxis tick={{ fontSize: 16 }} tickFormatter={(value: number) => formatCompactNumber(value)} width={60} />
@@ -915,6 +975,10 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     if (historyRange === '1w') {
                       const ts = resolveWeeklyTs(value);
                       return ts != null ? formatHistoryTimestamp(ts, '1w', 'DD.MM.YYYY HH:mm') : '';
+                    }
+                    if (historyRange === '24h') {
+                      const ts = resolveCompressedTs(value);
+                      return ts != null ? formatHistoryTimestamp(ts, historyRange, 'DD.MM.YYYY HH:mm') : '';
                     }
                     return formatHistoryTimestamp(
                       value,
@@ -938,6 +1002,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 />
               </BarChart>
             </ResponsiveContainer>
+          </div>
           </div>
         </div>
       )}

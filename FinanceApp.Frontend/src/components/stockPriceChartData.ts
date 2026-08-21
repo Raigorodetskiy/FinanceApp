@@ -6,6 +6,7 @@ dayjs.extend(utc);
 
 const SHORT_INTRADAY_GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000;
 const MIN_GAP_MARKER_OFFSET_MS = 1;
+export const TARGET_INTERSESSION_GAP_CSS_PX = 75.6;
 
 const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> = {
   '24h': SHORT_INTRADAY_GAP_THRESHOLD_MS,
@@ -15,10 +16,12 @@ const historyGapThresholdMsByRange: Partial<Record<StockHistoryRange, number>> =
 export type HistoryChartPoint = {
   timestamp: string;
   timestampMs: number;
+  displayX?: number;
   closeChart: number | null;
   rawClose: number;
   volumeChart: number | null;
   isQuoteDerived?: boolean;
+  isGapMarker?: boolean;
   chartIndex?: number;
 };
 
@@ -117,6 +120,7 @@ export const buildHistoryChartData = (
         closeChart: null,
         rawClose: previousPoint.rawClose,
         volumeChart: null,
+        isGapMarker: true,
       });
     }
     pointsWithGaps.push(currentPoint);
@@ -124,4 +128,96 @@ export const buildHistoryChartData = (
   }
 
   return pointsWithGaps;
+};
+
+export const compressIntradaySessionGaps = <T extends {
+  timestampMs: number;
+  isGapMarker?: boolean;
+}>(
+  points: T[],
+  plotWidthPx: number,
+  targetGapPx = TARGET_INTERSESSION_GAP_CSS_PX,
+): Array<T & { displayX: number }> => {
+  if (points.length === 0) {
+    return [];
+  }
+
+  if (!Number.isFinite(plotWidthPx) || plotWidthPx <= 0 || points.length === 1) {
+    return points.map((point, index) => ({ ...point, displayX: index }));
+  }
+
+  let breakCount = 0;
+  let totalInSessionMs = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const previousPoint = points[i - 1];
+    const currentPoint = points[i];
+    if (previousPoint.isGapMarker) {
+      breakCount += 1;
+      continue;
+    }
+    if (currentPoint.isGapMarker) {
+      continue;
+    }
+
+    totalInSessionMs += Math.max(0, currentPoint.timestampMs - previousPoint.timestampMs);
+  }
+
+  if (breakCount === 0) {
+    return points.map((point) => ({ ...point, displayX: point.timestampMs }));
+  }
+
+  const maxGapSharePx = plotWidthPx * 0.7;
+  const gapPx = Math.min(targetGapPx, maxGapSharePx / breakCount);
+  const availableInSessionPx = Math.max(plotWidthPx - gapPx * breakCount, plotWidthPx * 0.15);
+  const pxPerMs = totalInSessionMs > 0 ? availableInSessionPx / totalInSessionMs : 0;
+
+  const pointsWithDisplay: Array<T & { displayX: number }> = [{ ...points[0], displayX: 0 }];
+  for (let i = 1; i < points.length; i += 1) {
+    const previousPoint = points[i - 1];
+    const currentPoint = points[i];
+    const previousDisplayX = pointsWithDisplay[i - 1].displayX;
+
+    let displayDelta = 0;
+    if (previousPoint.isGapMarker) {
+      displayDelta = gapPx;
+    } else if (!currentPoint.isGapMarker) {
+      displayDelta = Math.max(0, currentPoint.timestampMs - previousPoint.timestampMs) * pxPerMs;
+    }
+
+    pointsWithDisplay.push({
+      ...currentPoint,
+      displayX: previousDisplayX + displayDelta,
+    });
+  }
+
+  return pointsWithDisplay;
+};
+
+export const resolveTimestampMsForDisplayX = <T extends {
+  timestampMs: number;
+  displayX?: number;
+  isGapMarker?: boolean;
+}>(
+  points: T[],
+  displayX: number,
+): number | null => {
+  let nearestTimestampMs: number | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const point of points) {
+    if (point.isGapMarker) {
+      continue;
+    }
+    if (!Number.isFinite(point.displayX)) {
+      continue;
+    }
+
+    const distance = Math.abs((point.displayX ?? 0) - displayX);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestTimestampMs = point.timestampMs;
+    }
+  }
+
+  return nearestTimestampMs;
 };

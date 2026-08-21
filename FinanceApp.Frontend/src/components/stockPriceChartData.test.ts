@@ -1,53 +1,101 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildHistoryChartData,
+  compressIntradaySessionGaps,
   formatHistoryTimestamp,
+  TARGET_INTERSESSION_GAP_CSS_PX,
   usesUtcDateLabels,
 } from './stockPriceChartData';
+import type { StockHistoryPoint } from '../types';
+
+const makeHistoryPoint = (timestamp: string, close: number, volume = 1000): StockHistoryPoint => ({
+  timestamp,
+  interval: '10m',
+  openRaw: close,
+  highRaw: close,
+  lowRaw: close,
+  closeRaw: close,
+  openNormalized: close,
+  highNormalized: close,
+  lowNormalized: close,
+  closeNormalized: close,
+  openEur: close,
+  highEur: close,
+  lowEur: close,
+  closeEur: close,
+  volume,
+});
 
 describe('buildHistoryChartData', () => {
   it('keeps volume aligned with price points and inserts null gap markers for intraday gaps', () => {
     const data = buildHistoryChartData([
-      {
-        timestamp: '2026-08-08T10:00:00.000Z',
-        interval: '10m',
-        openRaw: 10,
-        highRaw: 10,
-        lowRaw: 10,
-        closeRaw: 10,
-        openNormalized: 10,
-        highNormalized: 10,
-        lowNormalized: 10,
-        closeNormalized: 10,
-        openEur: 10,
-        highEur: 10,
-        lowEur: 10,
-        closeEur: 10,
-        volume: 1000,
-      },
-      {
-        timestamp: '2026-08-08T14:30:00.000Z',
-        interval: '10m',
-        openRaw: 12,
-        highRaw: 12,
-        lowRaw: 12,
-        closeRaw: 12,
-        openNormalized: 12,
-        highNormalized: 12,
-        lowNormalized: 12,
-        closeNormalized: 12,
-        openEur: 12,
-        highEur: 12,
-        lowEur: 12,
-        closeEur: 12,
-        volume: 2500,
-      },
+      makeHistoryPoint('2026-08-08T10:00:00.000Z', 10, 1000),
+      makeHistoryPoint('2026-08-08T14:30:00.000Z', 12, 2500),
     ], '24h');
 
     expect(data).toHaveLength(3);
     expect(data[0]).toMatchObject({ closeChart: 10, volumeChart: 1000 });
-    expect(data[1]).toMatchObject({ closeChart: null, volumeChart: null });
+    expect(data[1]).toMatchObject({ closeChart: null, volumeChart: null, isGapMarker: true });
     expect(data[2]).toMatchObject({ closeChart: 12, volumeChart: 2500 });
+  });
+
+  it('preserves today range gap-marker behavior (no display-coordinate rewrite in data builder)', () => {
+    const data = buildHistoryChartData([
+      makeHistoryPoint('2026-08-20T10:00:00.000Z', 10, 1000),
+      makeHistoryPoint('2026-08-21T10:00:00.000Z', 11, 1200),
+    ], 'today');
+
+    expect(data).toHaveLength(3);
+    expect(data[1]).toMatchObject({ closeChart: null, isGapMarker: true });
+    expect(data.every((point) => point.displayX === undefined)).toBe(true);
+  });
+
+  it('keeps both sessions and real timestamps while compressing the overnight display gap to ~2cm', () => {
+    const data = buildHistoryChartData([
+      makeHistoryPoint('2026-08-20T14:00:00.000Z', 99, 900),
+      makeHistoryPoint('2026-08-20T16:00:00.000Z', 100, 1100),
+      makeHistoryPoint('2026-08-21T08:05:00.000Z', 101, 1200),
+    ], '24h');
+
+    const compressed = compressIntradaySessionGaps(data, 1200);
+    expect(data.map((point) => point.timestamp)).toEqual([
+      '2026-08-20T14:00:00.000Z',
+      '2026-08-20T16:00:00.000Z',
+      '2026-08-20T16:00:00.001Z',
+      '2026-08-21T08:05:00.000Z',
+    ]);
+    expect(compressed.map((point) => point.timestamp)).toEqual(data.map((point) => point.timestamp));
+
+    const gapMarkerIndex = compressed.findIndex((point) => point.isGapMarker === true);
+    expect(gapMarkerIndex).toBeGreaterThan(0);
+    const marker = compressed[gapMarkerIndex];
+    const firstCurrentSessionPoint = compressed[gapMarkerIndex + 1];
+    expect(firstCurrentSessionPoint?.timestamp).toBe('2026-08-21T08:05:00.000Z');
+
+    const compressedGapPx = (firstCurrentSessionPoint?.displayX ?? 0) - (marker?.displayX ?? 0);
+    expect(compressedGapPx).toBeGreaterThan(70);
+    expect(compressedGapPx).toBeLessThan(82);
+  });
+
+  it('keeps price and volume points aligned and recalculates the compressed gap on resize', () => {
+    const data = buildHistoryChartData([
+      makeHistoryPoint('2026-08-20T14:00:00.000Z', 99, 900),
+      makeHistoryPoint('2026-08-20T16:00:00.000Z', 100, 1100),
+      makeHistoryPoint('2026-08-21T08:05:00.000Z', 101, 1200),
+    ], '24h');
+
+    const compressedWide = compressIntradaySessionGaps(data, 1200);
+    const compressedNarrow = compressIntradaySessionGaps(data, 800);
+    const markerIndex = compressedWide.findIndex((point) => point.isGapMarker === true);
+    const wideGap = compressedWide[markerIndex + 1].displayX - compressedWide[markerIndex].displayX;
+    const narrowGap = compressedNarrow[markerIndex + 1].displayX - compressedNarrow[markerIndex].displayX;
+
+    expect(wideGap).toBeCloseTo(TARGET_INTERSESSION_GAP_CSS_PX, 1);
+    expect(narrowGap).toBeCloseTo(TARGET_INTERSESSION_GAP_CSS_PX, 1);
+    expect(compressedWide[2].displayX).not.toBeCloseTo(compressedNarrow[2].displayX, 3);
+    expect(compressedWide.every((point) => Number.isFinite(point.displayX))).toBe(true);
+    expect(compressedWide[0]).toMatchObject({ closeChart: 99, volumeChart: 900 });
+    expect(compressedWide[1]).toMatchObject({ closeChart: 100, volumeChart: 1100 });
   });
 
   it('adds stable chart indexes for 1w data without breaking timestamp ordering', () => {

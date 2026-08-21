@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Segmented, Spin, Typography, Empty, Alert, Button, Popconfirm, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -15,6 +15,11 @@ import {
 import { getMarketIndexHistory, refreshMarketIndexHistory } from '../services/api';
 import type { MarketIndexHistoryRange, MarketIndexHistoryPoint } from '../types';
 import { MARKET_INDEX_HISTORY_RANGE_OPTIONS, toMarketIndexHistoryRange } from './historyRangeOptions';
+import {
+  compressIntradaySessionGaps,
+  formatHistoryTimestamp,
+  resolveTimestampMsForDisplayX,
+} from './stockPriceChartData';
 
 dayjs.extend(utc);
 
@@ -41,12 +46,14 @@ const SHORT_INTRADAY_GAP_MS = 2 * 60 * 60 * 1000;
 
 type ChartPoint = {
   timestampMs: number;
+  displayX?: number;
   timestamp: string;
   closeChart: number | null;
   open: number;
   high: number;
   low: number;
   volume: number | null;
+  isGapMarker?: boolean;
   chartIndex?: number;
 };
 
@@ -83,6 +90,7 @@ function buildChartData(points: MarketIndexHistoryPoint[], range: MarketIndexHis
         timestampMs: prev.timestampMs + 1,
         timestamp: new Date(prev.timestampMs + 1).toISOString(),
         closeChart: null,
+        isGapMarker: true,
       });
     }
     result.push(cur);
@@ -124,6 +132,8 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
   const [isStale, setIsStale] = useState(false);
   const [staleReason, setStaleReason] = useState<string | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
+  const chartLayoutRef = useRef<HTMLDivElement | null>(null);
+  const [chartLayoutWidth, setChartLayoutWidth] = useState(0);
 
   const hasProviderSymbol = !!providerSymbol;
 
@@ -148,6 +158,30 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
     void fetchHistory();
   }, [fetchHistory]);
 
+  useEffect(() => {
+    const container = chartLayoutRef.current;
+    if (container == null) {
+      return undefined;
+    }
+
+    const updateWidth = () => {
+      const width = container.getBoundingClientRect().width;
+      setChartLayoutWidth((previousWidth) =>
+        Math.abs(previousWidth - width) < 0.5 ? previousWidth : width);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
@@ -170,16 +204,26 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
   }, [fetchHistory, indexId, messageApi, refreshing]);
 
   const chartData = useMemo(() => buildChartData(points, range), [points, range]);
+  const displayChartData = useMemo(
+    () => range === '24h'
+      ? compressIntradaySessionGaps(chartData, chartLayoutWidth)
+      : chartData,
+    [chartData, chartLayoutWidth, range],
+  );
+  const resolveCompressedTs = useCallback(
+    (displayX: number) => resolveTimestampMsForDisplayX(displayChartData, displayX),
+    [displayChartData],
+  );
 
   const weeklyIndexToMs = useMemo(() => {
     const map = new Map<number, number>();
     if (range === '1w') {
-      chartData.forEach((pt) => {
+      displayChartData.forEach((pt) => {
         if (pt.chartIndex !== undefined) map.set(pt.chartIndex, pt.timestampMs);
       });
     }
     return map;
-  }, [range, chartData]);
+  }, [range, displayChartData]);
 
   const resolveWeeklyTs = useCallback(
     (idx: number) => weeklyIndexToMs.get(Math.round(idx)),
@@ -187,18 +231,18 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
   );
 
   const firstClose = useMemo(() => {
-    for (const pt of chartData) {
+    for (const pt of displayChartData) {
       if (pt.closeChart != null) return pt.closeChart;
     }
     return null;
-  }, [chartData]);
+  }, [displayChartData]);
 
   const latestClose = useMemo(() => {
-    for (let i = chartData.length - 1; i >= 0; i--) {
-      if (chartData[i].closeChart != null) return chartData[i].closeChart;
+    for (let i = displayChartData.length - 1; i >= 0; i--) {
+      if (displayChartData[i].closeChart != null) return displayChartData[i].closeChart;
     }
     return null;
-  }, [chartData]);
+  }, [displayChartData]);
 
   const changeValue = latestClose != null && firstClose != null ? latestClose - firstClose : null;
   const changePercent = changeValue != null && firstClose != null && firstClose !== 0
@@ -222,6 +266,20 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
         }}
       />
     ) : (
+      range === '24h' ? (
+        <XAxis
+          hide={hide}
+          type="number"
+          dataKey="displayX"
+          scale="linear"
+          domain={['dataMin', 'dataMax']}
+          tick={{ fontSize: 16 }}
+          tickFormatter={(value: number) => {
+            const ts = resolveCompressedTs(value);
+            return ts != null ? formatHistoryTimestamp(ts, range, xAxisFormatByRange[range]) : '';
+          }}
+        />
+      ) : (
       <XAxis
         hide={hide}
         type="number"
@@ -231,6 +289,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
         tick={{ fontSize: 16 }}
         tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[range])}
       />
+      )
     )
   );
 
@@ -293,7 +352,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
           <div style={{ textAlign: 'center', padding: 32 }}><Spin /></div>
         ) : errorMsg ? (
           <Alert type="error" message={errorMsg} style={{ margin: '12px 0' }} />
-        ) : chartData.length === 0 ? (
+        ) : displayChartData.length === 0 ? (
           <Empty description="Нет исторических данных для выбранного диапазона" style={{ margin: '12px 0' }} />
         ) : (
           <>
@@ -313,8 +372,9 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
             </div>
 
             {/* Price chart */}
+            <div ref={chartLayoutRef}>
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <LineChart data={displayChartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 {renderXAxis()}
                 <YAxis
@@ -352,6 +412,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
                 />
               </LineChart>
             </ResponsiveContainer>
+            </div>
 
             {/* Provider note */}
             <Text type="secondary" style={{ fontSize: 16 }}>
