@@ -682,6 +682,78 @@ describe('StocksPage catalog period-performance sorting', () => {
     expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('3'));
   });
 
+  it('keeps one global 24h performance order regardless of index membership', async () => {
+    const user = userEvent.setup();
+    const api = await import('../services/api');
+    const daxMember: Stock = {
+      id: 10,
+      ticker: 'DAXA',
+      name: 'DAX Member',
+      commonName: 'DAX Member',
+      exchange: 'Frankfurt',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [2],
+    };
+    const otherIndexMember: Stock = {
+      id: 11,
+      ticker: 'EURO',
+      name: 'Euro Member',
+      commonName: 'Euro Member',
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [3],
+    };
+    const noIndexStock: Stock = {
+      id: 12,
+      ticker: 'NONE',
+      name: 'No Index',
+      commonName: 'No Index',
+      exchange: 'NYSE',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [],
+    };
+    const nullPerformanceStock: Stock = {
+      id: 13,
+      ticker: 'NUL',
+      name: 'Null Perf',
+      commonName: 'Null Perf',
+      exchange: 'Frankfurt',
+      currentPrice: 10,
+      updatedAt: '2026-08-19T00:00:00Z',
+      trackingStatus: 0,
+      marketIndexIds: [2],
+    };
+    vi.mocked(api.getStockCatalog).mockResolvedValue({
+      data: [daxMember, otherIndexMember, noIndexStock, nullPerformanceStock],
+    });
+    vi.mocked(api.getStockCatalogPerformance).mockResolvedValue(buildPerfResponse('24h', [
+      buildPerfItem(10, -1),
+      buildPerfItem(11, 9),
+      buildPerfItem(12, 4),
+      buildPerfItem(13, null),
+    ]));
+
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('DAXA').length).toBeGreaterThan(0));
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Сортировка' });
+    await user.click(sortSelect);
+    await user.click(await screen.findByText('24 ч.'));
+    await waitFor(() => expect(vi.mocked(api.getStockCatalogPerformance)).toHaveBeenCalledWith('24h', expect.any(AbortSignal)));
+
+    const rows = Array.from(document.querySelectorAll('tr[data-row-key]'));
+    const ids = rows.map((r) => r.getAttribute('data-row-key'));
+    expect(ids.indexOf('11')).toBeLessThan(ids.indexOf('12'));
+    expect(ids.indexOf('12')).toBeLessThan(ids.indexOf('10'));
+    expect(ids.indexOf('10')).toBeLessThan(ids.indexOf('13'));
+  });
+
   // ─ Ascending sort ─────────────────────────────────────────────────────────────
 
   it('switches to ascending when direction toggle is clicked', async () => {

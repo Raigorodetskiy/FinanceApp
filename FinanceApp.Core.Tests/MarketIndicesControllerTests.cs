@@ -1168,6 +1168,83 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
+    public async Task GetConstituentPerformance_24h_UsesCurrentSnapshotFallback_WhenIntradayHistoryIsSparse()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDX24A", SortOrder = 980 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock
+        {
+            Ticker = "SNAP24",
+            Exchange = "NYSE",
+            Name = "Snapshot 24h",
+            TrackingStatus = StockTrackingStatus.Tracked,
+            CurrentPrice = 105m,
+            CurrentPriceChange = 5m,
+            CurrentPriceChangePercent = 5m,
+            CurrentPriceAt = DateTime.UtcNow,
+        };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            MarketIndexId = marketIndex.Id,
+            StockId = stock.Id,
+            EffectiveTo = null,
+        });
+
+        // One intraday point is insufficient for the history-only path.
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Timestamp = DateTime.UtcNow.AddHours(-2),
+            Interval = "10m",
+            Close = 104m,
+            QuoteUnitMultiplier = 1m,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "24h");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var dto = Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value);
+        var item = Assert.Single(dto.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.Equal(5.0, item.ChangePercent!.Value, precision: 6);
+        Assert.Equal(100m, item.StartPrice);
+        Assert.Equal(105m, item.EndPrice);
+    }
+
+    [Fact]
+    public async Task GetConstituentPerformance_24h_WithoutHistoryAndSnapshot_ReturnsInsufficientData()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var marketIndex = new MarketIndex { Name = "TestIdx", Code = "TIDX24B", SortOrder = 981 };
+        context.MarketIndices.Add(marketIndex);
+        var stock = new Stock { Ticker = "NOSNAP", Exchange = "NYSE", Name = "No snapshot", TrackingStatus = StockTrackingStatus.Tracked };
+        context.Stocks.Add(stock);
+        await context.SaveChangesAsync();
+
+        context.StockMarketIndices.Add(new StockMarketIndex
+        {
+            MarketIndexId = marketIndex.Id,
+            StockId = stock.Id,
+            EffectiveTo = null,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetConstituentPerformance(marketIndex.Id, "24h");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var item = Assert.Single(Assert.IsType<IndexConstituentPerformanceResponse>(ok.Value).Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Null(item.ChangePercent);
+    }
+
+    [Fact]
     public async Task GetConstituentPerformance_FormerMembersExcluded()
     {
         await using var context = await CreateSqliteContextAsync();

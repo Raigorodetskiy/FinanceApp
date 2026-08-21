@@ -254,7 +254,7 @@ const MarketIndicesPage: React.FC = () => {
                 alignItems: 'center',
                 gap: 4,
                 fontWeight: 600,
-                fontSize: 14,
+                fontSize: 16,
                 color: '#1677ff',
               }}
             >

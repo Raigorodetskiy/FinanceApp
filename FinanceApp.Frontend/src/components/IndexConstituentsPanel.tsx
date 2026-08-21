@@ -1002,12 +1002,12 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return (
           <Space direction="vertical" size={0}>
-            <Text style={{ fontSize: 13 }}>{name}</Text>
+            <Text style={{ fontSize: 16 }}>{name}</Text>
             {record.commonName && record.commonName !== name && (
-              <Text type="secondary" style={{ fontSize: 11 }}>{record.commonName}</Text>
+              <Text type="secondary" style={{ fontSize: 16 }}>{record.commonName}</Text>
             )}
             {record.isin && (
-              <Text type="secondary" style={{ fontSize: 11 }}>{record.isin}</Text>
+              <Text type="secondary" style={{ fontSize: 16 }}>{record.isin}</Text>
             )}
           </Space>
         );
@@ -1079,7 +1079,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       render: (_: unknown, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         if (performanceLoading) {
-          return <span style={{ color: '#8c8c8c', fontSize: 12 }}>…</span>;
+          return <span style={{ color: '#8c8c8c', fontSize: 16 }}>…</span>;
         }
         const perf = formatPerformance(performanceMap.get(record.stockId));
         if (perf.kind === 'unavailable') {
@@ -1110,13 +1110,13 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
             ? quote.conversionWarning ?? QUOTE_NO_EUR_MESSAGE
             : undefined;
         return (
-          <span title={getApiPriceTooltip(quote)} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span title={getApiPriceTooltip(quote)} style={{ fontSize: 16, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {getApiPriceText(live)}
             {delayed ? (
               <Tooltip title={delayTooltip}>
                 <Tag
                   color="orange"
-                  style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}
+                  style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0 }}
                   aria-label={delayTooltip ?? STALE_DELAY_LABEL}
                 >
                   {STALE_DELAY_LABEL}
@@ -1128,7 +1128,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
                   <Tooltip title={noEurTooltip}>
                     <Tag
                       color="gold"
-                      style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}
+                      style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0 }}
                       aria-label={noEurTooltip}
                     >
                       Нет EUR
@@ -1136,10 +1136,10 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
                   </Tooltip>
                 )}
                 {status === 'open' && (
-                  <Tag color="green" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
+                  <Tag color="green" style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
                 )}
                 {status === 'closed' && (
-                  <Tag style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
+                  <Tag style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
                 )}
               </>
             )}
@@ -1266,7 +1266,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           size="small"
         />
         <Space size={4} align="center">
-          <span style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap' }}>Сортировка:</span>
+          <span style={{ fontSize: 16, color: '#595959', whiteSpace: 'nowrap' }}>Сортировка:</span>
           <Select<ConstituentSortMode>
             size="small"
             value={sortMode}
@@ -1325,7 +1325,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
             : 'Обновить текущие цены'}
         </Button>
         {batchQuoteRefreshing && batchQuoteRetryWaitText && (
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" style={{ fontSize: 16 }}>
             {batchQuoteRetryWaitText}
           </Text>
         )}
@@ -1338,12 +1338,12 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           style={{ marginBottom: 12 }}
           message={(
             <Space wrap size={8}>
-              <Text style={{ fontSize: 12 }}>
+              <Text style={{ fontSize: 16 }}>
                 Источник: {sourceMeta.source ?? '—'}
                 {sourceMeta.isCuratedSnapshot ? ' (Проверенный снимок)' : ''}
               </Text>
               {sourceMeta.asOfDate && (
-                <Text style={{ fontSize: 12 }}>
+                <Text style={{ fontSize: 16 }}>
                   As of: {new Date(sourceMeta.asOfDate).toLocaleDateString('ru-RU')}
                 </Text>
               )}

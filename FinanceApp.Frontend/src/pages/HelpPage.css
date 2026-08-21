@@ -24,13 +24,13 @@
   padding-left: 18px;
   display: grid;
   gap: 6px;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
 }
 
 .help-page__excerpt {
   color: rgba(0, 0, 0, 0.6);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   margin-top: 2px;
   overflow-wrap: anywhere;
@@ -111,7 +111,7 @@
   padding: 8px;
   text-align: left;
   vertical-align: top;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }

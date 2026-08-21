@@ -216,10 +216,10 @@ describe('dynamic Russian labels by selected range', () => {
 });
 
 describe('compact block presentation contract', () => {
-  it('keeps 14px range text and 16px current price', () => {
-    expect(DAY_HIGH_LOW_VALUE_FONT_SIZE).toBe(14);
+  it('keeps 16px range text and current price', () => {
+    expect(DAY_HIGH_LOW_VALUE_FONT_SIZE).toBe(16);
     expect(CURRENT_PRICE_FONT_SIZE).toBe(16);
-    expect(DAY_HIGH_LOW_VALUE_FONT_SIZE).toBeLessThan(CURRENT_PRICE_FONT_SIZE);
+    expect(DAY_HIGH_LOW_VALUE_FONT_SIZE).toBeGreaterThanOrEqual(CURRENT_PRICE_FONT_SIZE);
   });
 
   it('keeps exact spaced arrow and secondary gray color in the range line', () => {
