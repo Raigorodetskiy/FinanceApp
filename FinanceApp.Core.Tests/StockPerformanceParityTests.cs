@@ -240,6 +240,185 @@ public class StockPerformanceParityTests
         Assert.Equal(new DateTime(2026, 8, 20, 22, 30, 0, DateTimeKind.Utc), item.StartAtUtc);
     }
 
+    [Fact]
+    public async Task SharedService_Today_UsesCompatibleCurrentQuoteAsEndpoint_WhenNewerThanHistory()
+    {
+        await using var context = CreateContext();
+        var nowUtc = new DateTimeOffset(2026, 8, 21, 14, 0, 0, TimeSpan.Zero);
+        var service = new StockPerformanceCalculationService(context, new FixedTimeProvider(nowUtc));
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice
+            {
+                StockId = 9401,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 20, 0, DateTimeKind.Utc),
+                Close = 100m,
+                QuoteUnitMultiplier = 1m,
+                NormalizedQuoteCurrency = "EUR"
+            },
+            new StockHistoricalPrice
+            {
+                StockId = 9401,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 50, 0, DateTimeKind.Utc),
+                Close = 99m,
+                QuoteUnitMultiplier = 1m,
+                NormalizedQuoteCurrency = "EUR"
+            });
+        await context.SaveChangesAsync();
+
+        var item = Assert.Single(await service.CalculateAsync(
+            [new StockPerformanceSubject(9401, StockExchanges.Nyse, 103m, -0.78m, -0.78m, new DateTime(2026, 8, 21, 13, 55, 0, DateTimeKind.Utc))],
+            "today"));
+
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.Equal(100m, item.StartPrice);
+        Assert.Equal(103m, item.EndPrice);
+        Assert.Equal(3d, item.ChangePercent!.Value, 6);
+        Assert.Equal(new DateTime(2026, 8, 21, 13, 20, 0, DateTimeKind.Utc), item.StartAtUtc);
+        Assert.Equal(new DateTime(2026, 8, 21, 13, 55, 0, DateTimeKind.Utc), item.EndAtUtc);
+    }
+
+    [Fact]
+    public async Task SharedService_Today_SparseHistoryDoesNotUseDailyChangeFallback()
+    {
+        await using var context = CreateContext();
+        var nowUtc = new DateTimeOffset(2026, 8, 21, 14, 0, 0, TimeSpan.Zero);
+        var service = new StockPerformanceCalculationService(context, new FixedTimeProvider(nowUtc));
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice
+            {
+                StockId = 9402,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 20, 0, DateTimeKind.Utc),
+                Close = 100m,
+                QuoteUnitMultiplier = 1m,
+                NormalizedQuoteCurrency = "EUR"
+            },
+            new StockHistoricalPrice
+            {
+                StockId = 9402,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 40, 0, DateTimeKind.Utc),
+                Close = 101m,
+                QuoteUnitMultiplier = 1m,
+                NormalizedQuoteCurrency = "EUR"
+            },
+            new StockHistoricalPrice
+            {
+                StockId = 9403,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 50, 0, DateTimeKind.Utc),
+                Close = 200m,
+                QuoteUnitMultiplier = 1m,
+                NormalizedQuoteCurrency = "EUR"
+            });
+        await context.SaveChangesAsync();
+
+        var items = await service.CalculateAsync(
+            [
+                new StockPerformanceSubject(9402, StockExchanges.Nyse, 0m, null, null, null),
+                new StockPerformanceSubject(9403, StockExchanges.Nyse, 210m, 10m, 5m, new DateTime(2026, 8, 21, 13, 50, 0, DateTimeKind.Utc))
+            ],
+            "today");
+
+        var available = Assert.Single(items, x => x.StockId == 9402);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, available.DataStatus);
+        Assert.Equal(1d, available.ChangePercent!.Value, 6);
+
+        var sparse = Assert.Single(items, x => x.StockId == 9403);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, sparse.DataStatus);
+        Assert.Null(sparse.ChangePercent);
+    }
+
+    [Theory]
+    [InlineData(StockExchanges.Frankfurt, 2026, 8, 21, 6, 30, 0, 2026, 8, 20, 15, 20, 0)] // before Frankfurt open -> previous close baseline
+    [InlineData(StockExchanges.Nyse, 2026, 8, 21, 12, 0, 0, 2026, 8, 20, 20, 0, 0)] // before NYSE open -> previous close baseline
+    [InlineData(StockExchanges.Nasdaq, 2026, 8, 22, 12, 0, 0, 2026, 8, 21, 20, 0, 0)] // weekend -> previous Friday close baseline
+    [InlineData(StockExchanges.Frankfurt, 2026, 12, 25, 10, 0, 0, 2026, 12, 24, 16, 20, 0)] // Xetra holiday -> previous trading day close baseline
+    public async Task SharedService_TodayBoundary_UsesExchangeSessionsIncludingWeekendsAndHolidays(
+        string exchange,
+        int nowYear,
+        int nowMonth,
+        int nowDay,
+        int nowHour,
+        int nowMinute,
+        int nowSecond,
+        int expectedStartYear,
+        int expectedStartMonth,
+        int expectedStartDay,
+        int expectedStartHour,
+        int expectedStartMinute,
+        int expectedStartSecond)
+    {
+        await using var context = CreateContext();
+        var nowUtc = new DateTimeOffset(nowYear, nowMonth, nowDay, nowHour, nowMinute, nowSecond, TimeSpan.Zero);
+        var expectedStartAtUtc = new DateTime(expectedStartYear, expectedStartMonth, expectedStartDay, expectedStartHour, expectedStartMinute, expectedStartSecond, DateTimeKind.Utc);
+        var service = new StockPerformanceCalculationService(context, new FixedTimeProvider(nowUtc));
+
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 9501,
+            Interval = "10m",
+            Timestamp = expectedStartAtUtc,
+            Close = 100m,
+            QuoteUnitMultiplier = 1m,
+            NormalizedQuoteCurrency = "EUR"
+        });
+        await context.SaveChangesAsync();
+
+        var item = Assert.Single(await service.CalculateAsync(
+            [new StockPerformanceSubject(9501, exchange, 0m, null, null, null)],
+            "today"));
+
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Equal(expectedStartAtUtc, item.StartAtUtc);
+        Assert.Equal(expectedStartAtUtc, item.EndAtUtc);
+    }
+
+    [Fact]
+    public async Task SharedService_Today_AllowsLegacyEurMetadataCompatibility_ForCurrentEndpoint()
+    {
+        await using var context = CreateContext();
+        var nowUtc = new DateTimeOffset(2026, 8, 21, 14, 0, 0, TimeSpan.Zero);
+        var service = new StockPerformanceCalculationService(context, new FixedTimeProvider(nowUtc));
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice
+            {
+                StockId = 9601,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 20, 0, DateTimeKind.Utc),
+                Close = 100m,
+                QuoteUnitMultiplier = 1m,
+                QuoteCurrency = "EUR",
+                FinancialCurrency = null,
+                NormalizedQuoteCurrency = null
+            },
+            new StockHistoricalPrice
+            {
+                StockId = 9601,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 40, 0, DateTimeKind.Utc),
+                Close = 101m,
+                QuoteUnitMultiplier = 1m,
+                QuoteCurrency = "EUR",
+                FinancialCurrency = null,
+                NormalizedQuoteCurrency = null
+            });
+        await context.SaveChangesAsync();
+
+        var item = Assert.Single(await service.CalculateAsync(
+            [new StockPerformanceSubject(9601, StockExchanges.Nyse, 102m, null, null, new DateTime(2026, 8, 21, 13, 55, 0, DateTimeKind.Utc))],
+            "today"));
+
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.Equal(102m, item.EndPrice);
+        Assert.Equal(new DateTime(2026, 8, 21, 13, 55, 0, DateTimeKind.Utc), item.EndAtUtc);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

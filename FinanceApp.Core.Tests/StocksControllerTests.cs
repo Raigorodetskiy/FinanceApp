@@ -1953,7 +1953,7 @@ public class StocksControllerTests
     }
 
     [Fact]
-    public async Task GetCatalogPerformance_24h_UsesCurrentSnapshotFallback_WhenIntradayHistoryIsSparse()
+    public async Task GetCatalogPerformance_24h_WithSparseIntradayHistory_ReturnsInsufficientData()
     {
         await using var context = CreateContext();
         context.Stocks.Add(new Stock
@@ -1989,10 +1989,8 @@ public class StocksControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
         var item = Assert.Single(response.Items);
-        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
-        Assert.Equal(200m, item.StartPrice);
-        Assert.Equal(210m, item.EndPrice);
-        Assert.Equal(5.0, item.ChangePercent!.Value, precision: 6);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Null(item.ChangePercent);
     }
 
     [Fact]
