@@ -673,6 +673,7 @@ public class IndexConstituentsBatchQuoteRefreshJobServiceTests
             new NullMarketIndexHistoryService(),
             new NullIndexConstituentsProvider(),
             new NullStockHistoryService(),
+            new StockPerformanceCalculationService(context, TimeProvider.System),
             new NullIndexConstituentHistoryRefreshJobService(),
             jobService,
             NullLogger<MarketIndicesController>.Instance);

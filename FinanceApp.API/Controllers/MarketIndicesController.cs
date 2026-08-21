@@ -23,6 +23,7 @@ public class MarketIndicesController : ControllerBase
     private readonly IMarketIndexHistoryService _historyService;
     private readonly IIndexConstituentsProvider _constituentsProvider;
     private readonly IStockHistoryService _stockHistoryService;
+    private readonly IStockPerformanceCalculationService _stockPerformanceCalculationService;
     private readonly IIndexConstituentHistoryRefreshJobService _constituentHistoryRefreshJobs;
     private readonly IIndexConstituentsBatchQuoteRefreshJobService _constituentsBatchQuoteRefreshJobs;
     private readonly IStockMetadataEnrichmentService? _stockMetadataEnrichmentService;
@@ -33,6 +34,7 @@ public class MarketIndicesController : ControllerBase
         IMarketIndexHistoryService historyService,
         IIndexConstituentsProvider constituentsProvider,
         IStockHistoryService stockHistoryService,
+        IStockPerformanceCalculationService stockPerformanceCalculationService,
         IIndexConstituentHistoryRefreshJobService constituentHistoryRefreshJobs,
         IIndexConstituentsBatchQuoteRefreshJobService constituentsBatchQuoteRefreshJobs,
         ILogger<MarketIndicesController> logger,
@@ -42,6 +44,7 @@ public class MarketIndicesController : ControllerBase
         _historyService = historyService;
         _constituentsProvider = constituentsProvider;
         _stockHistoryService = stockHistoryService;
+        _stockPerformanceCalculationService = stockPerformanceCalculationService;
         _constituentHistoryRefreshJobs = constituentHistoryRefreshJobs;
         _constituentsBatchQuoteRefreshJobs = constituentsBatchQuoteRefreshJobs;
         _stockMetadataEnrichmentService = stockMetadataEnrichmentService;
@@ -439,7 +442,7 @@ public class MarketIndicesController : ControllerBase
         CancellationToken cancellationToken = default)
     {
         var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
-        if (!IsSupportedStockHistoryRange(normalizedRange))
+        if (!_stockPerformanceCalculationService.IsSupportedRange(normalizedRange))
         {
             return BadRequest("Недопустимый диапазон. Допустимые значения: 5y, 3y, 1y, 6m, 3m, 1m, 1w, 24h, today");
         }
@@ -452,13 +455,19 @@ public class MarketIndicesController : ControllerBase
             return NotFound("Индекс не найден.");
         }
 
-        var currentStockIds = await _context.StockMarketIndices
+        var stocks = await _context.StockMarketIndices
             .AsNoTracking()
             .Where(x => x.MarketIndexId == indexId && x.EffectiveTo == null)
-            .Select(x => x.StockId)
+            .Select(x => new StockPerformanceSubject(
+                x.StockId,
+                x.Stock.Exchange,
+                x.Stock.CurrentPrice,
+                x.Stock.CurrentPriceChange,
+                x.Stock.CurrentPriceChangePercent,
+                x.Stock.CurrentPriceAt))
             .ToListAsync(cancellationToken);
 
-        if (currentStockIds.Count == 0)
+        if (stocks.Count == 0)
         {
             return Ok(new IndexConstituentPerformanceResponse
             {
@@ -469,101 +478,7 @@ public class MarketIndicesController : ControllerBase
             });
         }
 
-        var interval = GetPerformanceInterval(normalizedRange);
-        var from = GetPerformanceFromTimestamp(normalizedRange);
-        var canUseCurrentSnapshotFallback = normalizedRange is "24h" or "today";
-
-        var currentSnapshotByStockId = canUseCurrentSnapshotFallback
-            ? await _context.Stocks
-                .AsNoTracking()
-                .Where(x => currentStockIds.Contains(x.Id))
-                .Select(x => new
-                {
-                    x.Id,
-                    x.CurrentPrice,
-                    x.CurrentPriceChange,
-                    x.CurrentPriceChangePercent,
-                    x.CurrentPriceAt,
-                })
-                .ToDictionaryAsync(
-                    x => x.Id,
-                    x => new
-                    {
-                        x.CurrentPrice,
-                        x.CurrentPriceChange,
-                        x.CurrentPriceChangePercent,
-                        x.CurrentPriceAt,
-                    },
-                    cancellationToken)
-            : null;
-
-        // Single set-based query — no N+1 database round-trips.
-        var allPoints = await _context.StockHistoricalPrices
-            .AsNoTracking()
-            .Where(x => currentStockIds.Contains(x.StockId) && x.Interval == interval && x.Timestamp >= from)
-            .Select(x => new { x.StockId, x.Timestamp, x.Close, x.QuoteUnitMultiplier })
-            .OrderBy(x => x.StockId)
-            .ThenBy(x => x.Timestamp)
-            .ToListAsync(cancellationToken);
-
-        var pointsByStock = allPoints
-            .GroupBy(p => p.StockId)
-            .ToDictionary(g => g.Key, g => g.ToList());
-
-        var items = currentStockIds.Select(stockId =>
-        {
-            if (!pointsByStock.TryGetValue(stockId, out var points) || points.Count < 2)
-            {
-                if (canUseCurrentSnapshotFallback
-                    && currentSnapshotByStockId != null
-                    && currentSnapshotByStockId.TryGetValue(stockId, out var snapshot)
-                    && TryBuildCurrentSnapshotPerformanceItem(stockId, snapshot.CurrentPrice, snapshot.CurrentPriceChange, snapshot.CurrentPriceChangePercent, snapshot.CurrentPriceAt, out var fallbackItem))
-                {
-                    return fallbackItem;
-                }
-
-                return new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                };
-            }
-
-            // Rows are already ordered chronologically by the query above.
-            var first = points[0];
-            var last = points[^1];
-
-            // Use normalized close (raw × unit multiplier) so the percentage is consistent
-            // regardless of whether EUR conversion is available. The exchange rate cancels out
-            // when computing ((end − start) / start), so normalized values give the same
-            // result as EUR-converted values when a constant spot rate is applied to both ends.
-            var startNorm = first.Close * first.QuoteUnitMultiplier;
-            var endNorm = last.Close * last.QuoteUnitMultiplier;
-
-            if (startNorm <= 0m)
-            {
-                return new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    StartPrice = startNorm,
-                    EndPrice = endNorm,
-                    StartAtUtc = first.Timestamp,
-                    EndAtUtc = last.Timestamp,
-                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                };
-            }
-
-            return new IndexConstituentPerformanceItemDto
-            {
-                StockId = stockId,
-                StartPrice = startNorm,
-                EndPrice = endNorm,
-                ChangePercent = (double)((endNorm - startNorm) / startNorm * 100m),
-                StartAtUtc = first.Timestamp,
-                EndAtUtc = last.Timestamp,
-                DataStatus = ConstituentPerformanceDataStatus.Available,
-            };
-        }).ToList();
+        var items = await _stockPerformanceCalculationService.CalculateAsync(stocks, normalizedRange, cancellationToken);
 
         return Ok(new IndexConstituentPerformanceResponse
         {
@@ -572,52 +487,6 @@ public class MarketIndicesController : ControllerBase
             GeneratedAtUtc = DateTime.UtcNow,
             Items = items,
         });
-    }
-
-    private static bool TryBuildCurrentSnapshotPerformanceItem(
-        int stockId,
-        decimal? currentPrice,
-        decimal? currentPriceChange,
-        decimal? currentPriceChangePercent,
-        DateTime? currentPriceAtUtc,
-        out IndexConstituentPerformanceItemDto item)
-    {
-        item = default!;
-
-        if (currentPrice is decimal endPrice
-            && currentPriceChange is decimal change
-            && endPrice > 0m)
-        {
-            var startPrice = endPrice - change;
-            if (startPrice > 0m)
-            {
-                item = new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    StartPrice = startPrice,
-                    EndPrice = endPrice,
-                    ChangePercent = (double)((endPrice - startPrice) / startPrice * 100m),
-                    EndAtUtc = currentPriceAtUtc,
-                    DataStatus = ConstituentPerformanceDataStatus.Available,
-                };
-                return true;
-            }
-        }
-
-        if (currentPriceChangePercent is decimal percent)
-        {
-            item = new IndexConstituentPerformanceItemDto
-            {
-                StockId = stockId,
-                EndPrice = currentPrice,
-                ChangePercent = (double)percent,
-                EndAtUtc = currentPriceAtUtc,
-                DataStatus = ConstituentPerformanceDataStatus.Available,
-            };
-            return true;
-        }
-
-        return false;
     }
 
     [HttpPost("{id:int}/constituents/refresh")]
@@ -1194,33 +1063,6 @@ public class MarketIndicesController : ControllerBase
     private static bool IsSupportedStockHistoryRange(string normalizedRange)
         => normalizedRange is "5y" or "3y" or "1y" or "6m" or "3m" or "1m" or "1w" or "24h" or "today";
 
-    private static string GetPerformanceInterval(string normalizedRange) => normalizedRange switch
-    {
-        "5y" or "3y" => "1mo",
-        "1y" => "1wk",
-        "6m" or "3m" or "1m" => "1d",
-        "1w" => "1h",
-        "24h" or "today" => "10m",
-        _ => "1mo",
-    };
-
-    private static DateTime GetPerformanceFromTimestamp(string normalizedRange)
-    {
-        var now = DateTime.UtcNow;
-        return normalizedRange switch
-        {
-            "5y" => now.AddYears(-5),
-            "3y" => now.AddYears(-3),
-            "1y" => now.AddYears(-1),
-            "6m" => now.AddMonths(-6),
-            "3m" => now.AddMonths(-3),
-            "1m" => now.AddMonths(-1),
-            "1w" => now.AddDays(-7),
-            "24h" => now.AddHours(-24),
-            "today" => now.Date,
-            _ => now.AddYears(-5),
-        };
-    }
 
     private static string? GetNonEmptyTrimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

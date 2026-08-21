@@ -14,10 +14,9 @@ namespace FinanceApp.API.Controllers;
 [Authorize]
 public class StocksController : ControllerBase
 {
-    private static readonly TimeSpan CatalogPerformanceCurrentQuoteMaxAge = TimeSpan.FromHours(24);
-
     private readonly AppDbContext _context;
     private readonly IStockHistoryService _stockHistoryService;
+    private readonly IStockPerformanceCalculationService _stockPerformanceCalculationService;
     private readonly StockQuoteSnapshotPersistenceService _stockQuoteSnapshotPersistenceService;
     private readonly IStockMetadataEnrichmentService? _stockMetadataEnrichmentService;
     private readonly ILogger<StocksController> _logger;
@@ -25,12 +24,14 @@ public class StocksController : ControllerBase
     public StocksController(
         AppDbContext context,
         IStockHistoryService stockHistoryService,
+        IStockPerformanceCalculationService stockPerformanceCalculationService,
         StockQuoteSnapshotPersistenceService stockQuoteSnapshotPersistenceService,
         ILogger<StocksController> logger,
         IStockMetadataEnrichmentService? stockMetadataEnrichmentService = null)
     {
         _context = context;
         _stockHistoryService = stockHistoryService;
+        _stockPerformanceCalculationService = stockPerformanceCalculationService;
         _stockQuoteSnapshotPersistenceService = stockQuoteSnapshotPersistenceService;
         _stockMetadataEnrichmentService = stockMetadataEnrichmentService;
         _logger = logger;
@@ -131,17 +132,23 @@ public class StocksController : ControllerBase
         CancellationToken cancellationToken = default)
     {
         var normalizedRange = (range ?? string.Empty).Trim().ToLowerInvariant();
-        if (normalizedRange is not ("5y" or "3y" or "1y" or "6m" or "3m" or "1m" or "1w" or "24h" or "today"))
+        if (!_stockPerformanceCalculationService.IsSupportedRange(normalizedRange))
         {
             return BadRequest("Недопустимый диапазон. Допустимые значения: 5y, 3y, 1y, 6m, 3m, 1m, 1w, 24h, today");
         }
 
-        var stockIds = await _context.Stocks
+        var stocks = await _context.Stocks
             .AsNoTracking()
-            .Select(x => x.Id)
+            .Select(x => new StockPerformanceSubject(
+                x.Id,
+                x.Exchange,
+                x.CurrentPrice,
+                x.CurrentPriceChange,
+                x.CurrentPriceChangePercent,
+                x.CurrentPriceAt))
             .ToListAsync(cancellationToken);
 
-        if (stockIds.Count == 0)
+        if (stocks.Count == 0)
         {
             return Ok(new StockCatalogPerformanceResponse
             {
@@ -151,123 +158,7 @@ public class StocksController : ControllerBase
             });
         }
 
-        var interval = GetCatalogPerformanceInterval(normalizedRange);
-        var from = GetCatalogPerformanceFromTimestamp(normalizedRange);
-        var canUseCurrentSnapshotFallback = normalizedRange is "24h" or "today";
-        var nowUtc = DateTime.UtcNow;
-        var queryFrom = GetCatalogPerformanceQueryFromTimestamp(from, interval);
-
-        var currentSnapshotByStockId = await _context.Stocks
-            .AsNoTracking()
-            .Where(x => stockIds.Contains(x.Id))
-            .Select(x => new
-            {
-                x.Id,
-                x.CurrentPrice,
-                x.CurrentPriceChange,
-                x.CurrentPriceChangePercent,
-                x.CurrentPriceAt,
-            })
-            .ToDictionaryAsync(
-                x => x.Id,
-                x => new CatalogPerformanceCurrentSnapshot(
-                    x.CurrentPrice,
-                    x.CurrentPriceChange,
-                    x.CurrentPriceChangePercent,
-                    x.CurrentPriceAt),
-                cancellationToken);
-
-        // Single set-based query — no N+1 database round-trips.
-        var allPoints = await _context.StockHistoricalPrices
-            .AsNoTracking()
-            .Where(x => stockIds.Contains(x.StockId) && x.Interval == interval && x.Timestamp >= queryFrom)
-            .OrderBy(x => x.StockId)
-            .ThenBy(x => x.Timestamp)
-            .Select(x => new CatalogPerformanceHistoryPoint(
-                x.StockId,
-                x.Timestamp,
-                x.Close,
-                x.QuoteUnitMultiplier,
-                x.NormalizedQuoteCurrency))
-            .ToListAsync(cancellationToken);
-
-        var pointsByStock = allPoints
-            .GroupBy(p => p.StockId)
-            .ToDictionary(g => g.Key, g => g.ToList());
-
-        var items = stockIds.Select(stockId =>
-        {
-            if (!pointsByStock.TryGetValue(stockId, out var points) || points.Count == 0)
-            {
-                if (canUseCurrentSnapshotFallback
-                    && currentSnapshotByStockId != null
-                    && currentSnapshotByStockId.TryGetValue(stockId, out var snapshot)
-                    && TryBuildCurrentSnapshotPerformanceItem(stockId, snapshot.CurrentPrice, snapshot.CurrentPriceChange, snapshot.CurrentPriceChangePercent, snapshot.CurrentPriceAtUtc, out var fallbackItem))
-                {
-                    return fallbackItem;
-                }
-
-                return new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                };
-            }
-
-            if (points.Count < 2)
-            {
-                if (canUseCurrentSnapshotFallback
-                    && currentSnapshotByStockId.TryGetValue(stockId, out var snapshot)
-                    && TryBuildCurrentSnapshotPerformanceItem(stockId, snapshot.CurrentPrice, snapshot.CurrentPriceChange, snapshot.CurrentPriceChangePercent, snapshot.CurrentPriceAtUtc, out var fallbackItem))
-                {
-                    return fallbackItem;
-                }
-
-                return new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                };
-            }
-
-            var last = points[^1];
-            var baselineIndex = points.FindLastIndex(p => p.Timestamp <= from);
-            var baseline = baselineIndex >= 0 ? points[baselineIndex] : points[0];
-            var startNorm = baseline.Close * baseline.QuoteUnitMultiplier;
-            var endNorm = last.Close * last.QuoteUnitMultiplier;
-            var endAtUtc = last.Timestamp;
-
-            if (currentSnapshotByStockId.TryGetValue(stockId, out var currentSnapshot)
-                && TryBuildCurrentEndpoint(currentSnapshot, nowUtc, last, out var currentEndpoint))
-            {
-                endNorm = currentEndpoint.EndPrice;
-                endAtUtc = currentEndpoint.EndAtUtc;
-            }
-
-            if (startNorm <= 0m || endNorm <= 0m || baseline.Timestamp >= endAtUtc)
-            {
-                return new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    StartPrice = startNorm,
-                    EndPrice = endNorm,
-                    StartAtUtc = baseline.Timestamp,
-                    EndAtUtc = endAtUtc,
-                    DataStatus = ConstituentPerformanceDataStatus.InsufficientData,
-                };
-            }
-
-            return new IndexConstituentPerformanceItemDto
-            {
-                StockId = stockId,
-                StartPrice = startNorm,
-                EndPrice = endNorm,
-                ChangePercent = (double)((endNorm - startNorm) / startNorm * 100m),
-                StartAtUtc = baseline.Timestamp,
-                EndAtUtc = endAtUtc,
-                DataStatus = ConstituentPerformanceDataStatus.Available,
-            };
-        }).ToList();
+        var items = await _stockPerformanceCalculationService.CalculateAsync(stocks, normalizedRange, cancellationToken);
 
         return Ok(new StockCatalogPerformanceResponse
         {
@@ -276,139 +167,6 @@ public class StocksController : ControllerBase
             Items = items,
         });
     }
-
-    private static string GetCatalogPerformanceInterval(string normalizedRange) => normalizedRange switch
-    {
-        "5y" or "3y" => "1mo",
-        "1y" => "1wk",
-        "6m" or "3m" or "1m" => "1d",
-        "1w" => "1h",
-        "24h" or "today" => "10m",
-        _ => "1mo",
-    };
-
-    private static DateTime GetCatalogPerformanceFromTimestamp(string normalizedRange)
-    {
-        var now = DateTime.UtcNow;
-        return normalizedRange switch
-        {
-            "5y" => now.AddYears(-5),
-            "3y" => now.AddYears(-3),
-            "1y" => now.AddYears(-1),
-            "6m" => now.AddMonths(-6),
-            "3m" => now.AddMonths(-3),
-            "1m" => now.AddMonths(-1),
-            "1w" => now.AddDays(-7),
-            "24h" => now.AddHours(-24),
-            "today" => now.Date,
-            _ => now.AddYears(-5),
-        };
-    }
-
-    private static DateTime GetCatalogPerformanceQueryFromTimestamp(DateTime boundaryUtc, string interval)
-        => interval switch
-        {
-            "1h" => boundaryUtc.AddDays(-7),
-            "1d" => boundaryUtc.AddDays(-14),
-            "1wk" => boundaryUtc.AddDays(-31),
-            "1mo" => boundaryUtc.AddDays(-62),
-            _ => boundaryUtc.AddDays(-14),
-        };
-
-    private static bool TryBuildCurrentSnapshotPerformanceItem(
-        int stockId,
-        decimal? currentPrice,
-        decimal? currentPriceChange,
-        decimal? currentPriceChangePercent,
-        DateTime? currentPriceAtUtc,
-        out IndexConstituentPerformanceItemDto item)
-    {
-        item = default!;
-
-        if (currentPrice is decimal endPrice
-            && currentPriceChange is decimal change
-            && endPrice > 0m)
-        {
-            var startPrice = endPrice - change;
-            if (startPrice > 0m)
-            {
-                item = new IndexConstituentPerformanceItemDto
-                {
-                    StockId = stockId,
-                    StartPrice = startPrice,
-                    EndPrice = endPrice,
-                    ChangePercent = (double)((endPrice - startPrice) / startPrice * 100m),
-                    EndAtUtc = currentPriceAtUtc,
-                    DataStatus = ConstituentPerformanceDataStatus.Available,
-                };
-                return true;
-            }
-        }
-
-        if (currentPriceChangePercent is decimal percent)
-        {
-            item = new IndexConstituentPerformanceItemDto
-            {
-                StockId = stockId,
-                EndPrice = currentPrice,
-                ChangePercent = (double)percent,
-                EndAtUtc = currentPriceAtUtc,
-                DataStatus = ConstituentPerformanceDataStatus.Available,
-            };
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryBuildCurrentEndpoint(
-        CatalogPerformanceCurrentSnapshot snapshot,
-        DateTime nowUtc,
-        CatalogPerformanceHistoryPoint latestHistoryPoint,
-        out CatalogPerformanceEndpoint endpoint)
-    {
-        endpoint = default;
-        if (snapshot.CurrentPrice <= 0m || !snapshot.CurrentPriceAtUtc.HasValue)
-        {
-            return false;
-        }
-
-        var currentAtUtc = snapshot.CurrentPriceAtUtc.Value;
-        if (currentAtUtc <= latestHistoryPoint.Timestamp || currentAtUtc > nowUtc)
-        {
-            return false;
-        }
-
-        if ((nowUtc - currentAtUtc) > CatalogPerformanceCurrentQuoteMaxAge)
-        {
-            return false;
-        }
-
-        var normalizedQuoteCurrency = latestHistoryPoint.NormalizedQuoteCurrency?.Trim();
-        if (!string.IsNullOrWhiteSpace(normalizedQuoteCurrency)
-            && !string.Equals(normalizedQuoteCurrency, "EUR", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        endpoint = new CatalogPerformanceEndpoint(snapshot.CurrentPrice, currentAtUtc);
-        return true;
-    }
-
-    private readonly record struct CatalogPerformanceCurrentSnapshot(
-        decimal CurrentPrice,
-        decimal? CurrentPriceChange,
-        decimal? CurrentPriceChangePercent,
-        DateTime? CurrentPriceAtUtc);
-
-    private readonly record struct CatalogPerformanceHistoryPoint(
-        int StockId,
-        DateTime Timestamp,
-        decimal Close,
-        decimal QuoteUnitMultiplier,
-        string? NormalizedQuoteCurrency);
-
-    private readonly record struct CatalogPerformanceEndpoint(decimal EndPrice, DateTime EndAtUtc);
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Stock>> GetById(int id)

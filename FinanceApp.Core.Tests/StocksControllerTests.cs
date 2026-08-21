@@ -2060,6 +2060,54 @@ public class StocksControllerTests
     }
 
     [Fact]
+    public void CatalogPerformanceHistoryQuery_PomeloTranslates_GroupedBoundaryAndLatestShapes()
+    {
+        using var context = CreateMySqlContext();
+        var now = DateTime.UtcNow;
+        var stockIds = new[] { 1, 2 };
+        var interval = "1h";
+        var boundary = now.AddDays(-7);
+        var queryFrom = boundary.AddDays(-7);
+
+        var baseQuery = context.StockHistoricalPrices
+            .AsNoTracking()
+            .Where(x =>
+                stockIds.Contains(x.StockId) &&
+                x.Interval == interval &&
+                x.Timestamp >= queryFrom &&
+                x.Timestamp <= now &&
+                x.Close > 0m &&
+                x.QuoteUnitMultiplier > 0m);
+
+        var latestByStock = baseQuery
+            .GroupBy(x => x.StockId)
+            .Select(g => new { StockId = g.Key, Timestamp = g.Max(x => x.Timestamp) });
+
+        var baselineByStock = baseQuery
+            .Where(x => x.Timestamp <= boundary)
+            .GroupBy(x => x.StockId)
+            .Select(g => new { StockId = g.Key, Timestamp = g.Max(x => x.Timestamp) });
+
+        var latestRows = from point in baseQuery
+                         join key in latestByStock
+                             on new { point.StockId, point.Timestamp } equals new { key.StockId, key.Timestamp }
+                         select new { point.StockId, point.Timestamp, point.Close, point.QuoteUnitMultiplier };
+
+        var baselineRows = from point in baseQuery
+                           join key in baselineByStock
+                               on new { point.StockId, point.Timestamp } equals new { key.StockId, key.Timestamp }
+                           select new { point.StockId, point.Timestamp, point.Close, point.QuoteUnitMultiplier };
+
+        var latestSql = latestRows.ToQueryString();
+        var baselineSql = baselineRows.ToQueryString();
+
+        Assert.Contains("GROUP BY", latestSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("GROUP BY", baselineSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("JOIN", latestSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("JOIN", baselineSql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GetCatalogPerformance_1w_DoesNotUseCurrentEndpoint_WhenCurrentPriceIsStale()
     {
         await using var context = CreateContext();
@@ -2241,6 +2289,7 @@ public class StocksControllerTests
         return new StocksController(
             context,
             stockHistoryService ?? new StubStockHistoryService(),
+            new StockPerformanceCalculationService(context, TimeProvider.System),
             new StockQuoteSnapshotPersistenceService(
                 context,
                 TimeProvider.System,

@@ -184,6 +184,7 @@ public class IndexConstituentHistoryRefreshJobServiceTests
             new NullMarketIndexHistoryService(),
             new NullIndexConstituentsProvider(),
             new NullStockHistoryService(),
+            new StockPerformanceCalculationService(context, TimeProvider.System),
             jobs,
             new NullIndexConstituentsBatchQuoteRefreshJobService(),
             NullLogger<MarketIndicesController>.Instance)
