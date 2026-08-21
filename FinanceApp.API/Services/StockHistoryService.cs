@@ -16,6 +16,7 @@ public class StockHistoryService : IStockHistoryService
     private static readonly TimeSpan YahooRetryBaseDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan YahooRetryMaxDelay = TimeSpan.FromSeconds(20);
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> StockRefreshLocks = new();
+    private static readonly ConcurrentDictionary<int, DateTime> LastOnDemandIntradayRefreshAttemptUtc = new();
 
     private readonly AppDbContext _dbContext;
     private readonly IYahooRequestCoordinator _yahooRequestCoordinator;
@@ -207,17 +208,23 @@ public class StockHistoryService : IStockHistoryService
         var normalizedRange = NormalizeRange(range);
         var interval = GetInterval(normalizedRange);
         var from = GetFromTimestamp(normalizedRange);
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
         var data = await LoadHistoryRowsAsync(stock.Id, interval, from, cancellationToken);
-        if ((data.Count == 0 || data.Any(NeedsMetadataBackfill)) && !string.IsNullOrWhiteSpace(stock.Ticker))
+        var shouldRefreshStaleIntraday = ShouldRefreshIntradayOnDemand(stock, normalizedRange, interval, data, nowUtc);
+        var shouldRefresh = data.Count == 0 || data.Any(NeedsMetadataBackfill) || shouldRefreshStaleIntraday;
+        var onDemandRefreshFailed = false;
+        if (shouldRefresh && !string.IsNullOrWhiteSpace(stock.Ticker))
         {
             try
             {
-                await SyncHistoricalDataForStockAsync(stock, cancellationToken);
+                var refresh = await RefreshHistoryAsync(stock, StockHistoryRefreshTrigger.Automatic, cancellationToken);
+                onDemandRefreshFailed = refresh.RateLimited;
                 data = await LoadHistoryRowsAsync(stock.Id, interval, from, cancellationToken);
             }
             catch (Exception ex)
             {
+                onDemandRefreshFailed = true;
                 _logger.LogWarning(ex, "On-demand stock history sync failed for stock {StockId}", stock.Id);
             }
         }
@@ -229,7 +236,11 @@ public class StockHistoryService : IStockHistoryService
             cancellationToken);
         var volumeMetrics = BuildVolumeMetrics(data, interval, conversionContext);
         var asOfUtc = data.LastOrDefault()?.Timestamp;
-        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var isPotentiallyStale = IsPotentiallyStale(interval, asOfUtc, nowUtc);
+        var staleReason = BuildHistoryStaleReason(stock.Exchange, normalizedRange, interval, asOfUtc, nowUtc, isPotentiallyStale, onDemandRefreshFailed);
+        var unavailableReason = data.Count == 0
+            ? BuildUnavailableReason(stock, normalizedRange, onDemandRefreshFailed)
+            : null;
 
         return new StockHistoryResponse
         {
@@ -244,7 +255,9 @@ public class StockHistoryService : IStockHistoryService
             RateSource = conversionContext.ExchangeRate.Source,
             ConversionWarning = conversionContext.Warning,
             AsOfUtc = asOfUtc,
-            IsPotentiallyStale = IsPotentiallyStale(interval, asOfUtc, nowUtc),
+            IsPotentiallyStale = isPotentiallyStale,
+            StaleReason = staleReason,
+            UnavailableReason = unavailableReason,
             VolumeMetrics = volumeMetrics,
             Points = data
                 .Select(point => _stockQuoteConversionService.BuildHistoryPointResponse(point, conversionContext))
@@ -254,7 +267,7 @@ public class StockHistoryService : IStockHistoryService
 
     private async Task<HistoryBatchFetchResult> FetchHistoryBatchesAsync(Stock stock, CancellationToken cancellationToken)
     {
-        var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+        var providerSymbol = ResolveStockProviderSymbol(stock);
 
         var monthly = await FetchCandlesAsync(providerSymbol, "1mo", "5y", cancellationToken);
         if (monthly.WasRateLimited) return HistoryBatchFetchResult.RateLimited();
@@ -286,7 +299,7 @@ public class StockHistoryService : IStockHistoryService
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
-        var providerSymbol = StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+        var providerSymbol = ResolveStockProviderSymbol(stock);
         var lookbackDays = tier switch
         {
             StockHistoryRefreshTier.Incremental => _options.IncrementalLookbackDays,
@@ -301,7 +314,25 @@ public class StockHistoryService : IStockHistoryService
             return HistoryBatchFetchResult.RateLimited();
         }
 
-        return HistoryBatchFetchResult.Success([new IntervalBatch("1d", daily)]);
+        var hourly = await FetchCandlesAsync(providerSymbol, "1h", "7d", cancellationToken);
+        if (hourly.WasRateLimited)
+        {
+            return HistoryBatchFetchResult.RateLimited();
+        }
+
+        var fiveMinute = await FetchCandlesAsync(providerSymbol, "5m", "1d", cancellationToken);
+        if (fiveMinute.WasRateLimited)
+        {
+            return HistoryBatchFetchResult.RateLimited();
+        }
+
+        var tenMinute = AggregateToTenMinute(fiveMinute);
+        return HistoryBatchFetchResult.Success(
+        [
+            new IntervalBatch("1d", daily),
+            new IntervalBatch("1h", hourly),
+            new IntervalBatch("10m", tenMinute),
+        ]);
     }
 
     private async Task UpsertHistoryBatchesAsync(int stockId, IEnumerable<IntervalBatch> batches, CancellationToken cancellationToken)
@@ -612,6 +643,177 @@ public class StockHistoryService : IStockHistoryService
         string.IsNullOrWhiteSpace(price.QuoteCurrency) ||
         string.IsNullOrWhiteSpace(price.NormalizedQuoteCurrency) ||
         price.QuoteUnitMultiplier <= 0m;
+
+    private bool ShouldRefreshIntradayOnDemand(
+        Stock stock,
+        string normalizedRange,
+        string interval,
+        IReadOnlyList<StockHistoricalPrice> data,
+        DateTime nowUtc)
+    {
+        if (!string.Equals(interval, "10m", StringComparison.Ordinal) ||
+            normalizedRange is not ("24h" or "today"))
+        {
+            return false;
+        }
+
+        if (data.Count == 0)
+        {
+            return true;
+        }
+
+        var asOfUtc = data[^1].Timestamp;
+        if (!IsPotentiallyStale(interval, asOfUtc, nowUtc))
+        {
+            return false;
+        }
+
+        if (!IsLikelyIntradaySessionOpen(stock.Exchange, nowUtc))
+        {
+            return false;
+        }
+
+        return TryReserveOnDemandIntradayRefresh(stock.Id, nowUtc);
+    }
+
+    private bool TryReserveOnDemandIntradayRefresh(int stockId, DateTime nowUtc)
+    {
+        while (true)
+        {
+            if (!LastOnDemandIntradayRefreshAttemptUtc.TryGetValue(stockId, out var previousAttemptUtc))
+            {
+                if (LastOnDemandIntradayRefreshAttemptUtc.TryAdd(stockId, nowUtc))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (nowUtc <= previousAttemptUtc)
+            {
+                if (LastOnDemandIntradayRefreshAttemptUtc.TryUpdate(stockId, nowUtc, previousAttemptUtc))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if ((nowUtc - previousAttemptUtc) < _options.OnDemandIntradayRefreshMinInterval)
+            {
+                return false;
+            }
+
+            if (LastOnDemandIntradayRefreshAttemptUtc.TryUpdate(stockId, nowUtc, previousAttemptUtc))
+            {
+                return true;
+            }
+        }
+    }
+
+    private static bool IsLikelyIntradaySessionOpen(string? exchange, DateTime nowUtc)
+    {
+        if (!StockExchanges.TryNormalize(exchange, out var normalizedExchange))
+        {
+            return true;
+        }
+
+        return normalizedExchange switch
+        {
+            StockExchanges.Frankfurt => IsWithinSession(nowUtc, "Europe/Berlin", TimeSpan.FromHours(9), TimeSpan.FromHours(17.5)),
+            StockExchanges.Nyse or StockExchanges.Nasdaq => IsWithinSession(nowUtc, "America/New_York", TimeSpan.FromHours(9.5), TimeSpan.FromHours(16)),
+            _ => true
+        };
+    }
+
+    private static bool IsWithinSession(DateTime nowUtc, string timeZoneId, TimeSpan openLocal, TimeSpan closeLocal)
+    {
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var localNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, tz);
+            if (localNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            {
+                return false;
+            }
+
+            var localTime = localNow.TimeOfDay;
+            return localTime >= openLocal && localTime <= closeLocal.Add(TimeSpan.FromMinutes(20));
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return true;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return true;
+        }
+    }
+
+    private static string ResolveStockProviderSymbol(Stock stock)
+    {
+        var persistedProviderSymbol = stock.ProviderSymbol?.Trim();
+        if (!string.IsNullOrWhiteSpace(persistedProviderSymbol))
+        {
+            return persistedProviderSymbol;
+        }
+
+        return StockExchanges.ResolveProviderSymbol(stock.Ticker, stock.Exchange);
+    }
+
+    private static string? BuildHistoryStaleReason(
+        string? exchange,
+        string normalizedRange,
+        string interval,
+        DateTime? asOfUtc,
+        DateTime nowUtc,
+        bool isPotentiallyStale,
+        bool onDemandRefreshFailed)
+    {
+        if (!isPotentiallyStale && !onDemandRefreshFailed)
+        {
+            return null;
+        }
+
+        var rangeLabel = normalizedRange switch
+        {
+            "today" => "Сегодня",
+            "24h" => "24 ч.",
+            _ => normalizedRange
+        };
+        var asOfText = asOfUtc?.ToString("yyyy-MM-dd HH:mm 'UTC'") ?? "недоступно";
+
+        if (onDemandRefreshFailed && isPotentiallyStale)
+        {
+            return $"Данные за диапазон «{rangeLabel}» могут быть устаревшими (по состоянию на {asOfText}). Последнее обновление не удалось, показаны сохранённые свечи.";
+        }
+
+        if (onDemandRefreshFailed)
+        {
+            return "Последнее обновление истории не удалось, отображены сохранённые свечи.";
+        }
+
+        if (string.Equals(interval, "10m", StringComparison.Ordinal) && !IsLikelyIntradaySessionOpen(exchange, nowUtc))
+        {
+            return $"Рынок сейчас закрыт. Показаны последние доступные внутридневные свечи (по состоянию на {asOfText}).";
+        }
+
+        return $"Данные за диапазон «{rangeLabel}» могут быть устаревшими (по состоянию на {asOfText}).";
+    }
+
+    private static string BuildUnavailableReason(Stock stock, string normalizedRange, bool onDemandRefreshFailed)
+    {
+        if (onDemandRefreshFailed)
+        {
+            return "История временно недоступна из-за ошибки источника данных или лимита запросов. Повторите попытку позже или запустите «Перезагрузить историю».";
+        }
+
+        var listingLabel = string.IsNullOrWhiteSpace(stock.Exchange)
+            ? stock.Ticker
+            : $"{stock.Ticker} ({stock.Exchange})";
+        return $"Для листинга {listingLabel} нет данных за диапазон «{normalizedRange}». Проверьте биржу/тикер и попробуйте «Перезагрузить историю».";
+    }
 
     private async Task<List<Stock>> LoadDueAutomaticStocksAsync(DateTime nowUtc, CancellationToken cancellationToken)
     {
@@ -1168,6 +1370,7 @@ public class StockHistoryService : IStockHistoryService
             FullBackfillTrackedCadence = raw.FullBackfillTrackedCadence > TimeSpan.Zero ? raw.FullBackfillTrackedCadence : TimeSpan.FromDays(30),
             FullBackfillCatalogCadence = raw.FullBackfillCatalogCadence > TimeSpan.Zero ? raw.FullBackfillCatalogCadence : TimeSpan.FromDays(30),
             TransientFailureRetryDelay = raw.TransientFailureRetryDelay > TimeSpan.Zero ? raw.TransientFailureRetryDelay : TimeSpan.FromHours(2),
+            OnDemandIntradayRefreshMinInterval = raw.OnDemandIntradayRefreshMinInterval > TimeSpan.Zero ? raw.OnDemandIntradayRefreshMinInterval : TimeSpan.FromMinutes(10),
             MaxAutomaticStocksPerRun = raw.MaxAutomaticStocksPerRun > 0 ? raw.MaxAutomaticStocksPerRun : 100,
         };
     }

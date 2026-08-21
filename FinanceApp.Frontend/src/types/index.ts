@@ -215,6 +215,10 @@ export interface StockHistoryResponse {
   rateTimestampUtc: string | null;
   rateSource: string | null;
   conversionWarning: string | null;
+  asOfUtc?: string | null;
+  isPotentiallyStale?: boolean;
+  staleReason?: string | null;
+  unavailableReason?: string | null;
   volumeMetrics: StockHistoryVolumeMetrics;
   points: StockHistoryPoint[];
 }

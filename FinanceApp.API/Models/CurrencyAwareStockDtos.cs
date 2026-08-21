@@ -77,6 +77,8 @@ public sealed class StockHistoryResponse
     public string? ConversionWarning { get; init; }
     public DateTime? AsOfUtc { get; init; }
     public bool IsPotentiallyStale { get; init; }
+    public string? StaleReason { get; init; }
+    public string? UnavailableReason { get; init; }
     public StockHistoryVolumeMetricsResponse VolumeMetrics { get; init; } = new();
     public IReadOnlyList<StockHistoryPointResponse> Points { get; init; } = Array.Empty<StockHistoryPointResponse>();
 }

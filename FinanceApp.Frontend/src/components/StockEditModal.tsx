@@ -319,7 +319,7 @@ const StockEditModal: React.FC<StockEditModalProps> = ({
       open={open}
       onCancel={handleCancel}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
