@@ -83,6 +83,8 @@ export interface StockPriceChartProps {
   indexId?: number;
   ticker: string;
   name: string;
+  exchange?: string | null;
+  providerSymbol?: string | null;
   wkn?: string | null;
   isin?: string | null;
   finanzenNetSlug?: string | null;
@@ -132,12 +134,31 @@ const formatNumber = (value: number, maximumFractionDigits = 2): string =>
 const formatCompactNumber = (value: number): string =>
   new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 
+const resolveExpectedProviderSymbol = (
+  ticker: string,
+  exchange?: string | null,
+  providerSymbol?: string | null,
+): string | null => {
+  if (providerSymbol?.trim()) {
+    return providerSymbol.trim();
+  }
+  if (!ticker.trim()) {
+    return null;
+  }
+  if (exchange?.trim().toLowerCase() === 'frankfurt' && !ticker.includes('.')) {
+    return `${ticker}.F`;
+  }
+  return ticker;
+};
+
 const StockPriceChart: React.FC<StockPriceChartProps> = ({
   panelId,
   stockId,
   indexId,
   ticker,
   name,
+  exchange,
+  providerSymbol,
   wkn,
   isin,
   finanzenNetSlug,
@@ -271,6 +292,17 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   }, [indexId, notifyIndexHistoryRefreshStateChange, stockId]);
 
   const historyData = historyResponse?.points ?? [];
+  const expectedProviderSymbol = useMemo(
+    () => resolveExpectedProviderSymbol(ticker, exchange, providerSymbol),
+    [exchange, providerSymbol, ticker],
+  );
+  const quoteMatchesListing = useMemo(() => {
+    if (!expectedProviderSymbol || !liveQuote?.symbol) {
+      return true;
+    }
+    return expectedProviderSymbol.toUpperCase() === liveQuote.symbol.toUpperCase();
+  }, [expectedProviderSymbol, liveQuote?.symbol]);
+  const listingLiveQuote = quoteMatchesListing ? liveQuote : null;
   const historyHasEurConversion = historyResponse?.rateToEur != null;
   const historyCurrencyCode = historyHasEurConversion
     ? 'EUR'
@@ -292,7 +324,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     return null;
   }, [baseHistoryChartData]);
 
-  const displayCurrencyCode = historyCurrencyCode ?? liveQuote?.normalizedQuoteCurrency ?? liveQuote?.currency ?? 'EUR';
+  const displayCurrencyCode = historyCurrencyCode ?? listingLiveQuote?.normalizedQuoteCurrency ?? listingLiveQuote?.currency ?? 'EUR';
   const selectedSessionSnapshot = useMemo(
     () => resolveNewestCurrentPriceSnapshot(
       {
@@ -300,9 +332,9 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         currentPriceChange: storedPriceChangeEur,
         currentPriceAt: storedPriceTimestampUtc,
       },
-      liveQuote,
+      listingLiveQuote,
     ),
-    [liveQuote, storedPriceChangeEur, storedPriceEur, storedPriceTimestampUtc],
+    [listingLiveQuote, storedPriceChangeEur, storedPriceEur, storedPriceTimestampUtc],
   );
 
   const currentPriceDisplayValue = useMemo(() => {
@@ -310,17 +342,17 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       return selectedSessionSnapshot.currentPrice ?? latestHistoryClose;
     }
 
-    if (liveQuote?.normalizedCurrentPrice != null) return liveQuote.normalizedCurrentPrice;
+    if (listingLiveQuote?.normalizedCurrentPrice != null) return listingLiveQuote.normalizedCurrentPrice;
     return latestHistoryClose;
-  }, [historyHasEurConversion, latestHistoryClose, liveQuote, selectedSessionSnapshot.currentPrice]);
+  }, [historyHasEurConversion, latestHistoryClose, listingLiveQuote, selectedSessionSnapshot.currentPrice]);
 
   const currentPriceDisplayText = useMemo(() => {
     if (historyHasEurConversion && selectedSessionSnapshot.currentPrice != null) {
       return formatCurrencyValue(selectedSessionSnapshot.currentPrice, 'EUR');
     }
 
-    if (!historyHasEurConversion && liveQuote != null) {
-      return formatRawQuote(liveQuote);
+    if (!historyHasEurConversion && listingLiveQuote != null) {
+      return formatRawQuote(listingLiveQuote);
     }
 
     if (currentPriceDisplayValue == null) {
@@ -332,7 +364,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
     currentPriceDisplayValue,
     displayCurrencyCode,
     historyHasEurConversion,
-    liveQuote,
+    listingLiveQuote,
     selectedSessionSnapshot.currentPrice,
   ]);
 
@@ -354,19 +386,19 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
 
     if (
       !historyHasEurConversion
-      && liveQuote?.isStale !== true
-      && liveQuote?.priceTimestampUtc
+      && listingLiveQuote?.isStale !== true
+      && listingLiveQuote?.priceTimestampUtc
       && currentPriceDisplayValue != null
     ) {
       return {
-        timestampUtc: liveQuote.priceTimestampUtc,
+        timestampUtc: listingLiveQuote.priceTimestampUtc,
         closeChart: currentPriceDisplayValue,
-        rawClose: liveQuote.rawCurrentPrice,
+        rawClose: listingLiveQuote.rawCurrentPrice,
       };
     }
 
     return null;
-  }, [currentPriceDisplayValue, historyHasEurConversion, liveQuote, selectedSessionSnapshot]);
+  }, [currentPriceDisplayValue, historyHasEurConversion, listingLiveQuote, selectedSessionSnapshot]);
 
   const historyChartData = useMemo(
     () => currentQuoteOverlay == null
@@ -423,15 +455,15 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         ? COLOR_POSITIVE
         : COLOR_NEGATIVE;
 
-  const warningText = liveQuote?.conversionWarning ?? historyResponse?.conversionWarning ?? null;
+  const warningText = listingLiveQuote?.conversionWarning ?? historyResponse?.conversionWarning ?? null;
   const normalizedQuoteText =
-    liveQuote != null && liveQuote.quoteUnitMultiplier !== 1 && liveQuote.normalizedQuoteCurrency
-      ? `${liveQuote.normalizedCurrentPrice.toFixed(3)} ${liveQuote.normalizedQuoteCurrency}`
+    listingLiveQuote != null && listingLiveQuote.quoteUnitMultiplier !== 1 && listingLiveQuote.normalizedQuoteCurrency
+      ? `${listingLiveQuote.normalizedCurrentPrice.toFixed(3)} ${listingLiveQuote.normalizedQuoteCurrency}`
       : null;
 
   const dayHighLowDisplay = useMemo(
-    () => getDayHighLowDisplay(liveQuote, historyData, historyHasEurConversion),
-    [liveQuote, historyData, historyHasEurConversion],
+    () => getDayHighLowDisplay(listingLiveQuote, historyData, historyHasEurConversion),
+    [listingLiveQuote, historyData, historyHasEurConversion],
   );
   const latestVolumePoint = useMemo(() => {
     if (!volumeMetrics?.latestMetricsTimestamp) {
@@ -576,13 +608,13 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         <span>
           <Text type="secondary" style={{ fontSize: 16 }}>Валюта котировки: </Text>
           <Text style={{ fontSize: 16, fontWeight: 600 }}>
-            {liveQuote?.currency ?? historyResponse?.currency ?? '—'}
+            {listingLiveQuote?.currency ?? historyResponse?.currency ?? '—'}
           </Text>
         </span>
         <span>
           <Text type="secondary" style={{ fontSize: 16 }}>Валюта отчётности: </Text>
           <Text style={{ fontSize: 16, fontWeight: 600 }}>
-            {liveQuote?.financialCurrency ?? historyResponse?.financialCurrency ?? '—'}
+            {listingLiveQuote?.financialCurrency ?? historyResponse?.financialCurrency ?? '—'}
           </Text>
         </span>
       </div>
@@ -591,6 +623,22 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           type="warning"
           showIcon
           message={warningText}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+      {historyResponse?.isPotentiallyStale && historyResponse.staleReason && (
+        <Alert
+          type="warning"
+          showIcon
+          message={historyResponse.staleReason}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+      {!quoteMatchesListing && expectedProviderSymbol && (
+        <Alert
+          type="info"
+          showIcon
+          message={`Текущая котировка ${liveQuote?.symbol ?? '—'} не совпадает с выбранным листингом ${expectedProviderSymbol} и не добавляется на график.`}
           style={{ marginBottom: 12 }}
         />
       )}
@@ -606,6 +654,9 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
       >
         <Text strong style={{ fontSize: 16 }}>
           История цены: {ticker} — {name}
+        </Text>
+        <Text type="secondary" style={{ fontSize: 14 }}>
+          Данные на: {historyResponse?.asOfUtc ? dayjs.utc(historyResponse.asOfUtc).local().format('DD.MM.YYYY HH:mm') : '—'}
         </Text>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Popconfirm
@@ -638,7 +689,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           <Spin />
         </div>
       ) : historyData.length === 0 ? (
-        <Empty description="Нет данных для выбранного периода" />
+        <Empty description={historyResponse?.unavailableReason ?? 'Нет данных для выбранного периода'} />
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

@@ -26,5 +26,6 @@ public sealed class StockHistoryRefreshOptions
     public TimeSpan FullBackfillTrackedCadence { get; init; } = TimeSpan.FromDays(30);
     public TimeSpan FullBackfillCatalogCadence { get; init; } = TimeSpan.FromDays(30);
     public TimeSpan TransientFailureRetryDelay { get; init; } = TimeSpan.FromHours(2);
+    public TimeSpan OnDemandIntradayRefreshMinInterval { get; init; } = TimeSpan.FromMinutes(10);
     public int MaxAutomaticStocksPerRun { get; init; } = 100;
 }

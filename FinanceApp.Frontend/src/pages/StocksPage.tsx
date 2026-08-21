@@ -717,6 +717,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
                 stockId={record._stockId}
                 ticker={stock?.ticker ?? ''}
                 name={stock?.name ?? ''}
+                exchange={stock?.exchange ?? null}
+                providerSymbol={stock?.providerSymbol ?? null}
                 wkn={stock?.wkn ?? null}
                 isin={stock?.isin ?? null}
                 finanzenNetSlug={stock?.finanzenNetSlug ?? null}
@@ -1024,6 +1026,8 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
         stockId={stock.id}
         ticker={stock.ticker}
         name={stock.name}
+        exchange={stock.exchange}
+        providerSymbol={stock.providerSymbol ?? null}
         wkn={stock.wkn ?? null}
         isin={stock.isin ?? null}
         finanzenNetSlug={stock.finanzenNetSlug ?? null}

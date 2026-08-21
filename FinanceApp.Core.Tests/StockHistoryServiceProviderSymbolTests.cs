@@ -127,6 +127,27 @@ public class StockHistoryServiceProviderSymbolTests
         }
     }
 
+    [Fact]
+    public async Task SyncHistoricalData_PersistedProviderSymbol_IsPreferredOverTickerExchangeResolution()
+    {
+        var capturer = new UrlCapturingHttpMessageHandler(EmptyChartJson);
+        await RunSyncAsync(new Stock
+        {
+            Id = 5,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Frankfurt,
+            ProviderSymbol = "AMD.DE",
+            Name = "AMD Frankfurt",
+        }, capturer);
+
+        Assert.NotEmpty(capturer.RequestedUrls);
+        foreach (var url in capturer.RequestedUrls)
+        {
+            Assert.Contains("AMD.DE", url, StringComparison.Ordinal);
+            Assert.DoesNotContain("AMD.F", url, StringComparison.Ordinal);
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private static async Task RunSyncAsync(Stock stock, HttpMessageHandler handler)

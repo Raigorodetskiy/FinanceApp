@@ -87,13 +87,190 @@ public class StockHistoryRefreshTests
 
         var response = await service.GetHistoryAsync(stock, "6m");
 
-        Assert.Equal(1, handler.CallCount);
+        Assert.Equal(3, handler.CallCount);
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("interval=1d", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("interval=1h", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("interval=5m", StringComparison.Ordinal));
         Assert.Single(response.Points);
         Assert.Equal(10m, response.Points[0].CloseRaw);
         Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == stock.Id && x.Interval == "1d"));
         Assert.Equal(StockTrackingStatus.CatalogOnly, await context.Stocks.Select(x => x.TrackingStatus).SingleAsync());
         Assert.Equal(1, await context.Stocks.CountAsync());
         Assert.Empty(await context.StockMarketIndices.ToListAsync());
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_Stale24hHistoryDuringOpenSession_RefreshesIntradayOnce()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 15, 0, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "10m",
+            Timestamp = now.AddHours(-4),
+            Open = 100m,
+            High = 100m,
+            Low = 100m,
+            Close = 100m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new CountingHandler(
+            SuccessChartJson(ToUnix(now.AddDays(-1)), 90m),
+            SuccessChartJson(ToUnix(now.AddHours(-1)), 110m),
+            SuccessChartJson(ToUnix(now.AddMinutes(-10)), 120m));
+        var service = CreateService(
+            context,
+            handler,
+            new FixedTimeProvider(new DateTimeOffset(now)),
+            new StockHistoryRefreshOptions { OnDemandIntradayRefreshMinInterval = TimeSpan.FromHours(1) });
+
+        var response = await service.GetHistoryAsync(stock, "24h");
+
+        Assert.Equal(3, handler.CallCount);
+        Assert.False(response.IsPotentiallyStale);
+        Assert.Equal("10m", response.Interval);
+        Assert.Contains(response.Points, point => point.CloseRaw == 120m);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_Fresh24hHistory_DoesNotRefetch()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 15, 0, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "10m",
+            Timestamp = now.AddMinutes(-20),
+            Open = 101m,
+            High = 101m,
+            Low = 101m,
+            Close = 101m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new CountingHandler();
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
+
+        var response = await service.GetHistoryAsync(stock, "24h");
+
+        Assert.Equal(0, handler.CallCount);
+        Assert.False(response.IsPotentiallyStale);
+        Assert.Single(response.Points);
+        Assert.Equal(101m, response.Points[0].CloseRaw);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_ClosedWeekendMarket_DoesNotLoopRefreshStaleIntraday()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc); // Saturday
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "10m",
+            Timestamp = now.AddHours(-20),
+            Open = 98m,
+            High = 98m,
+            Low = 98m,
+            Close = 98m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new CountingHandler();
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
+
+        var first = await service.GetHistoryAsync(stock, "24h");
+        var second = await service.GetHistoryAsync(stock, "24h");
+
+        Assert.Equal(0, handler.CallCount);
+        Assert.True(first.IsPotentiallyStale);
+        Assert.True(second.IsPotentiallyStale);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_RateLimitedRefresh_PreservesOldIntradayAndReturnsStaleWarning()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 20, 15, 0, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "10m",
+            Timestamp = now.AddHours(-4),
+            Open = 97m,
+            High = 97m,
+            Low = 97m,
+            Close = 97m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var handler = new StatusSequenceHandler(HttpStatusCode.TooManyRequests);
+        var service = CreateService(
+            context,
+            handler,
+            new FixedTimeProvider(new DateTimeOffset(now)),
+            new StockHistoryRefreshOptions { OnDemandIntradayRefreshMinInterval = TimeSpan.FromHours(1) });
+
+        var response = await service.GetHistoryAsync(stock, "24h");
+        await service.GetHistoryAsync(stock, "24h");
+
+        Assert.Equal(1, handler.CallCount);
+        Assert.Single(response.Points);
+        Assert.Equal(97m, response.Points[0].CloseRaw);
+        Assert.True(response.IsPotentiallyStale);
+        Assert.NotNull(response.StaleReason);
+        Assert.Contains("Последнее обновление не удалось", response.StaleReason!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -411,7 +588,7 @@ public class StockHistoryRefreshTests
 
         await service.SyncHistoricalDataForAllStocksAsync();
 
-        Assert.Equal(2, handler.CallCount);
+        Assert.Equal(6, handler.CallCount);
         Assert.Contains(handler.RequestedUrls, url => url.Contains("TRACK", StringComparison.Ordinal));
         Assert.Contains(handler.RequestedUrls, url => url.Contains("CATONLY", StringComparison.Ordinal));
         Assert.True(await context.StockHistoricalPrices.AnyAsync(x => x.StockId == 2 && x.Interval == "1d"));
@@ -453,10 +630,10 @@ public class StockHistoryRefreshTests
 
         await service.SyncHistoricalDataForAllStocksAsync();
 
-        Assert.Equal(1, handler.CallCount);
-        Assert.Single(handler.RequestedUrls);
-        Assert.Contains("interval=1d", handler.RequestedUrls[0], StringComparison.Ordinal);
-        Assert.Contains("period1=", handler.RequestedUrls[0], StringComparison.Ordinal);
+        Assert.Equal(3, handler.CallCount);
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("interval=1d", StringComparison.Ordinal) && url.Contains("period1=", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("interval=1h", StringComparison.Ordinal));
+        Assert.Contains(handler.RequestedUrls, url => url.Contains("interval=5m", StringComparison.Ordinal));
     }
 
     [Fact]
