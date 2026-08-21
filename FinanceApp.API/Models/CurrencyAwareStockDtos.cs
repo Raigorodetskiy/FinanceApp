@@ -76,6 +76,13 @@ public sealed class StockHistoryResponse
     public string? RateSource { get; init; }
     public string? ConversionWarning { get; init; }
     public DateTime? AsOfUtc { get; init; }
+    public DateTime? WindowStartUtc { get; init; }
+    public DateTime? WindowEndUtc { get; init; }
+    public DateTime? PreviousSessionStartUtc { get; init; }
+    public DateTime? PreviousSessionEndUtc { get; init; }
+    public DateTime? CurrentSessionStartUtc { get; init; }
+    public DateTime? CurrentSessionEndUtc { get; init; }
+    public bool? CurrentSessionHasCandles { get; init; }
     public bool IsPotentiallyStale { get; init; }
     public string? StaleReason { get; init; }
     public string? UnavailableReason { get; init; }
@@ -138,6 +145,7 @@ public sealed class StockHistoryPointResponse
     public decimal? LowEur { get; init; }
     public decimal? CloseEur { get; init; }
     public long Volume { get; init; }
+    public bool IsQuoteDerived { get; init; }
 }
 
 public sealed class UpdateStockQuoteRequest

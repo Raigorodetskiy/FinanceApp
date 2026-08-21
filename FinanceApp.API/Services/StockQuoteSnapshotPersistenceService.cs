@@ -13,6 +13,10 @@ public sealed class PersistStockQuoteSnapshotRequest
     public DateTime? CurrentPriceAt { get; init; }
     public bool CurrentPriceIsDelayed { get; init; }
     public string? CurrentPriceDelayWarning { get; init; }
+    public string? QuoteCurrency { get; init; } = "EUR";
+    public string? FinancialCurrency { get; init; } = "EUR";
+    public string? NormalizedQuoteCurrency { get; init; } = "EUR";
+    public decimal QuoteUnitMultiplier { get; init; } = 1m;
 }
 
 public sealed class PersistStockQuoteSnapshotResult
@@ -95,6 +99,7 @@ public sealed class StockQuoteSnapshotPersistenceService
             stock.CurrentPriceIsDelayed = incomingSnapshot.CurrentPriceIsDelayed;
             stock.CurrentPriceDelayWarning = incomingSnapshot.CurrentPriceDelayWarning;
             stock.UpdatedAt = nowUtc;
+            await UpsertIntradayQuoteObservationAsync(stock.Id, incomingSnapshot, request, nowUtc, cancellationToken);
 
             await _context.SaveChangesAsync(cancellationToken);
 
@@ -236,6 +241,94 @@ public sealed class StockQuoteSnapshotPersistenceService
         return trimmed.Length <= DelayWarningMaxLength
             ? trimmed
             : trimmed[..DelayWarningMaxLength];
+    }
+
+    private async Task UpsertIntradayQuoteObservationAsync(
+        int stockId,
+        NormalizedSnapshot incomingSnapshot,
+        PersistStockQuoteSnapshotRequest request,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        if (!IsValidSnapshotTimestamp(incomingSnapshot.CurrentPriceAt, nowUtc))
+        {
+            return;
+        }
+
+        var providerTimestampUtc = incomingSnapshot.CurrentPriceAt!.Value;
+        var bucketTimestampUtc = FloorToTenMinute(providerTimestampUtc);
+
+        var latestTimestampUtc = await _context.StockHistoricalPrices
+            .Where(x => x.StockId == stockId && x.Interval == "10m")
+            .OrderByDescending(x => x.Timestamp)
+            .Select(x => (DateTime?)x.Timestamp)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestTimestampUtc.HasValue && bucketTimestampUtc < latestTimestampUtc.Value)
+        {
+            return;
+        }
+
+        var rowAtBucket = await _context.StockHistoricalPrices
+            .FirstOrDefaultAsync(
+                x => x.StockId == stockId && x.Interval == "10m" && x.Timestamp == bucketTimestampUtc,
+                cancellationToken);
+
+        if (rowAtBucket is not null)
+        {
+            if (!rowAtBucket.IsQuoteDerived)
+            {
+                return;
+            }
+
+            rowAtBucket.Open = rowAtBucket.Open > 0m ? rowAtBucket.Open : incomingSnapshot.CurrentPrice;
+            rowAtBucket.High = rowAtBucket.High > 0m
+                ? Math.Max(rowAtBucket.High, incomingSnapshot.CurrentPrice)
+                : incomingSnapshot.CurrentPrice;
+            rowAtBucket.Low = rowAtBucket.Low > 0m
+                ? Math.Min(rowAtBucket.Low, incomingSnapshot.CurrentPrice)
+                : incomingSnapshot.CurrentPrice;
+            rowAtBucket.Close = incomingSnapshot.CurrentPrice;
+            rowAtBucket.AdjustedClose = null;
+            rowAtBucket.QuoteCurrency = NormalizeCurrencyOrFallback(request.QuoteCurrency, "EUR");
+            rowAtBucket.FinancialCurrency = NormalizeCurrencyOrFallback(request.FinancialCurrency, rowAtBucket.QuoteCurrency);
+            rowAtBucket.NormalizedQuoteCurrency = NormalizeCurrencyOrFallback(request.NormalizedQuoteCurrency, rowAtBucket.QuoteCurrency);
+            rowAtBucket.QuoteUnitMultiplier = request.QuoteUnitMultiplier > 0m ? request.QuoteUnitMultiplier : 1m;
+            rowAtBucket.Volume = 0;
+            rowAtBucket.IsQuoteDerived = true;
+            return;
+        }
+
+        _context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stockId,
+            Timestamp = bucketTimestampUtc,
+            Interval = "10m",
+            Open = incomingSnapshot.CurrentPrice,
+            High = incomingSnapshot.CurrentPrice,
+            Low = incomingSnapshot.CurrentPrice,
+            Close = incomingSnapshot.CurrentPrice,
+            AdjustedClose = null,
+            QuoteCurrency = NormalizeCurrencyOrFallback(request.QuoteCurrency, "EUR"),
+            FinancialCurrency = NormalizeCurrencyOrFallback(request.FinancialCurrency, NormalizeCurrencyOrFallback(request.QuoteCurrency, "EUR")),
+            NormalizedQuoteCurrency = NormalizeCurrencyOrFallback(request.NormalizedQuoteCurrency, NormalizeCurrencyOrFallback(request.QuoteCurrency, "EUR")),
+            QuoteUnitMultiplier = request.QuoteUnitMultiplier > 0m ? request.QuoteUnitMultiplier : 1m,
+            Volume = 0,
+            IsQuoteDerived = true
+        });
+    }
+
+    private static DateTime FloorToTenMinute(DateTime valueUtc)
+    {
+        var utc = valueUtc.Kind == DateTimeKind.Utc ? valueUtc : valueUtc.ToUniversalTime();
+        var minutes = (utc.Minute / 10) * 10;
+        return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, minutes, 0, DateTimeKind.Utc);
+    }
+
+    private static string NormalizeCurrencyOrFallback(string? value, string fallback)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
     }
 
     private readonly record struct NormalizedSnapshot(

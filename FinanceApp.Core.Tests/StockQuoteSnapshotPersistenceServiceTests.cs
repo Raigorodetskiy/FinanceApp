@@ -252,6 +252,123 @@ public class StockQuoteSnapshotPersistenceServiceTests
         Assert.False(persisted.CurrentPriceIsDelayed);
     }
 
+    [Fact]
+    public async Task ApplyAsync_NewerTimestamp_AppendsQuoteDerivedIntradayPoint()
+    {
+        await using var context = CreateInMemoryContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 7,
+            Ticker = "AMD",
+            Name = "AMD",
+            CommonName = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            CurrentPrice = 200m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 0, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 24, 15, 0, 0, DateTimeKind.Utc),
+        });
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 7,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 24, 15, 0, 0, DateTimeKind.Utc),
+            Open = 200m,
+            High = 200m,
+            Low = 200m,
+            Close = 200m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m,
+            Volume = 1200,
+            IsQuoteDerived = false,
+        });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new FixedTimeProvider(new DateTime(2026, 8, 24, 16, 0, 0, DateTimeKind.Utc)));
+        var result = await service.ApplyAsync(7, new PersistStockQuoteSnapshotRequest
+        {
+            CurrentPrice = 201m,
+            CurrentPriceChange = 1m,
+            CurrentPriceChangePercent = 0.5m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 21, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = false,
+        });
+
+        Assert.True(result.Applied);
+        var intradayRows = await context.StockHistoricalPrices
+            .Where(x => x.StockId == 7 && x.Interval == "10m")
+            .OrderBy(x => x.Timestamp)
+            .ToListAsync();
+        Assert.Equal(2, intradayRows.Count);
+        var newest = intradayRows[^1];
+        Assert.Equal(new DateTime(2026, 8, 24, 15, 20, 0, DateTimeKind.Utc), newest.Timestamp);
+        Assert.Equal(201m, newest.Close);
+        Assert.True(newest.IsQuoteDerived);
+        Assert.Equal("EUR", newest.QuoteCurrency);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_OlderOrEqualTimestamp_DoesNotRegressOrDuplicateIntradayHistory()
+    {
+        await using var context = CreateInMemoryContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 8,
+            Ticker = "AMD",
+            Name = "AMD",
+            CommonName = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            CurrentPrice = 202m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc),
+        });
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 8,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc),
+            Open = 202m,
+            High = 202m,
+            Low = 202m,
+            Close = 202m,
+            QuoteCurrency = "EUR",
+            FinancialCurrency = "EUR",
+            NormalizedQuoteCurrency = "EUR",
+            QuoteUnitMultiplier = 1m,
+            Volume = 0,
+            IsQuoteDerived = true,
+        });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new FixedTimeProvider(new DateTime(2026, 8, 24, 16, 0, 0, DateTimeKind.Utc)));
+        var olderResult = await service.ApplyAsync(8, new PersistStockQuoteSnapshotRequest
+        {
+            CurrentPrice = 201m,
+            CurrentPriceChange = -1m,
+            CurrentPriceChangePercent = -0.49m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 29, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = false,
+        });
+        var equalResult = await service.ApplyAsync(8, new PersistStockQuoteSnapshotRequest
+        {
+            CurrentPrice = 203m,
+            CurrentPriceChange = 1m,
+            CurrentPriceChangePercent = 0.49m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = false,
+        });
+
+        Assert.False(olderResult.Applied);
+        Assert.False(equalResult.Applied);
+        var intradayRows = await context.StockHistoricalPrices
+            .Where(x => x.StockId == 8 && x.Interval == "10m")
+            .OrderBy(x => x.Timestamp)
+            .ToListAsync();
+        Assert.Single(intradayRows);
+        Assert.Equal(202m, intradayRows[0].Close);
+    }
+
     private static AppDbContext CreateInMemoryContext()
         => new(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))

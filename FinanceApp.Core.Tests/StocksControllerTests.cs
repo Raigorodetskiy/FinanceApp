@@ -252,6 +252,11 @@ public class StocksControllerTests
         Assert.Equal(3.15m, persisted.CurrentPriceChange);
         Assert.Equal(1.30m, persisted.CurrentPriceChangePercent);
         Assert.Equal(providerTs, persisted.CurrentPriceAt);
+
+        var intradayPoint = await context.StockHistoricalPrices.SingleAsync(x => x.StockId == existing.Id && x.Interval == "10m");
+        Assert.Equal(new DateTime(2026, 8, 1, 14, 30, 0, DateTimeKind.Utc), intradayPoint.Timestamp);
+        Assert.Equal(195.40m, intradayPoint.Close);
+        Assert.True(intradayPoint.IsQuoteDerived);
     }
 
     [Fact]

@@ -46,4 +46,5 @@ public class StockHistoricalPrice
     public decimal QuoteUnitMultiplier { get; set; } = 1m;
 
     public long Volume { get; set; }
+    public bool IsQuoteDerived { get; set; }
 }

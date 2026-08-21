@@ -144,7 +144,8 @@ public sealed class StockQuoteConversionService : IStockQuoteConversionService
             HighEur = conversionContext.ConvertNormalizedToEur(highNormalized),
             LowEur = conversionContext.ConvertNormalizedToEur(lowNormalized),
             CloseEur = conversionContext.ConvertNormalizedToEur(closeNormalized),
-            Volume = historicalPrice.Volume
+            Volume = historicalPrice.Volume,
+            IsQuoteDerived = historicalPrice.IsQuoteDerived
         };
     }
 

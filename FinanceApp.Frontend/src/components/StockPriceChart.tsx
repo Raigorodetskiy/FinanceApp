@@ -292,6 +292,12 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
   }, [indexId, notifyIndexHistoryRefreshStateChange, stockId]);
 
   const historyData = historyResponse?.points ?? [];
+  const hasQuoteDerivedPoints = useMemo(
+    () => historyData.some((point) => point.isQuoteDerived === true),
+    [historyData],
+  );
+  const currentSessionHasNoCandles = (historyRange === '24h' || historyRange === 'today')
+    && historyResponse?.currentSessionHasCandles === false;
   const expectedProviderSymbol = useMemo(
     () => resolveExpectedProviderSymbol(ticker, exchange, providerSymbol),
     [exchange, providerSymbol, ticker],
@@ -631,6 +637,22 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           type="warning"
           showIcon
           message={historyResponse.staleReason}
+          style={{ marginBottom: 12 }}
+        />
+      )}
+      {currentSessionHasNoCandles && (
+        <Alert
+          type="info"
+          showIcon
+          message="Текущая торговая сессия ещё не содержит свечей — показана предыдущая завершённая сессия."
+          style={{ marginBottom: 12 }}
+        />
+      )}
+      {hasQuoteDerivedPoints && (
+        <Alert
+          type="info"
+          showIcon
+          message="Часть внутридневных точек получена из котировок и будет детерминированно заменена провайдерными свечами при следующей сверке истории."
           style={{ marginBottom: 12 }}
         />
       )}

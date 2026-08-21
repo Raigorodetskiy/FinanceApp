@@ -207,10 +207,12 @@ public class StockHistoryService : IStockHistoryService
     {
         var normalizedRange = NormalizeRange(range);
         var interval = GetInterval(normalizedRange);
-        var from = GetFromTimestamp(normalizedRange);
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var intradayWindow = BuildIntradayWindow(stock, normalizedRange, nowUtc);
+        var from = intradayWindow?.QueryFromUtc ?? GetFromTimestamp(normalizedRange, nowUtc);
 
         var data = await LoadHistoryRowsAsync(stock.Id, interval, from, cancellationToken);
+        data = FilterRowsForRange(data, intradayWindow, normalizedRange);
         var shouldRefreshStaleIntraday = ShouldRefreshIntradayOnDemand(stock, normalizedRange, interval, data, nowUtc);
         var shouldRefresh = data.Count == 0 || data.Any(NeedsMetadataBackfill) || shouldRefreshStaleIntraday;
         var onDemandRefreshFailed = false;
@@ -221,6 +223,7 @@ public class StockHistoryService : IStockHistoryService
                 var refresh = await RefreshHistoryAsync(stock, StockHistoryRefreshTrigger.Automatic, cancellationToken);
                 onDemandRefreshFailed = refresh.RateLimited;
                 data = await LoadHistoryRowsAsync(stock.Id, interval, from, cancellationToken);
+                data = FilterRowsForRange(data, intradayWindow, normalizedRange);
             }
             catch (Exception ex)
             {
@@ -255,6 +258,13 @@ public class StockHistoryService : IStockHistoryService
             RateSource = conversionContext.ExchangeRate.Source,
             ConversionWarning = conversionContext.Warning,
             AsOfUtc = asOfUtc,
+            WindowStartUtc = intradayWindow?.WindowStartUtc,
+            WindowEndUtc = intradayWindow?.WindowEndUtc,
+            PreviousSessionStartUtc = intradayWindow?.PreviousSessionStartUtc,
+            PreviousSessionEndUtc = intradayWindow?.PreviousSessionEndUtc,
+            CurrentSessionStartUtc = intradayWindow?.CurrentSessionStartUtc,
+            CurrentSessionEndUtc = intradayWindow?.CurrentSessionEndUtc,
+            CurrentSessionHasCandles = intradayWindow?.CurrentSessionHasCandles(data),
             IsPotentiallyStale = isPotentiallyStale,
             StaleReason = staleReason,
             UnavailableReason = unavailableReason,
@@ -366,7 +376,8 @@ public class StockHistoryService : IStockHistoryService
                     FinancialCurrency = entry.Batch.FinancialCurrency,
                     NormalizedQuoteCurrency = entry.Batch.NormalizedQuoteCurrency,
                     QuoteUnitMultiplier = entry.Batch.QuoteUnitMultiplier,
-                    Volume = candle.Volume
+                    Volume = candle.Volume,
+                    IsQuoteDerived = false,
                 });
             }
         }
@@ -454,7 +465,8 @@ public class StockHistoryService : IStockHistoryService
                 FinancialCurrency = row.FinancialCurrency,
                 NormalizedQuoteCurrency = row.NormalizedQuoteCurrency,
                 QuoteUnitMultiplier = row.QuoteUnitMultiplier,
-                Volume = row.Volume
+                Volume = row.Volume,
+                IsQuoteDerived = row.IsQuoteDerived,
             };
         }
     }
@@ -477,9 +489,8 @@ public class StockHistoryService : IStockHistoryService
         };
     }
 
-    private static DateTime GetFromTimestamp(string normalizedRange)
+    private static DateTime GetFromTimestamp(string normalizedRange, DateTime now)
     {
-        var now = DateTime.UtcNow;
         return normalizedRange switch
         {
             "5y" => now.AddYears(-5),
@@ -493,6 +504,68 @@ public class StockHistoryService : IStockHistoryService
             "today" => now.Date,
             _ => now.AddYears(-5)
         };
+    }
+
+    private static List<StockHistoricalPrice> FilterRowsForRange(
+        IReadOnlyList<StockHistoricalPrice> data,
+        IntradaySessionRange? intradayWindow,
+        string normalizedRange)
+    {
+        if (intradayWindow is null || data.Count == 0 || normalizedRange is not ("24h" or "today"))
+        {
+            return data.ToList();
+        }
+
+        var filtered = normalizedRange == "today"
+            ? data.Where(x => intradayWindow.IsInCurrentSession(x.Timestamp)).ToList()
+            : data.Where(x => intradayWindow.IsInPreviousOrCurrentSession(x.Timestamp)).ToList();
+
+        if (normalizedRange == "24h" && filtered.All(x => !intradayWindow.IsInPreviousSession(x.Timestamp)))
+        {
+            var fallbackPreviousDate = intradayWindow.TryFindLatestPreviousSessionDateWithData(data);
+            if (fallbackPreviousDate.HasValue)
+            {
+                filtered = data.Where(x => intradayWindow.IsInPreviousOrCurrentSession(x.Timestamp, fallbackPreviousDate.Value)).ToList();
+            }
+        }
+
+        return filtered;
+    }
+
+    private static IntradaySessionRange? BuildIntradayWindow(Stock stock, string normalizedRange, DateTime nowUtc)
+    {
+        if (normalizedRange is not ("24h" or "today"))
+        {
+            return null;
+        }
+
+        if (!TradingSessionCalendar.TryGetSessionSpec(stock.Exchange, out var sessionSpec))
+        {
+            return null;
+        }
+
+        var timeZone = TradingSessionCalendar.TryResolveTimeZone(sessionSpec);
+        if (timeZone is null)
+        {
+            return null;
+        }
+
+        var localNowDate = TradingSessionCalendar.ConvertUtcToLocalDate(nowUtc, timeZone);
+        var currentSessionDate = TradingSessionCalendar.GetNextTradingDay(localNowDate, sessionSpec);
+        var previousSessionDate = TradingSessionCalendar.GetPreviousTradingDay(currentSessionDate, sessionSpec);
+
+        var previousSession = TradingSessionCalendar.BuildSessionWindow(previousSessionDate, sessionSpec, timeZone);
+        var currentSession = TradingSessionCalendar.BuildSessionWindow(currentSessionDate, sessionSpec, timeZone);
+        var queryFromUtc = normalizedRange == "today"
+            ? currentSession.SessionStartUtc
+            : nowUtc.AddDays(-10);
+
+        return new IntradaySessionRange(
+            sessionSpec,
+            timeZone,
+            previousSession,
+            currentSession,
+            queryFromUtc);
     }
 
     private static string GetInterval(string normalizedRange) => normalizedRange switch
@@ -714,41 +787,24 @@ public class StockHistoryService : IStockHistoryService
 
     private static bool IsLikelyIntradaySessionOpen(string? exchange, DateTime nowUtc)
     {
-        if (!StockExchanges.TryNormalize(exchange, out var normalizedExchange))
+        if (!TradingSessionCalendar.TryGetSessionSpec(exchange, out var spec))
         {
             return true;
         }
 
-        return normalizedExchange switch
-        {
-            StockExchanges.Frankfurt => IsWithinSession(nowUtc, "Europe/Berlin", TimeSpan.FromHours(9), TimeSpan.FromHours(17.5)),
-            StockExchanges.Nyse or StockExchanges.Nasdaq => IsWithinSession(nowUtc, "America/New_York", TimeSpan.FromHours(9.5), TimeSpan.FromHours(16)),
-            _ => true
-        };
-    }
-
-    private static bool IsWithinSession(DateTime nowUtc, string timeZoneId, TimeSpan openLocal, TimeSpan closeLocal)
-    {
-        try
-        {
-            var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-            var localNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, tz);
-            if (localNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
-            {
-                return false;
-            }
-
-            var localTime = localNow.TimeOfDay;
-            return localTime >= openLocal && localTime <= closeLocal.Add(TimeSpan.FromMinutes(20));
-        }
-        catch (TimeZoneNotFoundException)
+        var timeZone = TradingSessionCalendar.TryResolveTimeZone(spec);
+        if (timeZone is null)
         {
             return true;
         }
-        catch (InvalidTimeZoneException)
+
+        if (!TradingSessionCalendar.IsWithinRegularSession(nowUtc, spec, timeZone, out _))
         {
-            return true;
+            return false;
         }
+
+        var localNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, timeZone);
+        return localNow.TimeOfDay <= spec.CloseLocalTime.Add(TimeSpan.FromMinutes(20));
     }
 
     private static string ResolveStockProviderSymbol(Stock stock)
@@ -1045,6 +1101,7 @@ public class StockHistoryService : IStockHistoryService
                 row.NormalizedQuoteCurrency = candleBatch.NormalizedQuoteCurrency;
                 row.QuoteUnitMultiplier = candleBatch.QuoteUnitMultiplier;
                 row.Volume = candle.Volume;
+                row.IsQuoteDerived = false;
             }
             else
             {
@@ -1062,7 +1119,8 @@ public class StockHistoryService : IStockHistoryService
                     FinancialCurrency = candleBatch.FinancialCurrency,
                     NormalizedQuoteCurrency = candleBatch.NormalizedQuoteCurrency,
                     QuoteUnitMultiplier = candleBatch.QuoteUnitMultiplier,
-                    Volume = candle.Volume
+                    Volume = candle.Volume,
+                    IsQuoteDerived = false,
                 });
             }
         }
@@ -1373,6 +1431,88 @@ public class StockHistoryService : IStockHistoryService
             OnDemandIntradayRefreshMinInterval = raw.OnDemandIntradayRefreshMinInterval > TimeSpan.Zero ? raw.OnDemandIntradayRefreshMinInterval : TimeSpan.FromMinutes(10),
             MaxAutomaticStocksPerRun = raw.MaxAutomaticStocksPerRun > 0 ? raw.MaxAutomaticStocksPerRun : 100,
         };
+    }
+
+    private sealed class IntradaySessionRange
+    {
+        private readonly TradingSessionSpec _spec;
+        private readonly TimeZoneInfo _timeZone;
+        private readonly DateOnly _previousSessionDate;
+        private readonly DateOnly _currentSessionDate;
+
+        public IntradaySessionRange(
+            TradingSessionSpec spec,
+            TimeZoneInfo timeZone,
+            TradingSessionWindow previousSession,
+            TradingSessionWindow currentSession,
+            DateTime queryFromUtc)
+        {
+            _spec = spec;
+            _timeZone = timeZone;
+            _previousSessionDate = previousSession.SessionDateLocal;
+            _currentSessionDate = currentSession.SessionDateLocal;
+            PreviousSessionStartUtc = previousSession.SessionStartUtc;
+            PreviousSessionEndUtc = previousSession.SessionEndUtc;
+            CurrentSessionStartUtc = currentSession.SessionStartUtc;
+            CurrentSessionEndUtc = currentSession.SessionEndUtc;
+            QueryFromUtc = queryFromUtc;
+            WindowStartUtc = previousSession.SessionStartUtc;
+            WindowEndUtc = currentSession.SessionEndUtc;
+        }
+
+        public DateTime QueryFromUtc { get; }
+        public DateTime WindowStartUtc { get; }
+        public DateTime WindowEndUtc { get; }
+        public DateTime PreviousSessionStartUtc { get; }
+        public DateTime PreviousSessionEndUtc { get; }
+        public DateTime CurrentSessionStartUtc { get; }
+        public DateTime CurrentSessionEndUtc { get; }
+
+        public bool IsInCurrentSession(DateTime utcTimestamp)
+            => IsInSessionDate(utcTimestamp, _currentSessionDate);
+
+        public bool IsInPreviousSession(DateTime utcTimestamp)
+            => IsInSessionDate(utcTimestamp, _previousSessionDate);
+
+        public bool IsInPreviousOrCurrentSession(DateTime utcTimestamp)
+            => IsInSessionDate(utcTimestamp, _currentSessionDate) || IsInSessionDate(utcTimestamp, _previousSessionDate);
+
+        public bool IsInPreviousOrCurrentSession(DateTime utcTimestamp, DateOnly fallbackPreviousSessionDate)
+            => IsInSessionDate(utcTimestamp, _currentSessionDate) || IsInSessionDate(utcTimestamp, fallbackPreviousSessionDate);
+
+        public bool CurrentSessionHasCandles(IReadOnlyCollection<StockHistoricalPrice> rows)
+            => rows.Any(x => IsInCurrentSession(x.Timestamp));
+
+        public DateOnly? TryFindLatestPreviousSessionDateWithData(IReadOnlyCollection<StockHistoricalPrice> rows)
+        {
+            DateOnly? best = null;
+            foreach (var row in rows)
+            {
+                var localDate = TradingSessionCalendar.ConvertUtcToLocalDate(row.Timestamp, _timeZone);
+                if (!TradingSessionCalendar.IsTradingDay(localDate, _spec))
+                {
+                    continue;
+                }
+
+                if (localDate >= _currentSessionDate)
+                {
+                    continue;
+                }
+
+                if (best is null || localDate > best.Value)
+                {
+                    best = localDate;
+                }
+            }
+
+            return best;
+        }
+
+        private bool IsInSessionDate(DateTime utcTimestamp, DateOnly sessionDateLocal)
+        {
+            var localDate = TradingSessionCalendar.ConvertUtcToLocalDate(utcTimestamp, _timeZone);
+            return localDate == sessionDateLocal && TradingSessionCalendar.IsTradingDay(localDate, _spec);
+        }
     }
 
     private sealed record CandleData(
