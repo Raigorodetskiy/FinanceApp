@@ -1,9 +1,11 @@
 import { HELP_ARTICLES, HELP_CATEGORIES } from './content';
+import { FUNDAMENTAL_SCORING_METHODOLOGY_ARTICLE } from './fundamentalScoringMethodology';
 import { TECHNICAL_INDICATOR_FORMULAS_ARTICLE } from './technicalIndicatorFormulas';
 import type { HelpArticle, HelpBlock, HelpCategory, HelpContentValidationResult, HelpRelatedLink, HelpSearchResult } from './models';
 
 export const ALL_HELP_ARTICLES: HelpArticle[] = [
   ...HELP_ARTICLES,
+  FUNDAMENTAL_SCORING_METHODOLOGY_ARTICLE,
   TECHNICAL_INDICATOR_FORMULAS_ARTICLE,
 ];
 
