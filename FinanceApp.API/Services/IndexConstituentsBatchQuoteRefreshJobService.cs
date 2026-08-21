@@ -439,6 +439,10 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
                     CurrentPriceAt = incomingAt,
                     CurrentPriceIsDelayed = isDelayed,
                     CurrentPriceDelayWarning = quote.DelayWarning,
+                    QuoteCurrency = "EUR",
+                    FinancialCurrency = "EUR",
+                    NormalizedQuoteCurrency = "EUR",
+                    QuoteUnitMultiplier = 1m,
                 },
                 cancellationToken);
 

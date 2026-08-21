@@ -569,6 +569,10 @@ public class StocksController : ControllerBase
                 CurrentPriceAt = request.CurrentPriceAt,
                 CurrentPriceIsDelayed = request.CurrentPriceIsDelayed,
                 CurrentPriceDelayWarning = request.CurrentPriceDelayWarning,
+                QuoteCurrency = "EUR",
+                FinancialCurrency = "EUR",
+                NormalizedQuoteCurrency = "EUR",
+                QuoteUnitMultiplier = 1m,
             });
 
         if (!persistenceResult.StockFound)

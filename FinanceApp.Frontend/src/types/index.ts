@@ -202,6 +202,7 @@ export interface StockHistoryPoint {
   lowEur: number | null;
   closeEur: number | null;
   volume: number;
+  isQuoteDerived?: boolean;
 }
 
 export interface StockHistoryResponse {
@@ -216,6 +217,13 @@ export interface StockHistoryResponse {
   rateSource: string | null;
   conversionWarning: string | null;
   asOfUtc?: string | null;
+  windowStartUtc?: string | null;
+  windowEndUtc?: string | null;
+  previousSessionStartUtc?: string | null;
+  previousSessionEndUtc?: string | null;
+  currentSessionStartUtc?: string | null;
+  currentSessionEndUtc?: string | null;
+  currentSessionHasCandles?: boolean | null;
   isPotentiallyStale?: boolean;
   staleReason?: string | null;
   unavailableReason?: string | null;

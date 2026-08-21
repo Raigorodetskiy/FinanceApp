@@ -497,6 +497,7 @@ public class AppDbContext : DbContext
             entity.Property(x => x.NormalizedQuoteCurrency).HasMaxLength(8);
             entity.Property(x => x.QuoteUnitMultiplier).HasDefaultValue(1m);
             entity.Property(x => x.Volume).HasDefaultValue(0L);
+            entity.Property(x => x.IsQuoteDerived).HasDefaultValue(false);
         });
 
         modelBuilder.Entity<Stock>(entity =>

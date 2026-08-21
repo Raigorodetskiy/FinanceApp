@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import StockPriceChart from './StockPriceChart';
@@ -27,6 +28,7 @@ const baseHistoryResponse = {
   rateSource: null,
   conversionWarning: null,
   asOfUtc: '2026-08-20T14:40:00Z',
+  currentSessionHasCandles: true,
   isPotentiallyStale: true,
   staleReason: 'Данные устарели, показаны сохранённые свечи.',
   unavailableReason: null,
@@ -56,6 +58,7 @@ const baseHistoryResponse = {
       lowEur: null,
       closeEur: null,
       volume: 1000,
+      isQuoteDerived: false,
     },
   ],
 } as const;
@@ -141,5 +144,37 @@ describe('StockPriceChart stale/unavailable diagnostics', () => {
 
     await waitFor(() => expect(vi.mocked(api.getStockHistory)).toHaveBeenCalled());
     expect(screen.getByText(/Проверьте биржу\/тикер и попробуйте «Перезагрузить историю»/)).toBeInTheDocument();
+  });
+
+  it('shows explicit no-current-session-candles and quote-derived diagnostics', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getStockHistory).mockResolvedValue({
+      data: {
+        ...baseHistoryResponse,
+        currentSessionHasCandles: false,
+        points: [
+          {
+            ...baseHistoryResponse.points[0],
+            isQuoteDerived: true,
+          },
+        ],
+      },
+    } as never);
+
+    render(
+      <StockPriceChart
+        panelId="p3"
+        stockId={3}
+        ticker="AMD"
+        name="AMD US"
+        exchange="NASDAQ"
+        providerSymbol="AMD"
+      />,
+    );
+
+    await waitFor(() => expect(vi.mocked(api.getStockHistory)).toHaveBeenCalled());
+    await user.click(screen.getByText('24 ч.'));
+    expect(screen.getByText(/текущая торговая сессия ещё не содержит свечей/i)).toBeInTheDocument();
+    expect(screen.getByText(/часть внутридневных точек получена из котировок/i)).toBeInTheDocument();
   });
 });

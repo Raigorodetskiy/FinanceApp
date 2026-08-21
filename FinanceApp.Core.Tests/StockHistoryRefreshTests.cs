@@ -227,6 +227,146 @@ public class StockHistoryRefreshTests
     }
 
     [Fact]
+    public async Task GetHistoryAsync_24h_UsesPreviousAndCurrentTradingSessions_NotRollingUtc24Hours()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc); // Monday during US regular session
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 20, 15, 30, 0, DateTimeKind.Utc), // Thursday
+                Open = 90m, High = 90m, Low = 90m, Close = 90m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            },
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 13, 30, 0, DateTimeKind.Utc), // Friday open
+                Open = 100m, High = 100m, Low = 100m, Close = 100m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            },
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 19, 50, 0, DateTimeKind.Utc), // Friday close bucket
+                Open = 103m, High = 103m, Low = 103m, Close = 103m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            },
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 24, 13, 30, 0, DateTimeKind.Utc), // Monday open
+                Open = 104m, High = 104m, Low = 104m, Close = 104m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            },
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 24, 15, 20, 0, DateTimeKind.Utc), // Monday current
+                Open = 106m, High = 106m, Low = 106m, Close = 106m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new CountingHandler(), new FixedTimeProvider(new DateTimeOffset(now)));
+        var response = await service.GetHistoryAsync(stock, "24h");
+
+        Assert.Equal("24h", response.Range);
+        Assert.Equal(4, response.Points.Count);
+        Assert.DoesNotContain(response.Points, x => x.Timestamp == new DateTime(2026, 8, 20, 15, 30, 0, DateTimeKind.Utc));
+        Assert.Equal(new DateTime(2026, 8, 21, 13, 30, 0, DateTimeKind.Utc), response.Points[0].Timestamp);
+        Assert.Equal(new DateTime(2026, 8, 24, 15, 20, 0, DateTimeKind.Utc), response.Points[^1].Timestamp);
+        Assert.True(response.CurrentSessionHasCandles);
+        Assert.NotNull(response.PreviousSessionStartUtc);
+        Assert.NotNull(response.CurrentSessionStartUtc);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_Today_RemainsCurrentSessionOnly()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc);
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 21, 19, 50, 0, DateTimeKind.Utc),
+                Open = 103m, High = 103m, Low = 103m, Close = 103m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            },
+            new StockHistoricalPrice
+            {
+                StockId = stock.Id,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 24, 13, 30, 0, DateTimeKind.Utc),
+                Open = 104m, High = 104m, Low = 104m, Close = 104m,
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+            });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new CountingHandler(), new FixedTimeProvider(new DateTimeOffset(now)));
+        var response = await service.GetHistoryAsync(stock, "today");
+
+        Assert.Equal("today", response.Range);
+        Assert.Single(response.Points);
+        Assert.Equal(new DateTime(2026, 8, 24, 13, 30, 0, DateTimeKind.Utc), response.Points[0].Timestamp);
+    }
+
+    [Fact]
+    public async Task GetHistoryAsync_24h_PreOpenCurrentSessionWithoutCandles_ReportsNoCurrentSessionCandles()
+    {
+        await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 24, 11, 0, 0, DateTimeKind.Utc); // Monday pre-open for US market
+        var stock = new Stock
+        {
+            Id = 1,
+            Ticker = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            Name = "AMD US"
+        };
+        context.Stocks.Add(stock);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = stock.Id,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 21, 19, 50, 0, DateTimeKind.Utc),
+            Open = 103m, High = 103m, Low = 103m, Close = 103m,
+            QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+        });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new CountingHandler(), new FixedTimeProvider(new DateTimeOffset(now)));
+        var response = await service.GetHistoryAsync(stock, "24h");
+
+        Assert.Single(response.Points);
+        Assert.Equal(new DateTime(2026, 8, 21, 19, 50, 0, DateTimeKind.Utc), response.Points[0].Timestamp);
+        Assert.False(response.CurrentSessionHasCandles);
+    }
+
+    [Fact]
     public async Task GetHistoryAsync_RateLimitedRefresh_PreservesOldIntradayAndReturnsStaleWarning()
     {
         await using var context = CreateInMemoryContext();
@@ -772,13 +912,14 @@ public class StockHistoryRefreshTests
     public async Task GetHistoryAsync_RangeSelection_ContinuesToWork()
     {
         await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc);
         var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
         context.Stocks.Add(stock);
         context.StockHistoricalPrices.Add(new StockHistoricalPrice
         {
             StockId = 1,
             Interval = "10m",
-            Timestamp = DateTime.UtcNow.AddMinutes(-20),
+            Timestamp = new DateTime(2026, 8, 24, 15, 20, 0, DateTimeKind.Utc),
             Open = 1m,
             High = 2m,
             Low = 1m,
@@ -791,7 +932,7 @@ public class StockHistoryRefreshTests
         });
         await context.SaveChangesAsync();
 
-        var service = CreateService(context, new SequenceHandler());
+        var service = CreateService(context, new SequenceHandler(), new FixedTimeProvider(new DateTimeOffset(now)));
         var response = await service.GetHistoryAsync(stock, "today");
 
         Assert.Equal("today", response.Range);
@@ -803,11 +944,12 @@ public class StockHistoryRefreshTests
     public async Task RefreshHistoryAsync_PersistsYahooVolume_AndReturnsItFromHistory()
     {
         await using var context = CreateInMemoryContext();
+        var now = new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc);
         var stock = new Stock { Id = 1, Ticker = "AAPL", Exchange = StockExchanges.Nyse, Name = "Apple" };
         context.Stocks.Add(stock);
         await context.SaveChangesAsync();
 
-        var intradayBase = DateTimeOffset.UtcNow.AddMinutes(-30);
+        var intradayBase = new DateTimeOffset(now.AddMinutes(-30), TimeSpan.Zero);
         intradayBase = new DateTimeOffset(
             intradayBase.Year,
             intradayBase.Month,
@@ -825,7 +967,7 @@ public class StockHistoryRefreshTests
             SuccessChartJson(
                 (intradayBase.ToUnixTimeSeconds(), 50m, 40L),
                 (intradayBase.AddMinutes(5).ToUnixTimeSeconds(), 55m, 60L)));
-        var service = CreateService(context, handler);
+        var service = CreateService(context, handler, new FixedTimeProvider(new DateTimeOffset(now)));
 
         await service.RefreshHistoryAsync(stock);
 

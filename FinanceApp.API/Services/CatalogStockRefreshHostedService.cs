@@ -632,6 +632,10 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
                 CurrentPriceAt = quote.PriceTimestampUtc,
                 CurrentPriceIsDelayed = quote.IsStale || !string.IsNullOrWhiteSpace(quote.DelayWarning),
                 CurrentPriceDelayWarning = quote.DelayWarning,
+                QuoteCurrency = "EUR",
+                FinancialCurrency = "EUR",
+                NormalizedQuoteCurrency = "EUR",
+                QuoteUnitMultiplier = 1m,
             },
             cancellationToken);
 
