@@ -16,6 +16,8 @@ describe('HelpPage.css readability contract', () => {
   it('uses readable navigation and excerpt typography', () => {
     expect(cssText).toMatch(/\.help-page__article-list\s*\{[^}]*font-size:\s*18px;/);
     expect(cssText).toMatch(/\.help-page__excerpt\s*\{[^}]*font-size:\s*18px;[^}]*line-height:\s*1\.5;/);
+    expect(sourceText).toContain('Центр справки FinanceApp');
+    expect(sourceText).toContain('<BookOutlined />');
   });
 
   it('keeps lists, faq and tables at readable minimum sizes', () => {
@@ -27,7 +29,15 @@ describe('HelpPage.css readability contract', () => {
   it('applies shared directories typography wrapper for ant controls, search and alerts', () => {
     expect(sourceText).toContain('DIRECTORIES_TYPOGRAPHY_CLASS');
     expect(sourceText).toContain('Input.Search');
+    expect(sourceText).toContain('<Card key={category.slug} size="small" title={category.title}>');
+    expect(sourceText).toContain('<Button type="link" onClick={() => onSearchChange(\'\')}');
     expect(sourceText).toContain('data-responsive="stack-lg"');
+  });
+
+  it('keeps help heading hierarchy with explicit title levels', () => {
+    expect(sourceText).toContain('<Title level={2}>{selectedArticle.title}</Title>');
+    expect(sourceText).toContain('<Title level={3}>Центр справки FinanceApp</Title>');
+    expect(sourceText).toContain('<Title level={3} id={`heading-${section.slug}`}>{section.title}</Title>');
   });
 
   it('preserves wide table usability with horizontal scrolling', () => {

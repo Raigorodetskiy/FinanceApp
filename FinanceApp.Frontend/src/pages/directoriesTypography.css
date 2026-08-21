@@ -1,16 +1,27 @@
 .directories-typography {
   --directories-min-font-size: 18px;
   --directories-min-line-height: 1.5;
+  font-size: var(--directories-min-font-size);
+  line-height: var(--directories-min-line-height);
 }
 
+/* Ant Design sets explicit 14/16px sizes for many controls.
+   Keep overrides scoped to directories wrappers and use !important only on these targets. */
+.directories-typography .ant-typography:not(h1):not(h2):not(h3):not(h4):not(h5):not(h6),
+.directories-typography .ant-card-head-title,
+.directories-typography .ant-card-body,
+.directories-typography a,
 .directories-typography .ant-btn,
 .directories-typography .ant-input,
 .directories-typography .ant-input-affix-wrapper,
+.directories-typography .ant-input-affix-wrapper input,
 .directories-typography .ant-input-number-input,
+.directories-typography .ant-input-number-group-addon,
 .directories-typography .ant-select-selector,
 .directories-typography .ant-select-selection-item,
 .directories-typography .ant-select-selection-placeholder,
 .directories-typography .ant-select-item-option-content,
+.directories-typography .ant-select-item,
 .directories-typography .ant-table,
 .directories-typography .ant-table-thead > tr > th,
 .directories-typography .ant-table-tbody > tr > td,
@@ -24,23 +35,74 @@
 .directories-typography .ant-pagination-item,
 .directories-typography .ant-pagination-prev .ant-pagination-item-link,
 .directories-typography .ant-pagination-next .ant-pagination-item-link,
+.directories-typography .ant-pagination-options,
+.directories-typography .ant-pagination-total-text,
 .directories-typography .ant-spin-text,
 .directories-typography .ant-typography code,
 .directories-typography code {
-  font-size: var(--directories-min-font-size);
-  line-height: var(--directories-min-line-height);
+  font-size: 18px !important;
+  line-height: 1.5 !important;
 }
 
+.directories-typography h1,
+.directories-typography .ant-typography-h1 {
+  font-size: 30px !important;
+  line-height: 1.25 !important;
+}
+
+.directories-typography h2,
+.directories-typography .ant-typography-h2 {
+  font-size: 26px !important;
+  line-height: 1.3 !important;
+}
+
+.directories-typography h3,
+.directories-typography .ant-typography-h3 {
+  font-size: 22px !important;
+  line-height: 1.35 !important;
+}
+
+.directories-typography h4,
+.directories-typography .ant-typography-h4 {
+  font-size: 20px !important;
+  line-height: 1.4 !important;
+}
+
+.directories-typography h5,
+.directories-typography h6,
+.directories-typography .ant-typography-h5,
+.directories-typography .ant-typography-h6 {
+  font-size: 18px !important;
+  line-height: 1.45 !important;
+}
+
+.directories-typography .ant-input::placeholder,
+.directories-typography .ant-input-affix-wrapper input::placeholder,
+.directories-typography .ant-input-number-input::placeholder {
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.directories-overlay-typography {
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.directories-overlay-typography a,
 .directories-overlay-typography .ant-btn,
 .directories-overlay-typography .ant-input,
 .directories-overlay-typography .ant-input-affix-wrapper,
+.directories-overlay-typography .ant-input-affix-wrapper input,
 .directories-overlay-typography .ant-input-number-input,
+.directories-overlay-typography .ant-input-number-group-addon,
 .directories-overlay-typography .ant-select-selector,
 .directories-overlay-typography .ant-select-selection-item,
 .directories-overlay-typography .ant-select-selection-placeholder,
 .directories-overlay-typography .ant-select-item-option-content,
+.directories-overlay-typography .ant-select-item,
 .directories-overlay-typography .ant-form-item-label > label,
 .directories-overlay-typography .ant-form-item-explain-error,
+.directories-overlay-typography .ant-form-item-extra,
 .directories-overlay-typography .ant-modal-title,
 .directories-overlay-typography .ant-modal-body,
 .directories-overlay-typography .ant-modal-footer,
@@ -48,7 +110,16 @@
 .directories-overlay-typography .ant-popconfirm-description,
 .directories-overlay-typography .ant-popconfirm-message-title,
 .directories-overlay-typography .ant-popconfirm-message-description,
+.directories-overlay-typography .ant-dropdown-menu-item,
+.directories-overlay-typography .ant-dropdown-menu-title-content,
 .directories-overlay-typography .ant-tooltip-inner {
+  font-size: 18px !important;
+  line-height: 1.5 !important;
+}
+
+.directories-overlay-typography .ant-input::placeholder,
+.directories-overlay-typography .ant-input-affix-wrapper input::placeholder,
+.directories-overlay-typography .ant-input-number-input::placeholder {
   font-size: 18px;
   line-height: 1.5;
 }
