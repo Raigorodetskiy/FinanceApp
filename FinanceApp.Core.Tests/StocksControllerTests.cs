@@ -1732,6 +1732,227 @@ public class StocksControllerTests
     }
 
     [Fact]
+    public async Task GetCatalogPerformance_1w_UsesCurrentPriceAsEndpoint_WhenItIsNewerThanHistory()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 680,
+            Ticker = "NEWEND",
+            Name = "New Endpoint",
+            CommonName = "New Endpoint",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 120m,
+            CurrentPriceAt = now.AddMinutes(-15),
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now,
+        });
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 680, Interval = "1h", Timestamp = now.AddDays(-7).AddHours(-2), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 680, Interval = "1h", Timestamp = now.AddDays(-6), Close = 105m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 680, Interval = "1h", Timestamp = now.AddHours(-2), Close = 110m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("1w");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.Equal(100m, item.StartPrice);
+        Assert.Equal(120m, item.EndPrice);
+        Assert.Equal(20d, item.ChangePercent!.Value, 6);
+    }
+
+    [Fact]
+    public async Task GetCatalogPerformance_1w_UsesLatestHistory_WhenCurrentPriceIsOlder()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 681,
+            Ticker = "OLDEND",
+            Name = "Old Endpoint",
+            CommonName = "Old Endpoint",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 500m,
+            CurrentPriceAt = now.AddHours(-4),
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now,
+        });
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 681, Interval = "1h", Timestamp = now.AddDays(-7).AddHours(-3), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 681, Interval = "1h", Timestamp = now.AddHours(-2), Close = 130m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("1w");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(130m, item.EndPrice);
+        Assert.Equal(30d, item.ChangePercent!.Value, 6);
+    }
+
+    [Fact]
+    public async Task GetCatalogPerformance_1w_MissingCurrentPriceTimestamp_DoesNotOverrideHistoryEndpoint()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 682,
+            Ticker = "NOTIME",
+            Name = "No Timestamp",
+            CommonName = "No Timestamp",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 999m,
+            CurrentPriceAt = null,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now,
+        });
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 682, Interval = "1h", Timestamp = now.AddDays(-7).AddHours(-3), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 682, Interval = "1h", Timestamp = now.AddHours(-1), Close = 110m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("1w");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(110m, item.EndPrice);
+        Assert.Equal(10d, item.ChangePercent!.Value, 6);
+    }
+
+    [Fact]
+    public async Task GetCatalogPerformance_1w_UsesBoundaryBaselineAtOrBeforePeriodStart()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 683,
+            Ticker = "WEEKEND",
+            Name = "Weekend Baseline",
+            CommonName = "Weekend Baseline",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 160m,
+            CurrentPriceAt = now.AddHours(-3),
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now,
+        });
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 683, Interval = "1h", Timestamp = now.AddDays(-8), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 683, Interval = "1h", Timestamp = now.AddDays(-6), Close = 150m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 683, Interval = "1h", Timestamp = now.AddHours(-4), Close = 155m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("1w");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(100m, item.StartPrice);
+        Assert.Equal(160m, item.EndPrice);
+        Assert.Equal(60d, item.ChangePercent!.Value, 6);
+    }
+
+    [Fact]
+    public async Task GetCatalogPerformance_1w_DoesNotUseCurrentEndpoint_WhenLatestHistoryCurrencyIsIncompatible()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        context.Stocks.Add(new Stock
+        {
+            Id = 684,
+            Ticker = "USDX",
+            Name = "USD Endpoint",
+            CommonName = "USD Endpoint",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 200m,
+            CurrentPriceAt = now.AddMinutes(-5),
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now,
+        });
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 684, Interval = "1h", Timestamp = now.AddDays(-7).AddHours(-3), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "USD" },
+            new StockHistoricalPrice { StockId = 684, Interval = "1h", Timestamp = now.AddHours(-1), Close = 110m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "USD" });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("1w");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(110m, item.EndPrice);
+        Assert.Equal(10d, item.ChangePercent!.Value, 6);
+    }
+
+    [Fact]
+    public async Task GetCatalogPerformance_1w_CurrentEndpointUpdateChangesComputedOrderingMetric()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        context.Stocks.AddRange(
+            new Stock
+            {
+                Id = 685,
+                Ticker = "FAST",
+                Name = "Fast",
+                CommonName = "Fast",
+                Exchange = StockExchanges.Frankfurt,
+                CurrentPrice = 130m,
+                CurrentPriceAt = now.AddMinutes(-5),
+                TrackingStatus = StockTrackingStatus.CatalogOnly,
+                UpdatedAt = now,
+            },
+            new Stock
+            {
+                Id = 686,
+                Ticker = "SLOW",
+                Name = "Slow",
+                CommonName = "Slow",
+                Exchange = StockExchanges.Frankfurt,
+                CurrentPrice = 115m,
+                CurrentPriceAt = now.AddMinutes(-5),
+                TrackingStatus = StockTrackingStatus.CatalogOnly,
+                UpdatedAt = now,
+            });
+
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice { StockId = 685, Interval = "1h", Timestamp = now.AddDays(-7).AddHours(-2), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 685, Interval = "1h", Timestamp = now.AddHours(-3), Close = 110m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 686, Interval = "1h", Timestamp = now.AddDays(-7).AddHours(-2), Close = 100m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" },
+            new StockHistoricalPrice { StockId = 686, Interval = "1h", Timestamp = now.AddHours(-3), Close = 110m, QuoteUnitMultiplier = 1m, NormalizedQuoteCurrency = "EUR" });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("1w");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var ordered = response.Items
+            .Where(x => x.ChangePercent.HasValue)
+            .OrderByDescending(x => x.ChangePercent!.Value)
+            .Select(x => x.StockId)
+            .ToArray();
+        Assert.Equal(new[] { 685, 686 }, ordered);
+    }
+
+    [Fact]
     public async Task GetCatalogPerformance_24h_UsesCurrentSnapshotFallback_WhenIntradayHistoryIsSparse()
     {
         await using var context = CreateContext();
