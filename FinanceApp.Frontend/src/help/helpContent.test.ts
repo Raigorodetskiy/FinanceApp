@@ -108,6 +108,15 @@ describe('help content contracts', () => {
     expect(serialized).toContain('не-скорректированному OHLC');
   });
 
+  it('keeps explicit roles for short overview vs full technical tutorial', () => {
+    const overview = HELP_ARTICLES.find((item) => item.slug === 'technical-indicators');
+    const tutorial = getTechnicalTutorial();
+    expect(overview?.title).toContain('краткий обзор');
+    expect(JSON.stringify(overview)).toContain('Полный учебный разбор формул и примеров');
+    expect(tutorial?.title).toBe('Технические показатели: формулы, примеры и ограничения');
+    expect(JSON.stringify(tutorial)).toContain('Краткий обзор технических показателей');
+  });
+
   it('covers stale/missing fundamentals and data quality caveats', () => {
     const fundamentals = HELP_ARTICLES.find((item) => item.slug === 'fundamentals');
     const quality = HELP_ARTICLES.find((item) => item.slug === 'data-quality-and-freshness');

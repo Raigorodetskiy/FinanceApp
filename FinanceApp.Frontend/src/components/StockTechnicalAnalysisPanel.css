@@ -145,6 +145,22 @@
   gap: 8px;
 }
 
+.technical-analysis-panel__metric-link {
+  color: #1677ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.technical-analysis-panel__metric-link:hover {
+  color: #4096ff;
+}
+
+.technical-analysis-panel__metric-link:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .technical-analysis-panel__price-basis {
   margin-top: 8px;
 }
