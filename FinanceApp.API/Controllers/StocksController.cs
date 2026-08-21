@@ -181,14 +181,14 @@ public class StocksController : ControllerBase
         var allPoints = await _context.StockHistoricalPrices
             .AsNoTracking()
             .Where(x => stockIds.Contains(x.StockId) && x.Interval == interval && x.Timestamp >= queryFrom)
+            .OrderBy(x => x.StockId)
+            .ThenBy(x => x.Timestamp)
             .Select(x => new CatalogPerformanceHistoryPoint(
                 x.StockId,
                 x.Timestamp,
                 x.Close,
                 x.QuoteUnitMultiplier,
                 x.NormalizedQuoteCurrency))
-            .OrderBy(x => x.StockId)
-            .ThenBy(x => x.Timestamp)
             .ToListAsync(cancellationToken);
 
         var pointsByStock = allPoints
