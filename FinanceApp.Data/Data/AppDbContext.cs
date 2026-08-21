@@ -464,6 +464,9 @@ public class AppDbContext : DbContext
     public DbSet<CatalogStockRefreshRun> CatalogStockRefreshRuns { get; set; } = null!;
     public DbSet<CatalogFundamentalsRefreshRun> CatalogFundamentalsRefreshRuns { get; set; } = null!;
     public DbSet<CatalogMaintenanceLease> CatalogMaintenanceLeases { get; set; } = null!;
+    public DbSet<StockMetadataEnrichmentJob> StockMetadataEnrichmentJobs { get; set; } = null!;
+    public DbSet<StockMetadataEnrichmentResult> StockMetadataEnrichmentResults { get; set; } = null!;
+    public DbSet<StockMetadataIndustryMapping> StockMetadataIndustryMappings { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -507,7 +510,7 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Wkn).HasMaxLength(6);
             entity.Property(x => x.Isin).HasMaxLength(12);
             entity.Property(x => x.CurrentPriceDelayWarning).HasMaxLength(300);
-            entity.HasIndex(x => x.Wkn).IsUnique().HasFilter("`Wkn` IS NOT NULL");
+            entity.HasIndex(x => x.Wkn).HasFilter("`Wkn` IS NOT NULL");
             entity.HasIndex(x => x.Isin).HasFilter("`Isin` IS NOT NULL");
             entity.Property(x => x.FinanzenNetSlug).HasMaxLength(120);
             entity.HasOne(x => x.Industry)
@@ -638,6 +641,60 @@ public class AppDbContext : DbContext
 
             entity.HasIndex(x => x.LeaseName).IsUnique();
             entity.HasIndex(x => x.LeaseExpiresAtUtc);
+        });
+
+        modelBuilder.Entity<StockMetadataEnrichmentJob>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Scope).HasConversion<int>();
+            entity.Property(x => x.Status).HasConversion<int>();
+            entity.Property(x => x.SelectedStockIdsJson).HasMaxLength(2000);
+            entity.Property(x => x.InitiatedByUserId).HasMaxLength(128);
+            entity.Property(x => x.DiagnosticSummary).HasMaxLength(2000);
+            entity.HasIndex(x => new { x.Status, x.CreatedAtUtc });
+            entity.HasIndex(x => x.RetryAfterUtc);
+        });
+
+        modelBuilder.Entity<StockMetadataEnrichmentResult>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProviderSymbol).HasMaxLength(50);
+            entity.Property(x => x.Exchange).HasMaxLength(32);
+            entity.Property(x => x.OldIsin).HasMaxLength(12);
+            entity.Property(x => x.CandidateIsin).HasMaxLength(12);
+            entity.Property(x => x.OldWkn).HasMaxLength(6);
+            entity.Property(x => x.CandidateWkn).HasMaxLength(6);
+            entity.Property(x => x.RawProviderSector).HasMaxLength(200);
+            entity.Property(x => x.RawProviderIndustry).HasMaxLength(200);
+            entity.Property(x => x.IsinSource).HasMaxLength(100);
+            entity.Property(x => x.WknSource).HasMaxLength(100);
+            entity.Property(x => x.IndustrySource).HasMaxLength(100);
+            entity.Property(x => x.Diagnostics).HasMaxLength(1000);
+            entity.Property(x => x.IsinConfidence).HasConversion<int>();
+            entity.Property(x => x.WknConfidence).HasConversion<int>();
+            entity.Property(x => x.IndustryConfidence).HasConversion<int>();
+            entity.Property(x => x.IsinDecision).HasConversion<int>();
+            entity.Property(x => x.WknDecision).HasConversion<int>();
+            entity.Property(x => x.IndustryDecision).HasConversion<int>();
+            entity.HasOne(x => x.Job)
+                .WithMany(x => x.Results)
+                .HasForeignKey(x => x.JobId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.JobId, x.StockId }).IsUnique();
+            entity.HasIndex(x => new { x.JobId, x.Id });
+        });
+
+        modelBuilder.Entity<StockMetadataIndustryMapping>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Provider).HasMaxLength(100);
+            entity.Property(x => x.NormalizedSector).HasMaxLength(200);
+            entity.Property(x => x.NormalizedIndustry).HasMaxLength(200);
+            entity.HasIndex(x => new { x.Provider, x.NormalizedSector, x.NormalizedIndustry }).IsUnique();
+            entity.HasOne(x => x.Industry)
+                .WithMany()
+                .HasForeignKey(x => x.IndustryId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<CompanyFundamentalsSnapshot>(entity =>

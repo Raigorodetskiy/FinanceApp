@@ -169,6 +169,37 @@ public class StocksControllerTests
     }
 
     [Fact]
+    public async Task Create_SameWknOnDifferentListings_IsAllowed()
+    {
+        await using var context = CreateContext();
+        var controller = CreateController(context);
+
+        var first = await controller.Create(new Stock
+        {
+            Ticker = "SAP",
+            Name = "SAP SE Frankfurt",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 120m,
+            Wkn = "716460"
+        });
+
+        var second = await controller.Create(new Stock
+        {
+            Ticker = "SAP",
+            Name = "SAP ADR",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 121m,
+            Wkn = "716460"
+        });
+
+        Assert.IsType<CreatedAtActionResult>(first.Result);
+        Assert.IsType<CreatedAtActionResult>(second.Result);
+        Assert.Equal(2, await context.Stocks.CountAsync());
+    }
+
+    [Fact]
     public async Task Update_PriceOnlyRefresh_PreservesExistingMetadata()
     {
         await using var context = CreateContext();

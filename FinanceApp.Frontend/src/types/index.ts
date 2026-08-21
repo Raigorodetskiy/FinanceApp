@@ -733,6 +733,86 @@ export interface StockCatalogPerformanceResponse {
   items: IndexConstituentPerformanceItem[];
 }
 
+export enum StockMetadataEnrichmentJobStatus {
+  Queued = 0,
+  Running = 1,
+  Completed = 2,
+  CompletedWithWarnings = 3,
+  Failed = 4,
+  Cancelled = 5,
+}
+
+export enum StockMetadataEnrichmentScope {
+  MissingOnly = 0,
+  RefreshStale = 1,
+  Selected = 2,
+  AllEligible = 3,
+}
+
+export enum StockMetadataEnrichmentDecision {
+  WouldApply = 0,
+  Applied = 1,
+  Unchanged = 2,
+  Conflict = 3,
+  Invalid = 4,
+  NotFound = 5,
+  NeedsReview = 6,
+  RateLimited = 7,
+  Failed = 8,
+  Rejected = 9,
+}
+
+export interface StockMetadataEnrichmentJob {
+  jobId: string;
+  scope: StockMetadataEnrichmentScope;
+  isDryRun: boolean;
+  status: StockMetadataEnrichmentJobStatus;
+  createdAtUtc: string;
+  startedAtUtc: string | null;
+  completedAtUtc: string | null;
+  totalStocks: number;
+  processedStocks: number;
+  succeededStocks: number;
+  partialStocks: number;
+  reviewStocks: number;
+  conflictStocks: number;
+  notFoundStocks: number;
+  rateLimitedStocks: number;
+  failedStocks: number;
+  diagnosticSummary: string | null;
+}
+
+export interface StockMetadataEnrichmentResult {
+  id: number;
+  stockId: number;
+  providerSymbol: string | null;
+  exchange: string | null;
+  oldIsin: string | null;
+  candidateIsin: string | null;
+  oldWkn: string | null;
+  candidateWkn: string | null;
+  oldIndustryId: number | null;
+  candidateIndustryId: number | null;
+  rawProviderSector: string | null;
+  rawProviderIndustry: string | null;
+  isinSource: string | null;
+  wknSource: string | null;
+  industrySource: string | null;
+  isinDecision: StockMetadataEnrichmentDecision;
+  wknDecision: StockMetadataEnrichmentDecision;
+  industryDecision: StockMetadataEnrichmentDecision;
+  diagnostics: string | null;
+  manuallyApproved: boolean;
+  rejected: boolean;
+}
+
+export interface StockMetadataEnrichmentResultPage {
+  items: StockMetadataEnrichmentResult[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 // ── Stock technical analysis ─────────────────────────────────────────────────
 
 export type TechnicalAnalysisSignal =

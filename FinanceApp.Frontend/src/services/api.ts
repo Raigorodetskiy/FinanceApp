@@ -50,6 +50,9 @@ import type {
   IndexConstituentPerformanceResponse,
   StockCatalogPerformanceResponse,
   TechnicalAnalysisResponse,
+  StockMetadataEnrichmentJob,
+  StockMetadataEnrichmentResultPage,
+  StockMetadataEnrichmentScope,
 } from '../types';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -269,5 +272,45 @@ export const trackStock = (id: number) =>
   api.post<Stock>(`/stocks/${id}/track`);
 export const untrackStock = (id: number) =>
   api.post<Stock>(`/stocks/${id}/untrack`);
+
+export const createStockMetadataEnrichmentJob = (
+  scope: StockMetadataEnrichmentScope,
+  dryRun: boolean,
+  selectedStockIds?: number[],
+) =>
+  api.post<{ jobId: string }>('/stocks/metadata-enrichment/jobs', {
+    scope,
+    dryRun,
+    selectedStockIds,
+  });
+
+export const getStockMetadataEnrichmentJob = (jobId: string) =>
+  api.get<StockMetadataEnrichmentJob>(`/stocks/metadata-enrichment/jobs/${jobId}`);
+
+export const getStockMetadataEnrichmentResults = (
+  jobId: string,
+  page = 1,
+  pageSize = 50,
+  decision?: string,
+) =>
+  api.get<StockMetadataEnrichmentResultPage>(`/stocks/metadata-enrichment/jobs/${jobId}/results`, {
+    params: { page, pageSize, decision },
+  });
+
+export const applyStockMetadataEnrichmentJob = (jobId: string, onlyManuallyApproved = false) =>
+  api.post(`/stocks/metadata-enrichment/jobs/${jobId}/apply`, { onlyManuallyApproved });
+
+export const reviewStockMetadataEnrichmentResult = (
+  jobId: string,
+  resultId: number,
+  approve: boolean,
+  industryId?: number,
+  saveMapping = false,
+) =>
+  api.post(`/stocks/metadata-enrichment/jobs/${jobId}/results/${resultId}/review`, {
+    approve,
+    industryId,
+    saveMapping,
+  });
 
 export default api;
