@@ -22,8 +22,12 @@ public sealed class PersistStockQuoteSnapshotRequest
 public sealed class PersistStockQuoteSnapshotResult
 {
     public bool StockFound { get; init; }
-    public bool Applied { get; init; }
+    public bool SnapshotApplied { get; init; }
+    public bool HistoryApplied { get; init; }
+    public bool Applied => SnapshotApplied || HistoryApplied;
     public string? Reason { get; init; }
+    public string? SnapshotReason { get; init; }
+    public string? HistoryReason { get; init; }
     public decimal CurrentPrice { get; init; }
     public decimal? CurrentPriceChange { get; init; }
     public decimal? CurrentPriceChangePercent { get; init; }
@@ -73,37 +77,52 @@ public sealed class StockQuoteSnapshotPersistenceService
                 return new PersistStockQuoteSnapshotResult
                 {
                     StockFound = false,
-                    Applied = false,
+                    SnapshotApplied = false,
+                    HistoryApplied = false,
                     Reason = "Stock record not found."
                 };
             }
 
             var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
             var incomingSnapshot = NormalizeIncomingSnapshot(request);
-            var decision = Decide(stock, incomingSnapshot, nowUtc);
+            var storedSnapshotTimestampUtc = NormalizeTimestamp(stock.CurrentPriceAt);
+            var snapshotDecision = Decide(stock, incomingSnapshot, nowUtc);
+            var historyDecision = await UpsertIntradayQuoteObservationAsync(
+                stock.Id,
+                storedSnapshotTimestampUtc,
+                incomingSnapshot,
+                request,
+                nowUtc,
+                cancellationToken);
 
-            if (!decision.ShouldApply)
+            if (snapshotDecision.ShouldApply)
             {
-                _logger.LogDebug(
-                    "Rejected stock quote snapshot for stockId={StockId}. Reason={Reason}",
-                    stockId,
-                    decision.Reason);
-
-                return BuildResult(stock, applied: false, decision.Reason);
+                stock.CurrentPrice = incomingSnapshot.CurrentPrice;
+                stock.CurrentPriceChange = incomingSnapshot.CurrentPriceChange;
+                stock.CurrentPriceChangePercent = incomingSnapshot.CurrentPriceChangePercent;
+                stock.CurrentPriceAt = incomingSnapshot.CurrentPriceAt;
+                stock.CurrentPriceIsDelayed = incomingSnapshot.CurrentPriceIsDelayed;
+                stock.CurrentPriceDelayWarning = incomingSnapshot.CurrentPriceDelayWarning;
+                stock.UpdatedAt = nowUtc;
             }
 
-            stock.CurrentPrice = incomingSnapshot.CurrentPrice;
-            stock.CurrentPriceChange = incomingSnapshot.CurrentPriceChange;
-            stock.CurrentPriceChangePercent = incomingSnapshot.CurrentPriceChangePercent;
-            stock.CurrentPriceAt = incomingSnapshot.CurrentPriceAt;
-            stock.CurrentPriceIsDelayed = incomingSnapshot.CurrentPriceIsDelayed;
-            stock.CurrentPriceDelayWarning = incomingSnapshot.CurrentPriceDelayWarning;
-            stock.UpdatedAt = nowUtc;
-            await UpsertIntradayQuoteObservationAsync(stock.Id, incomingSnapshot, request, nowUtc, cancellationToken);
+            if (snapshotDecision.ShouldApply || historyDecision.ShouldApply)
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+            }
 
-            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Processed stock quote persistence. stockId={StockId} quoteTimestampUtc={QuoteTimestampUtc} stockSnapshotTimestampUtc={StockSnapshotTimestampUtc} latestIntradayTimestampUtc={LatestIntradayTimestampUtc} snapshotApplied={SnapshotApplied} snapshotReason={SnapshotReason} historyApplied={HistoryApplied} historyReason={HistoryReason}",
+                stockId,
+                incomingSnapshot.CurrentPriceAt,
+                storedSnapshotTimestampUtc,
+                historyDecision.LatestIntradayTimestampUtc,
+                snapshotDecision.ShouldApply,
+                snapshotDecision.Reason,
+                historyDecision.ShouldApply,
+                historyDecision.Reason);
 
-            return BuildResult(stock, applied: true, reason: null);
+            return BuildResult(stock, snapshotDecision, historyDecision);
         }
         finally
         {
@@ -111,12 +130,17 @@ public sealed class StockQuoteSnapshotPersistenceService
         }
     }
 
-    private static PersistStockQuoteSnapshotResult BuildResult(Stock stock, bool applied, string? reason)
+    private static PersistStockQuoteSnapshotResult BuildResult(Stock stock, Decision snapshotDecision, HistoryDecision historyDecision)
         => new()
         {
             StockFound = true,
-            Applied = applied,
-            Reason = reason,
+            SnapshotApplied = snapshotDecision.ShouldApply,
+            HistoryApplied = historyDecision.ShouldApply,
+            Reason = snapshotDecision.ShouldApply || historyDecision.ShouldApply
+                ? null
+                : snapshotDecision.Reason ?? historyDecision.Reason,
+            SnapshotReason = snapshotDecision.Reason,
+            HistoryReason = historyDecision.Reason,
             CurrentPrice = stock.CurrentPrice,
             CurrentPriceChange = stock.CurrentPriceChange,
             CurrentPriceChangePercent = stock.CurrentPriceChangePercent,
@@ -243,8 +267,9 @@ public sealed class StockQuoteSnapshotPersistenceService
             : trimmed[..DelayWarningMaxLength];
     }
 
-    private async Task UpsertIntradayQuoteObservationAsync(
+    private async Task<HistoryDecision> UpsertIntradayQuoteObservationAsync(
         int stockId,
+        DateTime? storedSnapshotTimestampUtc,
         NormalizedSnapshot incomingSnapshot,
         PersistStockQuoteSnapshotRequest request,
         DateTime nowUtc,
@@ -252,10 +277,15 @@ public sealed class StockQuoteSnapshotPersistenceService
     {
         if (!IsValidSnapshotTimestamp(incomingSnapshot.CurrentPriceAt, nowUtc))
         {
-            return;
+            return HistoryDecision.Skip("Incoming quote timestamp is missing, invalid, or in the future.");
         }
 
         var providerTimestampUtc = incomingSnapshot.CurrentPriceAt!.Value;
+        if (storedSnapshotTimestampUtc.HasValue && providerTimestampUtc < storedSnapshotTimestampUtc.Value)
+        {
+            return HistoryDecision.Skip("Quote timestamp is older than the stored snapshot.");
+        }
+
         var bucketTimestampUtc = FloorToTenMinute(providerTimestampUtc);
 
         var latestTimestampUtc = await _context.StockHistoricalPrices
@@ -266,7 +296,10 @@ public sealed class StockQuoteSnapshotPersistenceService
 
         if (latestTimestampUtc.HasValue && bucketTimestampUtc < latestTimestampUtc.Value)
         {
-            return;
+            return HistoryDecision.Skip(
+                "Quote bucket is older than the latest persisted intraday bucket.",
+                latestTimestampUtc,
+                bucketTimestampUtc);
         }
 
         var rowAtBucket = await _context.StockHistoricalPrices
@@ -278,7 +311,10 @@ public sealed class StockQuoteSnapshotPersistenceService
         {
             if (!rowAtBucket.IsQuoteDerived)
             {
-                return;
+                return HistoryDecision.Skip(
+                    "Provider candle already exists for the incoming bucket.",
+                    latestTimestampUtc,
+                    bucketTimestampUtc);
             }
 
             rowAtBucket.Open = rowAtBucket.Open > 0m ? rowAtBucket.Open : incomingSnapshot.CurrentPrice;
@@ -296,7 +332,7 @@ public sealed class StockQuoteSnapshotPersistenceService
             rowAtBucket.QuoteUnitMultiplier = request.QuoteUnitMultiplier > 0m ? request.QuoteUnitMultiplier : 1m;
             rowAtBucket.Volume = 0;
             rowAtBucket.IsQuoteDerived = true;
-            return;
+            return HistoryDecision.Apply(latestTimestampUtc, bucketTimestampUtc);
         }
 
         _context.StockHistoricalPrices.Add(new StockHistoricalPrice
@@ -316,6 +352,7 @@ public sealed class StockQuoteSnapshotPersistenceService
             Volume = 0,
             IsQuoteDerived = true
         });
+        return HistoryDecision.Apply(latestTimestampUtc, bucketTimestampUtc);
     }
 
     private static DateTime FloorToTenMinute(DateTime valueUtc)
@@ -343,5 +380,18 @@ public sealed class StockQuoteSnapshotPersistenceService
     {
         public static Decision Apply() => new(true, null);
         public static Decision Skip(string reason) => new(false, reason);
+    }
+
+    private readonly record struct HistoryDecision(
+        bool ShouldApply,
+        string? Reason,
+        DateTime? LatestIntradayTimestampUtc,
+        DateTime? BucketTimestampUtc)
+    {
+        public static HistoryDecision Apply(DateTime? latestIntradayTimestampUtc, DateTime? bucketTimestampUtc)
+            => new(true, null, latestIntradayTimestampUtc, bucketTimestampUtc);
+
+        public static HistoryDecision Skip(string reason, DateTime? latestIntradayTimestampUtc = null, DateTime? bucketTimestampUtc = null)
+            => new(false, reason, latestIntradayTimestampUtc, bucketTimestampUtc);
     }
 }

@@ -127,7 +127,7 @@ public class StockQuoteSnapshotPersistenceServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_EqualTimestampEquivalentSnapshot_DoesNotRewrite()
+    public async Task ApplyAsync_EqualTimestampEquivalentSnapshot_DoesNotRewrite_WhenProviderBucketAlreadyExists()
     {
         var originalUpdatedAt = new DateTime(2026, 8, 19, 8, 2, 0, DateTimeKind.Utc);
         await using var context = CreateInMemoryContext();
@@ -144,6 +144,22 @@ public class StockQuoteSnapshotPersistenceServiceTests
             CurrentPriceAt = new DateTime(2026, 8, 19, 8, 1, 0, DateTimeKind.Utc),
             UpdatedAt = originalUpdatedAt,
         });
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 4,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 19, 8, 0, 0, DateTimeKind.Utc),
+            Open = 210m,
+            High = 210m,
+            Low = 210m,
+            Close = 210m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m,
+            Volume = 1000,
+            IsQuoteDerived = false,
+        });
         await context.SaveChangesAsync();
 
         var service = CreateService(context, new FixedTimeProvider(new DateTime(2026, 8, 19, 9, 0, 0, DateTimeKind.Utc)));
@@ -157,7 +173,221 @@ public class StockQuoteSnapshotPersistenceServiceTests
         });
 
         Assert.False(result.Applied);
+        Assert.False(result.SnapshotApplied);
+        Assert.False(result.HistoryApplied);
         Assert.Equal(originalUpdatedAt, (await context.Stocks.SingleAsync()).UpdatedAt);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_EqualTimestamp_RepairsMissingCurrentSessionIntradayBucket_WithoutChangingSnapshot()
+    {
+        await using var context = CreateInMemoryContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 41,
+            Ticker = "SAP",
+            Name = "SAP",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 404.40m,
+            CurrentPriceChange = 1.25m,
+            CurrentPriceChangePercent = 0.31m,
+            CurrentPriceAt = new DateTime(2026, 8, 20, 14, 47, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 20, 14, 47, 2, DateTimeKind.Utc),
+        });
+        context.StockHistoricalPrices.AddRange(
+            new StockHistoricalPrice
+            {
+                StockId = 41,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 19, 7, 0, 0, DateTimeKind.Utc),
+                Open = 399m,
+                High = 400m,
+                Low = 398m,
+                Close = 399.5m,
+                QuoteCurrency = "EUR",
+                FinancialCurrency = "EUR",
+                NormalizedQuoteCurrency = "EUR",
+                QuoteUnitMultiplier = 1m,
+                Volume = 1000,
+                IsQuoteDerived = false,
+            },
+            new StockHistoricalPrice
+            {
+                StockId = 41,
+                Interval = "10m",
+                Timestamp = new DateTime(2026, 8, 19, 15, 20, 0, DateTimeKind.Utc),
+                Open = 401m,
+                High = 402m,
+                Low = 400m,
+                Close = 401.5m,
+                QuoteCurrency = "EUR",
+                FinancialCurrency = "EUR",
+                NormalizedQuoteCurrency = "EUR",
+                QuoteUnitMultiplier = 1m,
+                Volume = 1200,
+                IsQuoteDerived = false,
+            });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new FixedTimeProvider(new DateTime(2026, 8, 20, 15, 0, 0, DateTimeKind.Utc)));
+        var result = await service.ApplyAsync(41, new PersistStockQuoteSnapshotRequest
+        {
+            CurrentPrice = 404.40m,
+            CurrentPriceChange = 1.25m,
+            CurrentPriceChangePercent = 0.31m,
+            CurrentPriceAt = new DateTime(2026, 8, 20, 14, 47, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = false,
+            QuoteCurrency = "EUR",
+            FinancialCurrency = "EUR",
+            NormalizedQuoteCurrency = "EUR",
+            QuoteUnitMultiplier = 1m,
+        });
+
+        Assert.True(result.Applied);
+        Assert.False(result.SnapshotApplied);
+        Assert.True(result.HistoryApplied);
+
+        var stock = await context.Stocks.SingleAsync(x => x.Id == 41);
+        Assert.Equal(new DateTime(2026, 8, 20, 14, 47, 0, DateTimeKind.Utc), stock.CurrentPriceAt);
+        Assert.Equal(404.40m, stock.CurrentPrice);
+
+        var intradayRows = await context.StockHistoricalPrices
+            .Where(x => x.StockId == 41 && x.Interval == "10m")
+            .OrderBy(x => x.Timestamp)
+            .ToListAsync();
+        Assert.Equal(3, intradayRows.Count);
+        var repaired = intradayRows[^1];
+        Assert.Equal(new DateTime(2026, 8, 20, 14, 40, 0, DateTimeKind.Utc), repaired.Timestamp);
+        Assert.True(repaired.IsQuoteDerived);
+        Assert.Equal(404.40m, repaired.Open);
+        Assert.Equal(404.40m, repaired.Close);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_EqualTimestamp_HistoryRepairIsIdempotent_AndNoDuplicatesCreated()
+    {
+        await using var context = CreateInMemoryContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 42,
+            Ticker = "AMD",
+            Name = "AMD",
+            CommonName = "AMD",
+            Exchange = StockExchanges.Nasdaq,
+            CurrentPrice = 500m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 35, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 24, 15, 35, 1, DateTimeKind.Utc),
+        });
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 42,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 24, 15, 20, 0, DateTimeKind.Utc),
+            Open = 498m,
+            High = 499m,
+            Low = 497m,
+            Close = 498.5m,
+            QuoteCurrency = "EUR",
+            FinancialCurrency = "EUR",
+            NormalizedQuoteCurrency = "EUR",
+            QuoteUnitMultiplier = 1m,
+            Volume = 0,
+            IsQuoteDerived = true,
+        });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new FixedTimeProvider(new DateTime(2026, 8, 24, 16, 0, 0, DateTimeKind.Utc)));
+        var request = new PersistStockQuoteSnapshotRequest
+        {
+            CurrentPrice = 500m,
+            CurrentPriceChange = 1.5m,
+            CurrentPriceChangePercent = 0.30m,
+            CurrentPriceAt = new DateTime(2026, 8, 24, 15, 35, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = false,
+            QuoteCurrency = "EUR",
+            FinancialCurrency = "EUR",
+            NormalizedQuoteCurrency = "EUR",
+            QuoteUnitMultiplier = 1m,
+        };
+
+        var first = await service.ApplyAsync(42, request);
+        var second = await service.ApplyAsync(42, request);
+
+        Assert.True(first.HistoryApplied);
+        Assert.True(second.HistoryApplied);
+
+        var rows = await context.StockHistoricalPrices
+            .Where(x => x.StockId == 42 && x.Interval == "10m")
+            .OrderBy(x => x.Timestamp)
+            .ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(new DateTime(2026, 8, 24, 15, 30, 0, DateTimeKind.Utc), rows[^1].Timestamp);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_HistoryUpsert_OnlyAffectsTargetListing()
+    {
+        await using var context = CreateInMemoryContext();
+        context.Stocks.AddRange(
+            new Stock
+            {
+                Id = 43,
+                Ticker = "SAP",
+                Name = "SAP Frankfurt",
+                CommonName = "SAP",
+                Exchange = StockExchanges.Frankfurt,
+                CurrentPrice = 300m,
+                CurrentPriceAt = new DateTime(2026, 8, 20, 14, 44, 0, DateTimeKind.Utc),
+            },
+            new Stock
+            {
+                Id = 44,
+                Ticker = "SAP",
+                Name = "SAP NYSE",
+                CommonName = "SAP",
+                Exchange = StockExchanges.Nyse,
+                CurrentPrice = 200m,
+                CurrentPriceAt = new DateTime(2026, 8, 20, 14, 44, 0, DateTimeKind.Utc),
+            });
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 44,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 20, 14, 40, 0, DateTimeKind.Utc),
+            Open = 200m,
+            High = 200m,
+            Low = 200m,
+            Close = 200m,
+            QuoteCurrency = "USD",
+            FinancialCurrency = "USD",
+            NormalizedQuoteCurrency = "USD",
+            QuoteUnitMultiplier = 1m,
+            Volume = 100,
+            IsQuoteDerived = false,
+        });
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context, new FixedTimeProvider(new DateTime(2026, 8, 20, 15, 0, 0, DateTimeKind.Utc)));
+        await service.ApplyAsync(43, new PersistStockQuoteSnapshotRequest
+        {
+            CurrentPrice = 301m,
+            CurrentPriceChange = 1m,
+            CurrentPriceChangePercent = 0.33m,
+            CurrentPriceAt = new DateTime(2026, 8, 20, 14, 44, 0, DateTimeKind.Utc),
+            QuoteCurrency = "EUR",
+            FinancialCurrency = "EUR",
+            NormalizedQuoteCurrency = "EUR",
+            QuoteUnitMultiplier = 1m,
+        });
+
+        var stock43Rows = await context.StockHistoricalPrices.Where(x => x.StockId == 43 && x.Interval == "10m").ToListAsync();
+        var stock44Rows = await context.StockHistoricalPrices.Where(x => x.StockId == 44 && x.Interval == "10m").ToListAsync();
+        Assert.Single(stock43Rows);
+        Assert.Single(stock44Rows);
+        Assert.True(stock43Rows[0].IsQuoteDerived);
+        Assert.False(stock44Rows[0].IsQuoteDerived);
+        Assert.Equal(200m, stock44Rows[0].Close);
     }
 
     [Fact]
@@ -309,7 +539,7 @@ public class StockQuoteSnapshotPersistenceServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_OlderOrEqualTimestamp_DoesNotRegressOrDuplicateIntradayHistory()
+    public async Task ApplyAsync_OlderTimestamp_DoesNotRegress_AndEqualTimestampUpdatesSameQuoteDerivedBucketDeterministically()
     {
         await using var context = CreateInMemoryContext();
         context.Stocks.Add(new Stock
@@ -360,13 +590,17 @@ public class StockQuoteSnapshotPersistenceServiceTests
         });
 
         Assert.False(olderResult.Applied);
-        Assert.False(equalResult.Applied);
+        Assert.True(equalResult.Applied);
+        Assert.False(equalResult.SnapshotApplied);
+        Assert.True(equalResult.HistoryApplied);
         var intradayRows = await context.StockHistoricalPrices
             .Where(x => x.StockId == 8 && x.Interval == "10m")
             .OrderBy(x => x.Timestamp)
             .ToListAsync();
         Assert.Single(intradayRows);
-        Assert.Equal(202m, intradayRows[0].Close);
+        Assert.Equal(203m, intradayRows[0].Close);
+        Assert.Equal(203m, intradayRows[0].High);
+        Assert.Equal(202m, intradayRows[0].Low);
     }
 
     private static AppDbContext CreateInMemoryContext()

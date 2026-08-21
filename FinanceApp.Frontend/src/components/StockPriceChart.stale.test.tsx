@@ -177,4 +177,44 @@ describe('StockPriceChart stale/unavailable diagnostics', () => {
     expect(screen.getByText(/текущая торговая сессия ещё не содержит свечей/i)).toBeInTheDocument();
     expect(screen.getByText(/часть внутридневных точек получена из котировок/i)).toBeInTheDocument();
   });
+
+  it('does not show no-current-session-candles alert when quote-derived current-session point exists', async () => {
+    vi.mocked(api.getStockHistory).mockResolvedValueOnce({
+      data: {
+        ...baseHistoryResponse,
+        currentSessionHasCandles: true,
+        points: [
+          {
+            ...baseHistoryResponse.points[0],
+            timestamp: '2026-08-20T12:40:00Z',
+            isQuoteDerived: false,
+          },
+          {
+            ...baseHistoryResponse.points[0],
+            timestamp: '2026-08-21T12:40:00Z',
+            closeRaw: 404.4,
+            openRaw: 404.4,
+            highRaw: 404.4,
+            lowRaw: 404.4,
+            isQuoteDerived: true,
+          },
+        ],
+      },
+    } as never);
+
+    render(
+      <StockPriceChart
+        panelId="p4"
+        stockId={4}
+        ticker="SAP"
+        name="SAP"
+        exchange="Frankfurt"
+        providerSymbol="SAP.F"
+      />,
+    );
+
+    await waitFor(() => expect(vi.mocked(api.getStockHistory)).toHaveBeenCalled());
+    expect(screen.queryByText(/текущая торговая сессия ещё не содержит свечей/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/часть внутридневных точек получена из котировок/i)).toBeInTheDocument();
+  });
 });

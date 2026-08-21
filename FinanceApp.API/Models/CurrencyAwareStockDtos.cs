@@ -167,6 +167,8 @@ public sealed class UpdateStockQuoteResponse
     public DateTime? CurrentPriceAt { get; init; }
     public bool CurrentPriceIsDelayed { get; init; }
     public string? CurrentPriceDelayWarning { get; init; }
+    public bool SnapshotApplied { get; init; }
+    public bool HistoryApplied { get; init; }
     public bool Applied { get; init; }
 }
 
