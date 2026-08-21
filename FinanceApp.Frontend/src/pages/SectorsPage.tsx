@@ -44,6 +44,11 @@ import {
   updateSector,
 } from '../services/api';
 import type { IndustryDto, Portfolio, SectorDto } from '../types';
+import {
+  DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS,
+  DIRECTORIES_TYPOGRAPHY_CLASS,
+} from './directoriesTypography';
+import './directoriesTypography.css';
 
 const { Title, Text } = Typography;
 
@@ -329,22 +334,25 @@ const SectorsPage: React.FC = () => {
       width: 280,
       render: (_value, sector) => (
         <Space size={4}>
-          <Tooltip title="Редактировать сектор">
+          <Tooltip title="Редактировать сектор" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditSector(sector)} />
           </Tooltip>
-          <Tooltip title="Добавить отрасль">
+          <Tooltip title="Добавить отрасль" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
             <Button size="small" icon={<PlusOutlined />} onClick={() => openAddIndustry(sector.id)} />
           </Tooltip>
           {sector.isArchived ? (
-            <Tooltip title="Восстановить сектор">
+            <Tooltip title="Восстановить сектор" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
               <Button size="small" icon={<RollbackOutlined />} onClick={() => void handleRestoreSector(sector)} />
             </Tooltip>
           ) : (
-            <Tooltip title="Архивировать сектор">
+            <Tooltip title="Архивировать сектор" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
               <Button size="small" icon={<InboxOutlined />} onClick={() => void handleArchiveSector(sector)} />
             </Tooltip>
           )}
-          <Tooltip title={sector.industries.length > 0 ? 'Нельзя удалить: содержит отрасли' : 'Удалить сектор'}>
+          <Tooltip
+            title={sector.industries.length > 0 ? 'Нельзя удалить: содержит отрасли' : 'Удалить сектор'}
+            overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
+          >
             <span>
               <Popconfirm
                 title="Удалить сектор?"
@@ -352,6 +360,7 @@ const SectorsPage: React.FC = () => {
                 okText="Да"
                 cancelText="Нет"
                 disabled={sector.industries.length > 0}
+                overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
               >
                 <Button size="small" icon={<DeleteOutlined />} disabled={sector.industries.length > 0} danger />
               </Popconfirm>
@@ -387,18 +396,18 @@ const SectorsPage: React.FC = () => {
       width: 260,
       render: (_value, industry) => (
         <Space size={4}>
-          <Tooltip title="Редактировать">
+          <Tooltip title="Редактировать" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
             <Button
               size="small"
               icon={<EditOutlined />}
               onClick={() => openEditIndustry(industry, industry.sectorId)}
             />
           </Tooltip>
-          <Tooltip title="Перенести в другой сектор">
+          <Tooltip title="Перенести в другой сектор" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
             <Button size="small" icon={<ArrowRightOutlined />} onClick={() => openMoveIndustry(industry)} />
           </Tooltip>
           {industry.isArchived ? (
-            <Tooltip title="Восстановить">
+            <Tooltip title="Восстановить" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
               <Button
                 size="small"
                 icon={<RollbackOutlined />}
@@ -406,7 +415,7 @@ const SectorsPage: React.FC = () => {
               />
             </Tooltip>
           ) : (
-            <Tooltip title="Архивировать">
+            <Tooltip title="Архивировать" overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}>
               <Button
                 size="small"
                 icon={<InboxOutlined />}
@@ -416,6 +425,7 @@ const SectorsPage: React.FC = () => {
           )}
           <Tooltip
             title={industry.stockCount > 0 ? `Нельзя удалить: используется в ${industry.stockCount} акциях` : 'Удалить'}
+            overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
           >
             <span>
               <Popconfirm
@@ -424,6 +434,7 @@ const SectorsPage: React.FC = () => {
                 okText="Да"
                 cancelText="Нет"
                 disabled={industry.stockCount > 0}
+                overlayClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
               >
                 <Button size="small" icon={<DeleteOutlined />} disabled={industry.stockCount > 0} danger />
               </Popconfirm>
@@ -445,17 +456,19 @@ const SectorsPage: React.FC = () => {
         activePortfolioId={undefined}
         headerLeft={<Title level={4} style={{ margin: 0 }}>Секторы и отрасли</Title>}
         headerRight={(
-          <Space>
-            <Button onClick={() => setIncludeArchived((value) => !value)} type={includeArchived ? 'default' : 'dashed'}>
-              {includeArchived ? 'Скрыть архивные' : 'Показать архивные'}
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openAddSector}>
-              Добавить сектор
-            </Button>
-          </Space>
+          <div className={DIRECTORIES_TYPOGRAPHY_CLASS}>
+            <Space>
+              <Button onClick={() => setIncludeArchived((value) => !value)} type={includeArchived ? 'default' : 'dashed'}>
+                {includeArchived ? 'Скрыть архивные' : 'Показать архивные'}
+              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openAddSector}>
+                Добавить сектор
+              </Button>
+            </Space>
+          </div>
         )}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className={DIRECTORIES_TYPOGRAPHY_CLASS} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Input.Search
             placeholder="Поиск по сектору или отрасли..."
             value={search}
@@ -508,6 +521,7 @@ const SectorsPage: React.FC = () => {
         confirmLoading={sectorModalLoading}
         okText="Сохранить"
         cancelText="Отмена"
+        rootClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
       >
         <Form form={sectorForm} layout="vertical">
           <Form.Item
@@ -531,6 +545,7 @@ const SectorsPage: React.FC = () => {
         confirmLoading={industryModalLoading}
         okText="Сохранить"
         cancelText="Отмена"
+        rootClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
       >
         <Form form={industryForm} layout="vertical">
           <Form.Item
@@ -554,6 +569,7 @@ const SectorsPage: React.FC = () => {
         confirmLoading={moveModalLoading}
         okText="Перенести"
         cancelText="Отмена"
+        rootClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
       >
         <Form form={moveForm} layout="vertical">
           <Form.Item
@@ -569,6 +585,7 @@ const SectorsPage: React.FC = () => {
                   label: sector.name,
                 }))}
               placeholder="Выберите сектор"
+              popupClassName={DIRECTORIES_OVERLAY_TYPOGRAPHY_CLASS}
             />
           </Form.Item>
         </Form>

@@ -24,13 +24,13 @@
   padding-left: 18px;
   display: grid;
   gap: 6px;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.5;
 }
 
 .help-page__excerpt {
   color: rgba(0, 0, 0, 0.6);
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.5;
   margin-top: 2px;
   overflow-wrap: anywhere;
@@ -49,7 +49,7 @@
 }
 
 .help-page__section-body {
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.6;
 }
 
@@ -111,7 +111,7 @@
   padding: 8px;
   text-align: left;
   vertical-align: top;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -130,7 +130,7 @@
 .help-page .help-page__qa-question,
 .help-page .help-page__qa-answer,
 .help-page .help-page__toc-list {
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }

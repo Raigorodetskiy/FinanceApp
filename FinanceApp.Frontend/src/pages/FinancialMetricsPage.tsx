@@ -7,18 +7,24 @@ import { financialMetrics, FINANCIAL_METRICS_COUNT } from '../data/financialMetr
 import type { FinancialMetric } from '../data/financialMetrics';
 import { getPortfolios } from '../services/api';
 import type { Portfolio } from '../types';
+import {
+  DIRECTORIES_MIN_FONT_SIZE,
+  DIRECTORIES_MIN_LINE_HEIGHT,
+  DIRECTORIES_TYPOGRAPHY_CLASS,
+} from './directoriesTypography';
+import './directoriesTypography.css';
 
 const { Title, Text, Paragraph } = Typography;
 
-export const FINANCIAL_METRICS_NAME_FONT_SIZE = 17;
-export const FINANCIAL_METRICS_NAME_LINE_HEIGHT = 1.5;
-export const FINANCIAL_METRICS_ALIASES_FONT_SIZE = 17;
+export const FINANCIAL_METRICS_NAME_FONT_SIZE = DIRECTORIES_MIN_FONT_SIZE;
+export const FINANCIAL_METRICS_NAME_LINE_HEIGHT = DIRECTORIES_MIN_LINE_HEIGHT;
+export const FINANCIAL_METRICS_ALIASES_FONT_SIZE = DIRECTORIES_MIN_FONT_SIZE;
 export const FINANCIAL_METRICS_ALIASES_COLOR = '#cf1322';
-export const FINANCIAL_METRICS_ALIASES_LINE_HEIGHT = 1.5;
-export const FINANCIAL_METRICS_DESCRIPTION_FONT_SIZE = 16;
+export const FINANCIAL_METRICS_ALIASES_LINE_HEIGHT = DIRECTORIES_MIN_LINE_HEIGHT;
+export const FINANCIAL_METRICS_DESCRIPTION_FONT_SIZE = DIRECTORIES_MIN_FONT_SIZE;
 export const FINANCIAL_METRICS_DESCRIPTION_LINE_HEIGHT = 1.6;
-export const FINANCIAL_METRICS_META_FONT_SIZE = 16;
-export const FINANCIAL_METRICS_META_LINE_HEIGHT = 1.5;
+export const FINANCIAL_METRICS_META_FONT_SIZE = DIRECTORIES_MIN_FONT_SIZE;
+export const FINANCIAL_METRICS_META_LINE_HEIGHT = DIRECTORIES_MIN_LINE_HEIGHT;
 export const FINANCIAL_METRICS_TABLE_SCROLL_X = 600;
 
 /** Sorted baseline — alphabetically by name (Russian locale) */
@@ -184,14 +190,14 @@ const FinancialMetricsPage: React.FC = () => {
       activePortfolioId={undefined}
       headerLeft={<Title level={4} style={{ margin: 0 }}>Финансовые показатели</Title>}
     >
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }} className={DIRECTORIES_TYPOGRAPHY_CLASS}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input.Search
             placeholder="Поиск по названию, описанию, формуле, alias..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear
-            style={{ maxWidth: 480, fontSize: FINANCIAL_METRICS_META_FONT_SIZE }}
+            style={{ maxWidth: 480 }}
           />
           <Text
             type="secondary"

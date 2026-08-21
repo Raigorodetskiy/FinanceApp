@@ -9,7 +9,9 @@ import type { Portfolio } from '../types';
 import { HELP_ARTICLES } from '../help/content';
 import { buildHelpArticleUrl, getHelpArticleBySlug, getOrderedHelpArticles, getOrderedHelpCategories, normalizeHelpText, searchHelpArticles } from '../help/utils';
 import type { HelpBlock } from '../help/models';
+import { DIRECTORIES_TYPOGRAPHY_CLASS } from './directoriesTypography';
 import './HelpPage.css';
+import './directoriesTypography.css';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -160,7 +162,7 @@ const HelpPage: React.FC = () => {
       activePortfolioId={undefined}
       headerLeft={<Title level={4} style={{ margin: 0 }}>Справка FinanceApp</Title>}
     >
-      <div className="help-page" data-responsive="stack-lg">
+      <div className={`help-page ${DIRECTORIES_TYPOGRAPHY_CLASS}`} data-responsive="stack-lg">
         <aside className="help-page__sidebar" aria-label="Навигация по справке">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
