@@ -27,9 +27,11 @@ describe('directories typography computed styles', () => {
     document.body.innerHTML = `
       <div id="root"></div>
       <div class="help-page directories-typography">
-        <p class="ant-typography ant-typography-secondary help-sidebar-description">sidebar</p>
-        <input class="ant-input help-search" placeholder="search" />
-        <div class="ant-card-head-title help-category-title">category</div>
+        <aside class="help-page__sidebar">
+          <p class="ant-typography ant-typography-secondary help-sidebar-description">sidebar</p>
+          <input class="ant-input help-search" placeholder="search" />
+          <div class="ant-card-head-title help-category-title">category</div>
+        </aside>
         <p class="ant-typography help-page__landing-intro">intro <a class="help-quick-link" href="#">quick link</a></p>
         <h2 class="ant-typography help-heading-h2">H2</h2>
         <h3 class="ant-typography help-heading-h3">H3</h3>
@@ -56,9 +58,18 @@ describe('directories typography computed styles', () => {
 
     expect(fontSize('.help-sidebar-description')).toBeGreaterThanOrEqual(18);
     expect(fontSize('.help-search')).toBeGreaterThanOrEqual(18);
+    const categoryTitle = document.querySelector('.help-category-title');
+    expect(categoryTitle).not.toBeNull();
     expect(fontSize('.help-category-title')).toBeGreaterThanOrEqual(18);
+    const categoryWeight = window.getComputedStyle(categoryTitle as Element).fontWeight;
+    const parsedCategoryWeight = Number.parseFloat(categoryWeight);
+    expect(
+      categoryWeight === 'bold' || (Number.isFinite(parsedCategoryWeight) && parsedCategoryWeight >= 600),
+    ).toBe(true);
     expect(fontSize('.help-page__landing-intro')).toBeGreaterThanOrEqual(18);
-    expect(fontSize('.help-quick-link')).toBeGreaterThanOrEqual(18);
+    const quickLinkSize = fontSize('.help-quick-link');
+    expect(quickLinkSize).toBeGreaterThanOrEqual(18);
+    expect(fontSize('.help-category-title')).toBeGreaterThanOrEqual(quickLinkSize);
     expect(fontSize('.ant-table thead th')).toBeGreaterThanOrEqual(18);
     expect(fontSize('.ant-table tbody td')).toBeGreaterThanOrEqual(18);
   });

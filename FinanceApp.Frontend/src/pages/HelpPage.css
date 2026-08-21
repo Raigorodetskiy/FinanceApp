@@ -1,22 +1,28 @@
 .help-page {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, clamp(280px, 28vw, 360px)) minmax(0, 1fr);
   gap: 16px;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .help-page__sidebar {
   position: sticky;
   top: 0;
   align-self: start;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .help-page__content {
   min-width: 0;
+  max-width: 100%;
 }
 
 .help-page__article {
-  max-width: 980px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .help-page__article-list {
@@ -38,10 +44,23 @@
 
 .help-page__article-header {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.help-page__article-header > :first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.help-page__article-header > .ant-btn {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 .help-page__section {
@@ -51,10 +70,8 @@
 .help-page__section-body {
   font-size: 18px;
   line-height: 1.6;
-}
-
-.help-page__section-body > :not(.help-page__table-wrap) {
-  max-width: 78ch;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .help-page .help-page__section-body .ant-typography {
@@ -88,14 +105,30 @@
 
 .help-page__section-header {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   align-items: baseline;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.help-page__section-header > .ant-typography {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.help-page__section-header > .ant-btn {
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 .help-page__table-wrap {
   overflow-x: auto;
   margin-bottom: 14px;
+  min-width: 0;
   max-width: 100%;
 }
 
@@ -146,6 +179,40 @@
 
 .help-page__live-status {
   min-height: 20px;
+}
+
+.help-page a,
+.help-page .ant-typography,
+.help-page .ant-card-head-title,
+.help-page .ant-card-body,
+.help-page .ant-alert-message,
+.help-page .ant-alert-description {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.help-page .ant-card,
+.help-page .ant-alert,
+.help-page .ant-space,
+.help-page .ant-space-item,
+.help-page .ant-card-head,
+.help-page .ant-card-head-wrapper {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.help-page__sidebar .ant-card-head-title {
+  font-size: 18px !important;
+  line-height: 1.5 !important;
+  font-weight: 600 !important;
+  white-space: normal;
+}
+
+.help-page__article-header .ant-btn,
+.help-page__section-header .ant-btn {
+  white-space: normal;
+  text-align: left;
+  height: auto;
 }
 
 .help-page a:focus-visible,
