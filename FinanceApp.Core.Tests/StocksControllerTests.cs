@@ -1637,6 +1637,76 @@ public class StocksControllerTests
         Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.StockId == 305 && x.EffectiveTo == null));
     }
 
+    [Fact]
+    public async Task GetCatalogPerformance_24h_UsesCurrentSnapshotFallback_WhenIntradayHistoryIsSparse()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 701,
+            Ticker = "SNAP24",
+            Name = "Snapshot 24h",
+            CommonName = "Snapshot 24h",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 210m,
+            CurrentPriceChange = 10m,
+            CurrentPriceChangePercent = 5m,
+            CurrentPriceAt = DateTime.UtcNow,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        // One 10m point is insufficient for the history-only path.
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = 701,
+            Timestamp = DateTime.UtcNow.AddHours(-1),
+            Interval = "10m",
+            Close = 208m,
+            QuoteUnitMultiplier = 1m,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("24h");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.Available, item.DataStatus);
+        Assert.Equal(200m, item.StartPrice);
+        Assert.Equal(210m, item.EndPrice);
+        Assert.Equal(5.0, item.ChangePercent!.Value, precision: 6);
+    }
+
+    [Fact]
+    public async Task GetCatalogPerformance_24h_WithoutHistoryAndSnapshot_ReturnsInsufficientData()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 702,
+            Ticker = "NOSNAP",
+            Name = "No snapshot",
+            CommonName = "No snapshot",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetCatalogPerformance("24h");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<StockCatalogPerformanceResponse>(ok.Value);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(ConstituentPerformanceDataStatus.InsufficientData, item.DataStatus);
+        Assert.Null(item.ChangePercent);
+    }
+
 
     private static AppDbContext CreateContext()
     {

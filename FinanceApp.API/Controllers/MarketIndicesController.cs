@@ -468,6 +468,31 @@ public class MarketIndicesController : ControllerBase
 
         var interval = GetPerformanceInterval(normalizedRange);
         var from = GetPerformanceFromTimestamp(normalizedRange);
+        var canUseCurrentSnapshotFallback = normalizedRange is "24h" or "today";
+
+        var currentSnapshotByStockId = canUseCurrentSnapshotFallback
+            ? await _context.Stocks
+                .AsNoTracking()
+                .Where(x => currentStockIds.Contains(x.Id))
+                .Select(x => new
+                {
+                    x.Id,
+                    x.CurrentPrice,
+                    x.CurrentPriceChange,
+                    x.CurrentPriceChangePercent,
+                    x.CurrentPriceAt,
+                })
+                .ToDictionaryAsync(
+                    x => x.Id,
+                    x => new
+                    {
+                        x.CurrentPrice,
+                        x.CurrentPriceChange,
+                        x.CurrentPriceChangePercent,
+                        x.CurrentPriceAt,
+                    },
+                    cancellationToken)
+            : null;
 
         // Single set-based query — no N+1 database round-trips.
         var allPoints = await _context.StockHistoricalPrices
@@ -486,6 +511,14 @@ public class MarketIndicesController : ControllerBase
         {
             if (!pointsByStock.TryGetValue(stockId, out var points) || points.Count < 2)
             {
+                if (canUseCurrentSnapshotFallback
+                    && currentSnapshotByStockId != null
+                    && currentSnapshotByStockId.TryGetValue(stockId, out var snapshot)
+                    && TryBuildCurrentSnapshotPerformanceItem(stockId, snapshot.CurrentPrice, snapshot.CurrentPriceChange, snapshot.CurrentPriceChangePercent, snapshot.CurrentPriceAt, out var fallbackItem))
+                {
+                    return fallbackItem;
+                }
+
                 return new IndexConstituentPerformanceItemDto
                 {
                     StockId = stockId,
@@ -536,6 +569,52 @@ public class MarketIndicesController : ControllerBase
             GeneratedAtUtc = DateTime.UtcNow,
             Items = items,
         });
+    }
+
+    private static bool TryBuildCurrentSnapshotPerformanceItem(
+        int stockId,
+        decimal? currentPrice,
+        decimal? currentPriceChange,
+        decimal? currentPriceChangePercent,
+        DateTime? currentPriceAtUtc,
+        out IndexConstituentPerformanceItemDto item)
+    {
+        item = default!;
+
+        if (currentPrice is decimal endPrice
+            && currentPriceChange is decimal change
+            && endPrice > 0m)
+        {
+            var startPrice = endPrice - change;
+            if (startPrice > 0m)
+            {
+                item = new IndexConstituentPerformanceItemDto
+                {
+                    StockId = stockId,
+                    StartPrice = startPrice,
+                    EndPrice = endPrice,
+                    ChangePercent = (double)((endPrice - startPrice) / startPrice * 100m),
+                    EndAtUtc = currentPriceAtUtc,
+                    DataStatus = ConstituentPerformanceDataStatus.Available,
+                };
+                return true;
+            }
+        }
+
+        if (currentPriceChangePercent is decimal percent)
+        {
+            item = new IndexConstituentPerformanceItemDto
+            {
+                StockId = stockId,
+                EndPrice = currentPrice,
+                ChangePercent = (double)percent,
+                EndAtUtc = currentPriceAtUtc,
+                DataStatus = ConstituentPerformanceDataStatus.Available,
+            };
+            return true;
+        }
+
+        return false;
     }
 
     [HttpPost("{id:int}/constituents/refresh")]

@@ -215,6 +215,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
         dataKey="chartIndex"
         scale="linear"
         domain={['dataMin', 'dataMax']}
+        tick={{ fontSize: 16 }}
         tickFormatter={(idx: number) => {
           const ts = resolveWeeklyTs(idx);
           return ts != null ? dayjs.utc(ts).local().format(xAxisFormatByRange['1w']) : '';
@@ -227,6 +228,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
         dataKey="timestampMs"
         scale="time"
         domain={['dataMin', 'dataMax']}
+        tick={{ fontSize: 16 }}
         tickFormatter={(value: number) => dayjs.utc(value).local().format(xAxisFormatByRange[range])}
       />
     )
@@ -248,12 +250,12 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
         style={{ padding: '16px 20px', background: '#f0f7ff', borderBottom: '3px solid #1677ff' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <Text strong style={{ fontSize: 15 }}>
+          <Text strong style={{ fontSize: 16 }}>
             История: {code} — {name}
           </Text>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {isArchived && (
-              <Text type="secondary" style={{ fontSize: 12 }}>Архивный индекс</Text>
+              <Text type="secondary" style={{ fontSize: 16 }}>Архивный индекс</Text>
             )}
             <Popconfirm
               title="Перезагрузить историю?"
@@ -301,11 +303,11 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
                 {latestClose != null ? formatIndexPoints(latestClose) : '—'}
               </Text>
               {changeValue != null && changePercent != null && (
-                <Text style={{ fontSize: 14, color: perfColor, fontWeight: 600 }}>
+                <Text style={{ fontSize: 16, color: perfColor, fontWeight: 600 }}>
                   {formatSigned(changeValue, 2)} пт ({formatSigned(changePercent, 2)}%)
                 </Text>
               )}
-              <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
+              <Text type="secondary" style={{ fontSize: 16, marginLeft: 'auto' }}>
                 От начала выбранного периода
               </Text>
             </div>
@@ -317,6 +319,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
                 {renderXAxis()}
                 <YAxis
                   domain={['auto', 'auto']}
+                  tick={{ fontSize: 16 }}
                   tickFormatter={(v: number) => formatNumber(v, 0)}
                   width={64}
                 />
@@ -330,7 +333,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
                       : pt.timestampMs;
                     const fmt = xAxisFormatByRange[range];
                     return (
-                      <div style={{ background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '8px 12px', fontSize: 12 }}>
+                      <div style={{ background: '#fff', border: '1px solid #d9d9d9', borderRadius: 4, padding: '8px 12px', fontSize: 16 }}>
                         <div style={{ fontWeight: 600, marginBottom: 4 }}>{dayjs.utc(ts).local().format(`DD.MM.YYYY${fmt.includes('HH') ? ' HH:mm' : ''}`)}</div>
                         {pt.closeChart != null && <div>Закрытие: <b>{formatIndexPoints(pt.closeChart)}</b></div>}
                         {pt.open > 0 && <div style={{ color: COLOR_SECONDARY_TEXT }}>О: {formatNumber(pt.open)} В: {formatNumber(pt.high)} Н: {formatNumber(pt.low)}</div>}
@@ -351,7 +354,7 @@ const MarketIndexPriceChart: React.FC<MarketIndexPriceChartProps> = ({
             </ResponsiveContainer>
 
             {/* Provider note */}
-            <Text type="secondary" style={{ fontSize: 11 }}>
+            <Text type="secondary" style={{ fontSize: 16 }}>
               Источник: Yahoo Finance · {providerSymbol} · Данные могут быть задержаны
             </Text>
           </>

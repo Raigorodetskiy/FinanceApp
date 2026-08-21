@@ -484,6 +484,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         dataKey="chartIndex"
         scale="linear"
         domain={['dataMin', 'dataMax']}
+        tick={{ fontSize: 16 }}
         tickFormatter={(idx: number) => {
           const ts = resolveWeeklyTs(idx);
           return ts != null
@@ -498,6 +499,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         dataKey="timestampMs"
         scale="time"
         domain={['dataMin', 'dataMax']}
+        tick={{ fontSize: 16 }}
         tickFormatter={(value: number) =>
           formatHistoryTimestamp(value, historyRange, xAxisFormatByRange[historyRange])
         }
@@ -560,26 +562,26 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
         }}
       >
         <span>
-          <Text type="secondary" style={{ fontSize: 12 }}>WKN: </Text>
-          <Text style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: '#1677ff' }}>
+          <Text type="secondary" style={{ fontSize: 16 }}>WKN: </Text>
+          <Text style={{ fontSize: 16, fontWeight: 600, fontFamily: 'monospace', color: '#1677ff' }}>
             {wkn ?? '—'}
           </Text>
         </span>
         <span>
-          <Text type="secondary" style={{ fontSize: 12 }}>ISIN: </Text>
-          <Text style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: '#1677ff' }}>
+          <Text type="secondary" style={{ fontSize: 16 }}>ISIN: </Text>
+          <Text style={{ fontSize: 16, fontWeight: 600, fontFamily: 'monospace', color: '#1677ff' }}>
             {isin ?? '—'}
           </Text>
         </span>
         <span>
-          <Text type="secondary" style={{ fontSize: 12 }}>Валюта котировки: </Text>
-          <Text style={{ fontSize: 13, fontWeight: 600 }}>
+          <Text type="secondary" style={{ fontSize: 16 }}>Валюта котировки: </Text>
+          <Text style={{ fontSize: 16, fontWeight: 600 }}>
             {liveQuote?.currency ?? historyResponse?.currency ?? '—'}
           </Text>
         </span>
         <span>
-          <Text type="secondary" style={{ fontSize: 12 }}>Валюта отчётности: </Text>
-          <Text style={{ fontSize: 13, fontWeight: 600 }}>
+          <Text type="secondary" style={{ fontSize: 16 }}>Валюта отчётности: </Text>
+          <Text style={{ fontSize: 16, fontWeight: 600 }}>
             {liveQuote?.financialCurrency ?? historyResponse?.financialCurrency ?? '—'}
           </Text>
         </span>
@@ -602,7 +604,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           gap: 8,
         }}
       >
-        <Text strong style={{ fontSize: 15 }}>
+        <Text strong style={{ fontSize: 16 }}>
           История цены: {ticker} — {name}
         </Text>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -650,7 +652,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
               }}
             >
               <div className="stock-price-chart-summary-header">
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" style={{ fontSize: 16 }}>
                   Изменение за период (к текущей цене)
                 </Text>
                 <Tooltip
@@ -666,7 +668,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     icon={<LinkOutlined />}
                     disabled={!finanzenNetUrl}
                     aria-label="Открыть на finanzen.net"
-                    style={{ padding: '0 4px', height: 'auto', fontSize: 12 }}
+                    style={{ padding: '0 4px', height: 'auto', fontSize: 16 }}
                     onClick={() => {
                       if (!finanzenNetUrl) return;
                       const popup = window.open(
@@ -693,20 +695,20 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
+                  <div style={{ fontSize: 16, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     Тек. цена
                   </div>
                   <div style={{ color: COLOR_PRIMARY, fontSize: CURRENT_PRICE_FONT_SIZE, fontWeight: 600 }}>
                     {currentPriceDisplayText}
                   </div>
                   {normalizedQuoteText && (
-                    <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginTop: 2 }}>
+                    <div style={{ fontSize: 16, color: COLOR_SECONDARY_TEXT, marginTop: 2 }}>
                       Нормализовано: {normalizedQuoteText}
                     </div>
                   )}
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
+                  <div style={{ fontSize: 16, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     {getDayRangeLabel(historyRange)}
                   </div>
                   <div style={{ fontSize: DAY_HIGH_LOW_VALUE_FONT_SIZE, fontWeight: 600, color: RANGE_BOUND_COLOR }}>
@@ -721,7 +723,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                     : formatCurrencyValue(periodSummary.baselineValue, displayCurrencyCode)}
                 </div>
                 <div style={BASELINE_BLOCK_STYLE}>
-                  <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
+                  <div style={{ fontSize: 16, color: COLOR_SECONDARY_TEXT, marginBottom: 2 }}>
                     {PERIOD_CHANGE_HEADING}
                   </div>
                   <div style={{ color: performanceColor ?? 'inherit', fontWeight: 600 }}>
@@ -743,7 +745,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
               }}
             >
               <div className="stock-price-chart-summary-header">
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" style={{ fontSize: 16 }}>
                   Объём и активность торгов
                 </Text>
               </div>
@@ -758,11 +760,11 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 {volumeMetricItems.map((item) => (
                   <div key={item.key}>
                     <Tooltip title={item.tooltip}>
-                      <div style={{ fontSize: 11, color: COLOR_SECONDARY_TEXT, marginBottom: 2, cursor: 'help' }}>
+                      <div style={{ fontSize: 16, color: COLOR_SECONDARY_TEXT, marginBottom: 2, cursor: 'help' }}>
                         {item.label}
                       </div>
                     </Tooltip>
-                    <div style={{ fontSize: 15, fontWeight: 600 }}>
+                    <div style={{ fontSize: 16, fontWeight: 600 }}>
                       {item.value}
                     </div>
                   </div>
@@ -777,11 +779,15 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
                 {renderXAxis()}
                 <YAxis
                   domain={['auto', 'auto']}
+                  tick={{ fontSize: 16 }}
                   tickFormatter={(value: number) =>
                     formatCurrencyValue(value, displayCurrencyCode)
                   }
                 />
                 <RechartsTooltip
+                  contentStyle={{ fontSize: 16 }}
+                  itemStyle={{ fontSize: 16 }}
+                  labelStyle={{ fontSize: 16 }}
                   labelFormatter={(value: number) => {
                     if (historyRange === '1w') {
                       const ts = resolveWeeklyTs(value);
@@ -827,8 +833,11 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
               <BarChart data={historyChartData} syncId={`stock-history-${stockId}`}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 {renderXAxis(true)}
-                <YAxis tickFormatter={(value: number) => formatCompactNumber(value)} width={60} />
+                <YAxis tick={{ fontSize: 16 }} tickFormatter={(value: number) => formatCompactNumber(value)} width={60} />
                 <RechartsTooltip
+                  contentStyle={{ fontSize: 16 }}
+                  itemStyle={{ fontSize: 16 }}
+                  labelStyle={{ fontSize: 16 }}
                   labelFormatter={(value: number) => {
                     if (historyRange === '1w') {
                       const ts = resolveWeeklyTs(value);

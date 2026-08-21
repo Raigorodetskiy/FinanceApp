@@ -90,8 +90,8 @@ describe('FinancialMetricsPage typography and layout regressions', () => {
     expect(html).toContain('line-height:1.6');
   });
 
-  it('renders unit, formula, example and interpretation with at least 14px and formula in code block', () => {
-    expect(FINANCIAL_METRICS_META_FONT_SIZE).toBeGreaterThanOrEqual(14);
+  it('renders unit, formula, example and interpretation with at least 16px and formula in code block', () => {
+    expect(FINANCIAL_METRICS_META_FONT_SIZE).toBeGreaterThanOrEqual(16);
     expect(FINANCIAL_METRICS_META_LINE_HEIGHT).toBe(1.5);
 
     const html = renderToStaticMarkup(<DescriptionCell metric={baseMetric} />);
@@ -100,7 +100,7 @@ describe('FinancialMetricsPage typography and layout regressions', () => {
     expect(html).toContain('Пример:');
     expect(html).toContain('⚠ Рост долга может увеличивать финансовые риски.');
     expect(html).toContain('<code');
-    expect(html).toContain('font-size:15px');
+    expect(html).toContain('font-size:16px');
     expect(html).toContain('line-height:1.5');
     expect(html).not.toContain('font-size:12px');
   });

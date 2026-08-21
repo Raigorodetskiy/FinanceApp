@@ -7,7 +7,7 @@ import type {
 // ── Font-size constants (exported so tests can assert them) ───────────────────
 
 /** Font size for compact range min/max values. Slightly smaller than current price. */
-export const DAY_HIGH_LOW_VALUE_FONT_SIZE = 14;
+export const DAY_HIGH_LOW_VALUE_FONT_SIZE = 16;
 
 /** Font size for the current price display. */
 export const CURRENT_PRICE_FONT_SIZE = 16;

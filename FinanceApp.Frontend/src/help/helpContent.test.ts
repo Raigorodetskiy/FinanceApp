@@ -131,6 +131,21 @@ describe('help content contracts', () => {
     expect(categorySlugs).toEqual(new Set(['quick-start', 'analytics', 'data-quality', 'stocks-and-indices', 'portfolios', 'faq']));
     expect(HELP_ARTICLES.some((article) => article.slug === 'faq')).toBe(true);
   });
+
+  it('documents catalog global period sorting and 24h constituent fallback semantics', () => {
+    const stocksAndIndices = HELP_ARTICLES.find((item) => item.slug === 'stocks-and-indices');
+    const serialized = JSON.stringify(stocksAndIndices);
+    for (const phrase of [
+      'единый глобальный список',
+      'не влияют на порядок при периодной сортировке',
+      'всегда уходят в конец',
+      '24ч',
+      'текущий snapshot/изменение к предыдущему закрытию',
+      'выходных и закрытом рынке',
+    ]) {
+      expect(serialized).toContain(phrase);
+    }
+  });
 });
 
 describe('help search behavior', () => {

@@ -249,7 +249,7 @@ export const renderStockRowActions = ({
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {quote?.conversionWarning && !live?.loading && (
-        <Tag color="gold" style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>Нет EUR</Tag>
+        <Tag color="gold" style={{ fontSize: 16, lineHeight: '22px', padding: '0 4px' }}>Нет EUR</Tag>
       )}
       <Button
         icon={<ReloadOutlined />}
@@ -787,7 +787,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
               <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
             </div>
             {stock.commonName && stock.commonName !== name && (
-              <Text type="secondary" style={{ fontSize: 12 }} ellipsis={{ tooltip: stock.commonName }}>
+              <Text type="secondary" style={{ fontSize: 16 }} ellipsis={{ tooltip: stock.commonName }}>
                 {stock.commonName}
               </Text>
             )}
@@ -913,13 +913,13 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
         const delayed = isQuoteDelayed(quote);
         const delayTooltip = (delayed && quote?.delayWarning) ? quote.delayWarning : undefined;
         return (
-          <span title={normalizedTooltip} style={{ fontSize: 12, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span title={normalizedTooltip} style={{ fontSize: 16, color: '#595959', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             {apiPriceText}
             {delayed ? (
               <Tooltip title={delayTooltip}>
                 <Tag
                   color="orange"
-                  style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0, cursor: delayTooltip ? 'help' : undefined }}
+                  style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0, cursor: delayTooltip ? 'help' : undefined }}
                   aria-label={delayTooltip ?? STALE_DELAY_LABEL}
                 >
                   {STALE_DELAY_LABEL}
@@ -928,10 +928,10 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
             ) : (
               <>
                 {marketStatus === 'open' && (
-                  <Tag color="green" style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
+                  <Tag color="green" style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0 }}>Open</Tag>
                 )}
                 {marketStatus === 'closed' && (
-                  <Tag style={{ fontSize: 10, lineHeight: '14px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
+                  <Tag style={{ fontSize: 16, lineHeight: '22px', padding: '0 3px', marginInlineEnd: 0 }}>Closed</Tag>
                 )}
               </>
             )}
@@ -1078,7 +1078,7 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!isCatalogMode && (
               <>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" style={{ fontSize: 16 }}>
                   Авто-обновление через {formatCountdown(countdown)}
                 </Text>
                 <Button

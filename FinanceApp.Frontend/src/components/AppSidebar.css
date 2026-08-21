@@ -89,7 +89,7 @@
 
 .sidebar-brand-text {
   color: #fff;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -138,7 +138,7 @@
 .sidebar-menu.ant-menu {
   background: transparent !important;
   border-inline-end: 0 !important;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .sidebar-menu .ant-menu-item,
