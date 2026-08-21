@@ -73,7 +73,7 @@ const getComponentWeight = (weights: TechnicalAnalysisComponentWeights, key: key
 };
 
 const renderMetricLabel = (label: string, sectionSlug: string): React.ReactElement => (
-  <Text type="secondary"><Link to={`${TECHNICAL_FORMULAS_ARTICLE_BASE}#${sectionSlug}`}>{label}</Link></Text>
+  <Link className="technical-analysis-panel__metric-link" to={`${TECHNICAL_FORMULAS_ARTICLE_BASE}#${sectionSlug}`}>{label}</Link>
 );
 
 const StockTechnicalAnalysisPanel: React.FC<{ stockId: number }> = ({ stockId }) => {

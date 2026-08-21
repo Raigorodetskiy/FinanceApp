@@ -75,6 +75,32 @@ describe('HelpPage', () => {
     expect(await screen.findByRole('heading', { name: 'Компоненты и точные веса по горизонтам' })).toBeInTheDocument();
   });
 
+  it('shows the full technical-indicator tutorial in navigation and opens it from Help', async () => {
+    const user = userEvent.setup();
+    renderHelp('/help');
+
+    await user.click(await screen.findByRole('link', { name: 'Технические показатели: формулы, примеры и ограничения' }));
+    expect(await screen.findByRole('heading', { name: 'Технические показатели: формулы, примеры и ограничения' })).toBeInTheDocument();
+  });
+
+  it('supports technical tutorial deep links on direct load and same-page hash changes', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    renderHelp('/help/technical-indicator-formulas#indicator-methodology');
+
+    expect(await screen.findByRole('heading', { name: 'Сначала о данных: свечи, цены и торговые дни' })).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalled();
+
+    await user.click(screen.getByRole('link', { name: 'MACD 12/26/9, Signal и Histogram' }));
+    expect(await screen.findByRole('heading', { name: 'MACD 12/26/9, Signal и Histogram' })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#indicator-macd'));
+  });
+
   it('handles malformed unknown article slug safely', async () => {
     renderHelp('/help/unknown-article');
     expect(await screen.findByText('Статья не найдена')).toBeInTheDocument();

@@ -592,7 +592,6 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           style={{ marginBottom: 12 }}
         />
       )}
-      <StockTechnicalAnalysisPanel stockId={stockId} />
       <div
         style={{
           display: 'flex',
@@ -860,6 +859,7 @@ const StockPriceChart: React.FC<StockPriceChartProps> = ({
           </div>
         </div>
       )}
+      <StockTechnicalAnalysisPanel stockId={stockId} />
     </div>
   );
 };

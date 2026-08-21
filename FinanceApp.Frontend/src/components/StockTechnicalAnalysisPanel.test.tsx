@@ -259,7 +259,9 @@ describe('StockTechnicalAnalysisPanel', () => {
     ];
 
     for (const anchor of metricAnchors) {
-      expect(screen.getByRole('link', { name: anchor.label })).toHaveAttribute('href', anchor.href);
+      const link = screen.getByRole('link', { name: anchor.label });
+      expect(link).toHaveAttribute('href', anchor.href);
+      expect(link).toHaveClass('technical-analysis-panel__metric-link');
     }
 
     await user.click(screen.getByRole('link', { name: 'Открыть справку о формулах технических показателей' }));

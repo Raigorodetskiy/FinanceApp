@@ -7,6 +7,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(__dirname, 'StockPriceChart.tsx'), 'utf8');
 
 describe('StockPriceChart history strategy contracts', () => {
+  it('renders the price-history chart block above the technical analysis panel', () => {
+    const historyTitleIdx = source.indexOf('История цены: {ticker} — {name}');
+    const technicalPanelIdx = source.indexOf('<StockTechnicalAnalysisPanel stockId={stockId} />');
+    expect(historyTitleIdx).toBeGreaterThan(-1);
+    expect(technicalPanelIdx).toBeGreaterThan(-1);
+    expect(historyTitleIdx).toBeLessThan(technicalPanelIdx);
+  });
+
   it('keeps generic tracked-stock history loader/refresh behavior as default', () => {
     expect(source).toContain('getStockHistory(stockId, historyRange)');
     expect(source).toContain('const refreshRes = await refreshStockHistory(stockId);');

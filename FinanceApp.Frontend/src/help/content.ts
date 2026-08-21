@@ -239,8 +239,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
   {
     slug: 'technical-indicators',
     categorySlug: 'analytics',
-    title: 'Технические показатели в FinanceApp',
-    summary: 'Что означают SMA/EMA/RSI/MACD, доходности, волатильность, просадка, ATR и как они используются в сигнале.',
+    title: 'Технические показатели в FinanceApp: краткий обзор',
+    summary: 'Короткая вводная статья по SMA/EMA/RSI/MACD, доходности, волатильности, просадке и ATR. Полный учебный разбор с формулами и примерами — в статье «Технические показатели: формулы, примеры и ограничения».',
     keywords: ['SMA20', 'SMA50', 'SMA200', 'EMA12', 'EMA26', 'RSI14', 'MACD', 'ATR14', 'AdjustedClose', 'Close'],
     order: 3,
     sections: [
@@ -248,6 +248,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         slug: 'indicators-sma-ema',
         title: 'SMA20/SMA50/SMA200 и EMA12/EMA26',
         blocks: [
+          { type: 'paragraph', text: 'Этот материал — краткий обзор. За полным пошаговым разбором формул, warm-up и примеров переходите к статье «Технические показатели: формулы, примеры и ограничения».' },
           { type: 'paragraph', text: 'SMA и EMA — скользящие средние. В FinanceApp они используются для оценки тренда и momentum-компоненты.' },
           { type: 'list', items: [
             'SMA20 и SMA50 — кратко/среднесрочный фон.',
@@ -297,6 +298,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
       },
     ],
     related: [
+      { articleSlug: 'technical-indicator-formulas', label: 'Полный учебный разбор формул и примеров' },
       { articleSlug: 'analytical-signal', label: 'Как эти показатели влияют на сигнал' },
       { articleSlug: 'data-quality-and-freshness', label: 'Почему метрики бывают недоступны' },
     ],
