@@ -614,13 +614,7 @@ public sealed class CatalogStockRefreshHostedService : BackgroundService, ICatal
         var incomingChange = quote.ChangeEur.HasValue ? Math.Round(quote.ChangeEur.Value, 4) : (decimal?)null;
         var incomingPercent = Math.Round(quote.PercentChange, 4);
 
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var quoteSnapshotPersistenceService = scope.ServiceProvider.GetRequiredService<StockQuoteSnapshotPersistenceService>();
-        var existing = await db.Stocks.FindAsync([stock.StockId], cancellationToken);
-        if (existing is null)
-        {
-            return StepOutcome.Skipped("Stock record not found.");
-        }
 
         var persistenceResult = await quoteSnapshotPersistenceService.ApplyAsync(
             stock.StockId,

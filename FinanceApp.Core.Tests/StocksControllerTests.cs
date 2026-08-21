@@ -1063,6 +1063,64 @@ public class StocksControllerTests
     }
 
     [Fact]
+    public async Task UpdateQuote_EqualSnapshotTimestamp_HistoryOnlyRepair_IsReportedAsApplied()
+    {
+        await using var context = CreateContext();
+        var existing = new Stock
+        {
+            Id = 109,
+            Ticker = "SAP",
+            Name = "SAP",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 404.40m,
+            CurrentPriceChange = 1.25m,
+            CurrentPriceChangePercent = 0.31m,
+            CurrentPriceAt = new DateTime(2026, 8, 20, 12, 47, 0, DateTimeKind.Utc),
+            UpdatedAt = new DateTime(2026, 8, 20, 12, 47, 2, DateTimeKind.Utc),
+        };
+        context.Stocks.Add(existing);
+        context.StockHistoricalPrices.Add(new StockHistoricalPrice
+        {
+            StockId = existing.Id,
+            Interval = "10m",
+            Timestamp = new DateTime(2026, 8, 20, 11, 40, 0, DateTimeKind.Utc),
+            Open = 400m,
+            High = 401m,
+            Low = 399m,
+            Close = 400.5m,
+            QuoteCurrency = "EUR",
+            FinancialCurrency = "EUR",
+            NormalizedQuoteCurrency = "EUR",
+            QuoteUnitMultiplier = 1m,
+            Volume = 1000,
+            IsQuoteDerived = false
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateQuote(existing.Id, new UpdateStockQuoteRequest
+        {
+            CurrentPrice = 404.40m,
+            CurrentPriceChange = 1.25m,
+            CurrentPriceChangePercent = 0.31m,
+            CurrentPriceAt = new DateTime(2026, 8, 20, 12, 47, 0, DateTimeKind.Utc),
+            CurrentPriceIsDelayed = false,
+            CurrentPriceDelayWarning = null,
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<UpdateStockQuoteResponse>(ok.Value);
+        Assert.True(response.Applied);
+        Assert.False(response.SnapshotApplied);
+        Assert.True(response.HistoryApplied);
+
+        var quoteDerivedPoint = await context.StockHistoricalPrices
+            .SingleOrDefaultAsync(x => x.StockId == existing.Id && x.Interval == "10m" && x.Timestamp == new DateTime(2026, 8, 20, 12, 40, 0, DateTimeKind.Utc) && x.IsQuoteDerived);
+        Assert.NotNull(quoteDerivedPoint);
+    }
+
+    [Fact]
     public async Task UpdateQuote_CatalogOnlyStock_PersistsSnapshotWithoutChangingTrackingStatus()
     {
         await using var context = CreateContext();

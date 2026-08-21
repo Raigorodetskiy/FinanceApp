@@ -421,13 +421,6 @@ public sealed class IndexConstituentsBatchQuoteRefreshJobService
         try
         {
             using var persistScope = _scopeFactory.CreateScope();
-            var persistContext = persistScope.ServiceProvider.GetRequiredService<AppDbContext>();
-            if (!await persistContext.Stocks.AnyAsync(x => x.Id == stock.Id, cancellationToken))
-            {
-                counters.PersistFailed++;
-                return;
-            }
-
             var quoteSnapshotPersistenceService = persistScope.ServiceProvider.GetRequiredService<StockQuoteSnapshotPersistenceService>();
             var persistenceResult = await quoteSnapshotPersistenceService.ApplyAsync(
                 stock.Id,

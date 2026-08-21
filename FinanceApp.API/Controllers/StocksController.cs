@@ -553,6 +553,8 @@ public class StocksController : ControllerBase
         CurrentPriceAt = stock.CurrentPriceAt,
         CurrentPriceIsDelayed = stock.CurrentPriceIsDelayed,
         CurrentPriceDelayWarning = stock.CurrentPriceDelayWarning,
+        SnapshotApplied = applied,
+        HistoryApplied = false,
         Applied = applied,
     };
 
@@ -597,6 +599,8 @@ public class StocksController : ControllerBase
             CurrentPriceAt = persistenceResult.CurrentPriceAt,
             CurrentPriceIsDelayed = persistenceResult.CurrentPriceIsDelayed,
             CurrentPriceDelayWarning = persistenceResult.CurrentPriceDelayWarning,
+            SnapshotApplied = persistenceResult.SnapshotApplied,
+            HistoryApplied = persistenceResult.HistoryApplied,
             Applied = persistenceResult.Applied,
         });
     }

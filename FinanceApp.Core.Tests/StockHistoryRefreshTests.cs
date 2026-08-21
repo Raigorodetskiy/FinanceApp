@@ -278,7 +278,8 @@ public class StockHistoryRefreshTests
                 Interval = "10m",
                 Timestamp = new DateTime(2026, 8, 24, 15, 20, 0, DateTimeKind.Utc), // Monday current
                 Open = 106m, High = 106m, Low = 106m, Close = 106m,
-                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m
+                QuoteCurrency = "USD", FinancialCurrency = "USD", NormalizedQuoteCurrency = "USD", QuoteUnitMultiplier = 1m,
+                IsQuoteDerived = true
             });
         await context.SaveChangesAsync();
 
