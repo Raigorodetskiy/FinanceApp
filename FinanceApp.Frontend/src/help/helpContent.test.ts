@@ -101,6 +101,43 @@ describe('help content contracts', () => {
     expect(JSON.stringify(quality)).toContain('confidence');
   });
 
+  it('documents current fundamentals scoring formulas, weights, limits and disclaimer', () => {
+    const article = ALL_HELP_ARTICLES.find((item) => item.slug === 'fundamental-scoring-methodology');
+    expect(article).toBeDefined();
+    const serialized = JSON.stringify(article);
+
+    expect(serialized).toContain('0%');
+    expect(serialized).toContain('6 месяцев');
+    expect(serialized).toContain('5%');
+    expect(serialized).toContain('1 год');
+    expect(serialized).toContain('20%');
+    expect(serialized).toContain('2 года');
+    expect(serialized).toContain('45%');
+
+    for (const metric of ['NetIncomeTtm', 'FreeCashFlowTtm', 'Debt/EBITDA', 'PeRatio', 'PbRatio', 'DividendYield']) {
+      expect(serialized).toContain(metric);
+    }
+
+    for (const threshold of ['> 0', '< 2', '> 4', '> 6', '5 ≤ P/E ≤ 35', 'P/E > 60', '0,5 ≤ P/B ≤ 8', 'P/B > 15', '1 ≤ DY ≤ 6', 'DY > 10']) {
+      expect(serialized).toContain(threshold);
+    }
+
+    expect(serialized).toContain('clamp');
+    expect(serialized).toContain('FUNDAMENTALS_MISSING');
+    expect(serialized).toContain('FUNDAMENTALS_STALE');
+    expect(serialized).toContain('FUNDAMENTAL_HISTORY_INSUFFICIENT');
+    expect(serialized).toContain('FUNDAMENTALS_UNUSABLE');
+    expect(serialized).toContain('COMPONENTS_MISSING');
+    expect(serialized).toContain('PeriodCount < 8');
+    expect(serialized).toContain('span < 540');
+    expect(serialized).toContain('старше 35 дней');
+    expect(serialized).toContain('Сектор и отрасль');
+    expect(serialized).toContain('не используются');
+    expect(serialized).toContain('Peer-нормализация');
+    expect(serialized).toContain('не intrinsic value модель');
+    expect(serialized).toContain('не персональная инвестиционная рекомендация');
+  });
+
   it('contains required top-level categories and FAQ article', () => {
     const categorySlugs = new Set(HELP_CATEGORIES.map((category) => category.slug));
     expect(categorySlugs).toEqual(new Set(['quick-start', 'analytics', 'data-quality', 'stocks-and-indices', 'portfolios', 'faq']));
@@ -119,6 +156,8 @@ describe('help search behavior', () => {
     expect(searchHelpArticles('формула Уайлдера').some((result) => result.articleSlug === 'technical-indicator-formulas')).toBe(true);
     expect(searchHelpArticles('где находится').some((result) => result.articleSlug === 'faq')).toBe(true);
     expect(searchHelpArticles('ренормализует веса').some((result) => result.articleSlug === 'analytical-signal')).toBe(true);
+    expect(searchHelpArticles('фундаментальный анализ простыми словами').some((result) => result.articleSlug === 'fundamental-scoring-methodology')).toBe(true);
+    expect(searchHelpArticles('Debt/EBITDA').some((result) => result.articleSlug === 'fundamental-scoring-methodology')).toBe(true);
   });
 
   it('keeps deterministic ranking with exact title before broad matches', () => {
