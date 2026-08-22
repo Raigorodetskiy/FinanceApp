@@ -1004,9 +1004,9 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       render: (name: string, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return (
-          <Space direction="vertical" size={0}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <Text style={{ fontSize: 16 }} ellipsis={{ tooltip: name }}>{name}</Text>
+          <div style={{ display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0 }}>
+              <Text style={{ minWidth: 0, flex: '1 1 auto', fontSize: 16 }} ellipsis={{ tooltip: name }}>{name}</Text>
               <StockClassificationBadges
                 sector={record.sector ?? null}
                 industry={record.industry ?? null}
@@ -1018,7 +1018,7 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
             {record.isin && (
               <Text type="secondary" style={{ fontSize: 16 }}>{record.isin}</Text>
             )}
-          </Space>
+          </div>
         );
       },
     },

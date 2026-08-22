@@ -41,8 +41,8 @@ const baseConstituentsResponse = {
     indexName: 'DAX',
     totalCount: 3,
     constituents: [
-      { stockId: 1, ticker: 'DAXA', name: 'Dax Member', commonName: 'Dax Member', sector: 'Information Technology', industry: 'Software', exchange: 'Frankfurt', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
-      { stockId: 2, ticker: 'OTHR', name: 'Other Index', commonName: 'Other Index', sector: 'Financials', industry: null, exchange: 'NYSE', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
+      { stockId: 1, ticker: 'DAXA', name: 'Align Technology', commonName: 'Align Technology, Inc.', isin: 'US0162551016', sector: 'Information Technology', industry: 'Software', exchange: 'Frankfurt', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
+      { stockId: 2, ticker: 'OTHR', name: 'Microsoft', commonName: 'Microsoft', isin: 'US5949181045', sector: 'Financials', industry: null, exchange: 'NYSE', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
       { stockId: 3, ticker: 'NONE', name: 'No Index', commonName: 'No Index', exchange: 'NYSE', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
     ],
   },
@@ -124,6 +124,20 @@ describe('IndexConstituentsPanel 24h performance integration', () => {
     expect(classification).not.toBeNull();
     expect(classification).toHaveAttribute('title', 'Information Technology · Software');
     expect(classification).toHaveStyle({ marginLeft: 'auto', textAlign: 'right', fontSize: '14px' });
+    expect(classification?.closest('.ant-tag')).toBeNull();
+
+    const daxNameCell = (daxRow as HTMLElement).querySelectorAll('td')[1] as HTMLElement;
+    const nameCellWrapper = daxNameCell.firstElementChild as HTMLElement;
+    const topRow = nameCellWrapper.firstElementChild as HTMLElement;
+    const companyName = topRow.firstElementChild as HTMLElement;
+
+    expect(nameCellWrapper).toHaveStyle({ display: 'flex', flexDirection: 'column', width: '100%', minWidth: '0' });
+    expect(topRow).toHaveStyle({ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', minWidth: '0' });
+    expect(companyName).toHaveStyle({ minWidth: '0', flex: '1 1 auto', fontSize: '16px' });
+    expect(companyName).toHaveTextContent('Align Technology');
+    expect(nameCellWrapper).toHaveTextContent('Align Technology, Inc.');
+    expect(nameCellWrapper).toHaveTextContent('US0162551016');
+
     expect((noneRow as HTMLElement).querySelector('[aria-label^="Классификация:"]')).toBeNull();
   });
 
