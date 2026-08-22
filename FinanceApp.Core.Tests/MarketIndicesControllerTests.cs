@@ -645,6 +645,374 @@ public class MarketIndicesControllerTests
     }
 
     [Fact]
+    public async Task RefreshConstituents_PropagatesSectorByValidIsin_ToExistingDistinctListings()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5913,
+            Name = "ISIN Propagation Test",
+            NormalizedName = "ISIN PROPAGATION TEST",
+            Code = "IPT5913",
+            NormalizedCode = "IPT5913",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.AddRange(
+            new Stock
+            {
+                Id = 59131,
+                Ticker = "AAPL",
+                Name = "Apple NYSE Tracked",
+                CommonName = "Apple NYSE Tracked",
+                Exchange = StockExchanges.Nyse,
+                ProviderSymbol = "AAPL.NY",
+                Isin = "US0378331005",
+                TrackingStatus = StockTrackingStatus.Tracked,
+                UpdatedAt = now
+            },
+            new Stock
+            {
+                Id = 59132,
+                Ticker = "APC",
+                Name = "Apple Frankfurt",
+                CommonName = "Apple Frankfurt",
+                Exchange = StockExchanges.Frankfurt,
+                ProviderSymbol = "APC",
+                Isin = "US0378331005",
+                TrackingStatus = StockTrackingStatus.CatalogOnly,
+                UpdatedAt = now
+            });
+        await context.SaveChangesAsync();
+
+        var provider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            [
+                new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, "US0378331005", "865985", "Information Technology")
+            ]));
+
+        var controller = CreateController(context, provider: provider);
+        var refresh = await controller.RefreshConstituents(5913);
+        Assert.IsType<OkObjectResult>(refresh.Result);
+
+        var stocks = await context.Stocks
+            .Include(x => x.Sector)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+        Assert.Equal(3, stocks.Count);
+
+        var imported = Assert.Single(stocks, x => x.Exchange == StockExchanges.Nasdaq && x.ProviderSymbol == "AAPL");
+        Assert.Equal("US0378331005", imported.Isin);
+        Assert.Equal("Information Technology", imported.Sector?.Name);
+
+        var nyse = Assert.Single(stocks, x => x.Id == 59131);
+        Assert.Equal(StockTrackingStatus.Tracked, nyse.TrackingStatus);
+        Assert.Equal(StockExchanges.Nyse, nyse.Exchange);
+        Assert.Equal("AAPL.NY", nyse.ProviderSymbol);
+        Assert.Equal("Information Technology", nyse.Sector?.Name);
+
+        var frankfurt = Assert.Single(stocks, x => x.Id == 59132);
+        Assert.Equal(StockExchanges.Frankfurt, frankfurt.Exchange);
+        Assert.Equal("APC", frankfurt.ProviderSymbol);
+        Assert.Equal("Information Technology", frankfurt.Sector?.Name);
+
+        var activeMemberships = await context.StockMarketIndices
+            .Where(x => x.MarketIndexId == 5913 && x.EffectiveTo == null)
+            .ToListAsync();
+        Assert.Single(activeMemberships);
+        Assert.Equal(imported.Id, activeMemberships[0].StockId);
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_SectorPropagation_ConflictingSectorsAreSkippedAndCounted()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        var informationTechnology = new Sector
+        {
+            Id = 591401,
+            Name = "Information Technology",
+            NormalizedName = "INFORMATION TECHNOLOGY",
+            SortOrder = 0,
+            IsArchived = false,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var healthcare = new Sector
+        {
+            Id = 591402,
+            Name = "Health Care",
+            NormalizedName = "HEALTH CARE",
+            SortOrder = 0,
+            IsArchived = false,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.AddRange(informationTechnology, healthcare);
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5914,
+            Name = "ISIN Conflict Test",
+            NormalizedName = "ISIN CONFLICT TEST",
+            Code = "ICT5914",
+            NormalizedCode = "ICT5914",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.AddRange(
+            new Stock
+            {
+                Id = 59141,
+                Ticker = "MSFT",
+                Name = "Microsoft NYSE Tracked",
+                CommonName = "Microsoft NYSE Tracked",
+                Exchange = StockExchanges.Nyse,
+                ProviderSymbol = "MSFT.NY",
+                Isin = "US5949181045",
+                SectorId = healthcare.Id,
+                TrackingStatus = StockTrackingStatus.Tracked,
+                UpdatedAt = now
+            },
+            new Stock
+            {
+                Id = 59142,
+                Ticker = "MSF",
+                Name = "Microsoft Frankfurt",
+                CommonName = "Microsoft Frankfurt",
+                Exchange = StockExchanges.Frankfurt,
+                ProviderSymbol = "MSF",
+                Isin = "US5949181045",
+                TrackingStatus = StockTrackingStatus.CatalogOnly,
+                UpdatedAt = now
+            });
+        await context.SaveChangesAsync();
+
+        var provider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            [
+                new IndexConstituentEntry("MSFT", "MSFT", "Microsoft Corporation", StockExchanges.Nasdaq, "US5949181045", "870747", "Information Technology")
+            ]));
+
+        var controller = CreateController(context, provider: provider);
+        var refresh = await controller.RefreshConstituents(5914);
+        var ok = Assert.IsType<OkObjectResult>(refresh.Result);
+        var payload = Assert.IsType<IndexConstituentsRefreshResponse>(ok.Value);
+        Assert.Equal(1, payload.Conflicts);
+
+        var nyse = await context.Stocks.Include(x => x.Sector).SingleAsync(x => x.Id == 59141);
+        Assert.Equal("Health Care", nyse.Sector?.Name);
+
+        var frankfurt = await context.Stocks.Include(x => x.Sector).SingleAsync(x => x.Id == 59142);
+        Assert.Null(frankfurt.SectorId);
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_WithIndustryClassification_DoesNotClearOrOverwriteIndustry()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        var informationTechnology = new Sector
+        {
+            Id = 591501,
+            Name = "Information Technology",
+            NormalizedName = "INFORMATION TECHNOLOGY",
+            SortOrder = 0,
+            IsArchived = false,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var healthcare = new Sector
+        {
+            Id = 591502,
+            Name = "Health Care",
+            NormalizedName = "HEALTH CARE",
+            SortOrder = 0,
+            IsArchived = false,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var pharmaceuticals = new Industry
+        {
+            Id = 591503,
+            Name = "Pharmaceuticals",
+            NormalizedName = "PHARMACEUTICALS",
+            SectorId = healthcare.Id,
+            SortOrder = 0,
+            IsArchived = false,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.AddRange(informationTechnology, healthcare);
+        context.Industries.Add(pharmaceuticals);
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5915,
+            Name = "Industry Preserve Test",
+            NormalizedName = "INDUSTRY PRESERVE TEST",
+            Code = "IPR5915",
+            NormalizedCode = "IPR5915",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.Add(new Stock
+        {
+            Id = 59151,
+            Ticker = "PFE",
+            Name = "Pfizer Existing",
+            CommonName = "Pfizer Existing",
+            Exchange = StockExchanges.Nyse,
+            ProviderSymbol = "PFE",
+            Isin = "US7170811035",
+            SectorId = healthcare.Id,
+            IndustryId = pharmaceuticals.Id,
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            [
+                new IndexConstituentEntry("PFE", "PFE", "Pfizer Updated", StockExchanges.Nyse, "US7170811035", null, "Information Technology")
+            ]));
+
+        var controller = CreateController(context, provider: provider);
+        var refresh = await controller.RefreshConstituents(5915);
+        Assert.IsType<OkObjectResult>(refresh.Result);
+
+        var stock = await context.Stocks
+            .Include(x => x.Sector)
+            .Include(x => x.Industry)
+            .SingleAsync(x => x.Id == 59151);
+        Assert.Equal(pharmaceuticals.Id, stock.IndustryId);
+        Assert.Equal(healthcare.Id, stock.SectorId);
+        Assert.Equal("Health Care", stock.Sector?.Name);
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_InvalidOrMissingIsin_DoesNotPropagateByTickerOnly()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5916,
+            Name = "Ticker Only Test",
+            NormalizedName = "TICKER ONLY TEST",
+            Code = "TOK5916",
+            NormalizedCode = "TOK5916",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.Add(new Stock
+        {
+            Id = 59161,
+            Ticker = "AAPL",
+            Name = "Apple NYSE Existing",
+            CommonName = "Apple NYSE Existing",
+            Exchange = StockExchanges.Nyse,
+            ProviderSymbol = "AAPL.NY",
+            TrackingStatus = StockTrackingStatus.Tracked,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var provider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            [
+                new IndexConstituentEntry("AAPL", "AAPL", "Apple Invalid ISIN", StockExchanges.Nasdaq, "INVALID-ISIN", null, "Information Technology"),
+                new IndexConstituentEntry("AAPL", "AAPL", "Apple Inc.", StockExchanges.Nasdaq, "US0378331005", null, "Information Technology")
+            ]));
+
+        var controller = CreateController(context, provider: provider);
+        var refresh = await controller.RefreshConstituents(5916);
+        var ok = Assert.IsType<OkObjectResult>(refresh.Result);
+        var payload = Assert.IsType<IndexConstituentsRefreshResponse>(ok.Value);
+        Assert.Equal(1, payload.Conflicts);
+
+        var nyse = await context.Stocks.Include(x => x.Sector).SingleAsync(x => x.Id == 59161);
+        Assert.Null(nyse.SectorId);
+
+        var nasdaq = await context.Stocks.Include(x => x.Sector).SingleAsync(x => x.Exchange == StockExchanges.Nasdaq && x.ProviderSymbol == "AAPL");
+        Assert.Equal("US0378331005", nasdaq.Isin);
+        Assert.Equal("Information Technology", nasdaq.Sector?.Name);
+    }
+
+    [Fact]
+    public async Task RefreshConstituents_SectorPropagation_IsIdempotentAcrossRuns()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        var secondRun = now.AddMinutes(5);
+        context.MarketIndices.Add(new MarketIndex
+        {
+            Id = 5917,
+            Name = "Propagation Idempotency Test",
+            NormalizedName = "PROPAGATION IDEMPOTENCY TEST",
+            Code = "PIT5917",
+            NormalizedCode = "PIT5917",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Stocks.Add(new Stock
+        {
+            Id = 59171,
+            Ticker = "MSF",
+            Name = "Microsoft Frankfurt Existing",
+            CommonName = "Microsoft Frankfurt Existing",
+            Exchange = StockExchanges.Frankfurt,
+            ProviderSymbol = "MSF",
+            Isin = "US5949181045",
+            TrackingStatus = StockTrackingStatus.CatalogOnly,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        IndexConstituentEntry[] entries =
+        [
+            new IndexConstituentEntry("MSFT", "MSFT", "Microsoft Corporation", StockExchanges.Nasdaq, "US5949181045", "870747", "Information Technology"),
+        ];
+        var firstProvider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            now,
+            entries));
+        var secondProvider = new StaticIndexConstituentsProvider(new IndexConstituentsResult(
+            IndexConstituentsStatus.Success,
+            "TestProvider",
+            secondRun,
+            entries));
+
+        var firstController = CreateController(context, provider: firstProvider);
+        var secondController = CreateController(context, provider: secondProvider);
+
+        Assert.IsType<OkObjectResult>((await firstController.RefreshConstituents(5917)).Result);
+        var firstTarget = await context.Stocks.AsNoTracking().SingleAsync(x => x.Id == 59171);
+        Assert.NotNull(firstTarget.SectorId);
+        Assert.Equal(now, firstTarget.UpdatedAt);
+
+        var secondResult = await secondController.RefreshConstituents(5917);
+        var secondOk = Assert.IsType<OkObjectResult>(secondResult.Result);
+        var secondPayload = Assert.IsType<IndexConstituentsRefreshResponse>(secondOk.Value);
+        Assert.Equal(0, secondPayload.Updated);
+
+        var secondTarget = await context.Stocks.AsNoTracking().SingleAsync(x => x.Id == 59171);
+        Assert.Equal(firstTarget.SectorId, secondTarget.SectorId);
+        Assert.Equal(now, secondTarget.UpdatedAt);
+        Assert.Equal(2, await context.Stocks.CountAsync());
+        Assert.Equal(1, await context.StockMarketIndices.CountAsync(x => x.MarketIndexId == 5917 && x.EffectiveTo == null));
+    }
+
+    [Fact]
     public async Task RefreshConstituents_PartialInput_DoesNotCloseCurrentMemberships()
     {
         await using var context = await CreateSqliteContextAsync();
