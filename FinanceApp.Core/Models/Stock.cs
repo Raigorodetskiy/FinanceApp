@@ -56,6 +56,8 @@ public class Stock
     /// </summary>
     [MaxLength(300)]
     public string? CurrentPriceDelayWarning { get; set; }
+    public int? SectorId { get; set; }
+    public Sector? Sector { get; set; }
     public int? IndustryId { get; set; }
     public Industry? Industry { get; set; }
 

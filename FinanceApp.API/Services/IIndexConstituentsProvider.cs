@@ -15,7 +15,13 @@ public sealed record IndexConstituentEntry(
     /// <summary>Exchange code as reported by the provider.</summary>
     string? ProviderExchange,
     /// <summary>ISIN if reliably provided by the source; otherwise null.</summary>
-    string? Isin
+    string? Isin,
+    /// <summary>WKN if reliably provided by the source; otherwise null.</summary>
+    string? Wkn = null,
+    /// <summary>Provider-sector label when available.</summary>
+    string? Sector = null,
+    /// <summary>Provider-industry label when available.</summary>
+    string? Industry = null
 );
 
 /// <summary>

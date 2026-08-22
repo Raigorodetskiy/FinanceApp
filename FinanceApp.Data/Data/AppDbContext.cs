@@ -518,6 +518,12 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.IndustryId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
+            entity.HasOne(x => x.Sector)
+                .WithMany()
+                .HasForeignKey(x => x.SectorId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+            entity.HasIndex(x => x.SectorId);
             entity.HasIndex(x => x.IndustryId);
             // TrackingStatus: stored as int, always written by the application (ValueGeneratedNever)
             // so EF never omits the column from INSERT even when the value is CatalogOnly = 0

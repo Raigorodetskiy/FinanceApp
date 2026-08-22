@@ -288,3 +288,20 @@ describe('Stocks table – classification columns removed (regression)', () => {
     expect((mod as Record<string, unknown>)['INDUSTRY_COL_WIDTH']).toBeUndefined();
   });
 });
+
+describe('Stocks catalog – scoped UI removals and classification badges', () => {
+  it('does not render metadata-enrichment button in catalog header', () => {
+    expect(pageSource).not.toContain('Обогатить метаданные');
+  });
+
+  it('does not use checkbox selection column in catalog table', () => {
+    expect(pageSource).not.toContain('rowSelection={{');
+    expect(pageSource).not.toContain('selectedCatalogStockIds');
+  });
+
+  it('renders compact classification badges next to stock names', () => {
+    expect(pageSource).toContain('StockClassificationBadges');
+    expect(pageSource).toContain('sector={stock.industry?.sector?.name ?? stock.sector?.name ?? null}');
+    expect(pageSource).toContain('industry={stock.industry?.name ?? null}');
+  });
+});

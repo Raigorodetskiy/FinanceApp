@@ -37,11 +37,6 @@ import {
   getStockPrice,
   trackStock,
   untrackStock,
-  createStockMetadataEnrichmentJob,
-  getStockMetadataEnrichmentJob,
-  getStockMetadataEnrichmentResults,
-  applyStockMetadataEnrichmentJob,
-  reviewStockMetadataEnrichmentResult,
 } from '../services/api';
 import AuthenticatedShell from '../components/AuthenticatedShell';
 import StockEditModal, {
@@ -52,12 +47,8 @@ import StockEditModal, {
 import StockPriceChart from '../components/StockPriceChart';
 import StockFundamentalsDrawer from '../components/StockFundamentalsDrawer';
 import StockExchangeTag from '../components/StockExchangeTag';
+import StockClassificationBadges from '../components/StockClassificationBadges';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  StockMetadataEnrichmentScope,
-  StockMetadataEnrichmentJobStatus,
-  StockMetadataEnrichmentDecision,
-} from '../types';
 import type {
   Portfolio,
   MarketIndex,
@@ -67,8 +58,6 @@ import type {
   StockTrackingStatus,
   StockQuoteResponse,
   UpdateStockQuoteRequest,
-  StockMetadataEnrichmentJob,
-  StockMetadataEnrichmentResult,
 } from '../types';
 import { groupStocks } from '../utils/stockGrouping';
 import { isQuoteDelayed } from '../utils/quote';
@@ -321,17 +310,10 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
   const [performanceMap, setPerformanceMap] = useState<PerformanceMap>(new Map());
   const [performanceLoading, setPerformanceLoading] = useState(false);
   const [performanceError, setPerformanceError] = useState<string | null>(null);
-  const [selectedCatalogStockIds, setSelectedCatalogStockIds] = useState<number[]>([]);
-  const [metadataJobId, setMetadataJobId] = useState<string | null>(null);
-  const [metadataJob, setMetadataJob] = useState<StockMetadataEnrichmentJob | null>(null);
-  const [metadataResults, setMetadataResults] = useState<StockMetadataEnrichmentResult[]>([]);
-  const [metadataLoading, setMetadataLoading] = useState(false);
-  const [metadataApplying, setMetadataApplying] = useState(false);
   const { user, logout } = useAuth();
   const stocksRef = useRef<Stock[]>([]);
   const performanceAbortRef = useRef<AbortController | null>(null);
   const performanceRequestIdRef = useRef(0);
-  const metadataPollRef = useRef<number | null>(null);
   const catalogSortModeRef = useRef<CatalogSortMode>(CATALOG_SORT_NAME_MODE);
   catalogSortModeRef.current = catalogSortMode;
   const portfolioStockIds = useMemo(() => {
@@ -468,96 +450,6 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
   const handleCatalogSortDirectionToggle = useCallback(() => {
     setCatalogSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'));
   }, []);
-
-  const loadMetadataJob = useCallback(async (jobId: string) => {
-    const [jobResponse, resultsResponse] = await Promise.all([
-      getStockMetadataEnrichmentJob(jobId),
-      getStockMetadataEnrichmentResults(jobId, 1, 50),
-    ]);
-    setMetadataJob(jobResponse.data);
-    setMetadataResults(resultsResponse.data.items);
-  }, []);
-
-  useEffect(() => {
-    if (!metadataJobId) {
-      return undefined;
-    }
-
-    const poll = async () => {
-      try {
-        await loadMetadataJob(metadataJobId);
-      } catch {
-        // ignore transient polling errors
-      }
-    };
-
-    void poll();
-    metadataPollRef.current = window.setInterval(() => {
-      void poll();
-    }, 4000);
-
-    return () => {
-      if (metadataPollRef.current !== null) {
-        window.clearInterval(metadataPollRef.current);
-        metadataPollRef.current = null;
-      }
-    };
-  }, [metadataJobId, loadMetadataJob]);
-
-  const handleStartMetadataEnrichment = useCallback(async () => {
-    try {
-      setMetadataLoading(true);
-      const useSelected = selectedCatalogStockIds.length > 0;
-      const response = await createStockMetadataEnrichmentJob(
-        useSelected ? StockMetadataEnrichmentScope.Selected : StockMetadataEnrichmentScope.MissingOnly,
-        true,
-        useSelected ? selectedCatalogStockIds : undefined,
-      );
-      setMetadataJobId(response.data.jobId);
-      message.success('Dry-run обогащения запущен');
-    } catch (error) {
-      message.error(axios.isAxiosError(error) && typeof error.response?.data === 'string'
-        ? error.response.data
-        : 'Не удалось запустить обогащение');
-    } finally {
-      setMetadataLoading(false);
-    }
-  }, [selectedCatalogStockIds]);
-
-  const handleApplyMetadata = useCallback(async () => {
-    if (!metadataJobId) {
-      return;
-    }
-
-    try {
-      setMetadataApplying(true);
-      await applyStockMetadataEnrichmentJob(metadataJobId, false);
-      message.success('Подтверждённые результаты применены');
-      await loadMetadataJob(metadataJobId);
-      const stocksRes = isCatalogMode ? await getStockCatalog() : await getTrackedStocks();
-      setStocks(stocksRes.data);
-      stocksRef.current = stocksRes.data;
-    } catch (error) {
-      message.error(axios.isAxiosError(error) && typeof error.response?.data === 'string'
-        ? error.response.data
-        : 'Не удалось применить результаты');
-    } finally {
-      setMetadataApplying(false);
-    }
-  }, [isCatalogMode, metadataJobId, loadMetadataJob]);
-
-  const handleReviewMetadataResult = useCallback(async (resultId: number, approve: boolean) => {
-    if (!metadataJobId) {
-      return;
-    }
-
-    try {
-      await reviewStockMetadataEnrichmentResult(metadataJobId, resultId, approve);
-      await loadMetadataJob(metadataJobId);
-    } catch {
-      message.error('Не удалось сохранить решение ревью');
-    }
-  }, [metadataJobId, loadMetadataJob]);
 
   useEffect(() => {
     if (!isCatalogMode) return;
@@ -896,6 +788,10 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={CELL_BASE_STYLE}>
               <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
+              <StockClassificationBadges
+                sector={stock.industry?.sector?.name ?? stock.sector?.name ?? null}
+                industry={stock.industry?.name ?? null}
+              />
             </div>
             {stock.commonName && stock.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 16 }} ellipsis={{ tooltip: stock.commonName }}>
@@ -1228,13 +1124,6 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
                   allowClear
                   style={{ width: 320 }}
                 />
-                <Button
-                  icon={<InfoCircleOutlined />}
-                  loading={metadataLoading}
-                  onClick={handleStartMetadataEnrichment}
-                >
-                  Обогатить метаданные
-                </Button>
               </>
             )}
             <Button
@@ -1256,52 +1145,6 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
             <Text type="secondary">Нет акций по выбранным фильтрам</Text>
           ) : (
             <>
-              {metadataJob && (
-                <div style={{ marginBottom: 12, border: '1px solid #d9d9d9', borderRadius: 8, padding: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <Text style={{ fontSize: 16 }}>
-                      Job: {StockMetadataEnrichmentJobStatus[metadataJob.status]} · {metadataJob.processedStocks}/{metadataJob.totalStocks}
-                      {' · '}ISIN конфликты: {metadataJob.conflictStocks}
-                      {' · '}Review: {metadataJob.reviewStocks}
-                      {' · '}Rate-limit: {metadataJob.rateLimitedStocks}
-                      {' · '}NotFound: {metadataJob.notFoundStocks}
-                      {' · '}Ошибки: {metadataJob.failedStocks}
-                    </Text>
-                    <Button
-                      type="primary"
-                      disabled={!(metadataJob.status === StockMetadataEnrichmentJobStatus.Completed
-                        || metadataJob.status === StockMetadataEnrichmentJobStatus.CompletedWithWarnings)}
-                      loading={metadataApplying}
-                      onClick={handleApplyMetadata}
-                    >
-                      Применить подтверждённые
-                    </Button>
-                  </div>
-                  <Table
-                    style={{ marginTop: 10 }}
-                    size="small"
-                    pagination={false}
-                    rowKey="id"
-                    dataSource={metadataResults}
-                    columns={[
-                      { title: 'StockId', dataIndex: 'stockId', width: 90 },
-                      { title: 'ISIN', render: (_, row) => `${row.oldIsin ?? '—'} → ${row.candidateIsin ?? '—'} (${StockMetadataEnrichmentDecision[row.isinDecision]})` },
-                      { title: 'WKN', render: (_, row) => `${row.oldWkn ?? '—'} → ${row.candidateWkn ?? '—'} (${StockMetadataEnrichmentDecision[row.wknDecision]})` },
-                      { title: 'Industry', render: (_, row) => `${row.oldIndustryId ?? '—'} → ${row.candidateIndustryId ?? '—'} (${StockMetadataEnrichmentDecision[row.industryDecision]})` },
-                      { title: 'Source', render: (_, row) => row.isinSource ?? row.industrySource ?? '—' },
-                      {
-                        title: 'Решение',
-                        render: (_, row) => (
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <Button size="small" onClick={() => handleReviewMetadataResult(row.id, true)}>Approve</Button>
-                            <Button size="small" danger onClick={() => handleReviewMetadataResult(row.id, false)}>Reject</Button>
-                          </div>
-                        ),
-                      },
-                    ]}
-                  />
-                </div>
-              )}
               {performanceError && (
                 <div style={{ marginBottom: 8, color: '#cf1322' }}>{performanceError}</div>
               )}
@@ -1323,11 +1166,6 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
                   showSizeChanger: false,
                   showTotal: (total) => `Всего: ${total}`,
                   onChange: (page) => setCatalogPage(page),
-                }}
-                rowSelection={{
-                  selectedRowKeys: selectedCatalogStockIds,
-                  onChange: (keys) => setSelectedCatalogStockIds(keys.map((x) => Number(x))),
-                  preserveSelectedRowKeys: true,
                 }}
                 rowClassName={(record: TableRow) => {
                   if (isChartRow(record)) return 'chart-panel-row';

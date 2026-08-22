@@ -336,6 +336,10 @@ public class MarketIndicesController : ControllerBase
 
         var membershipsQuery = _context.StockMarketIndices
             .Include(x => x.Stock)
+            .ThenInclude(x => x.Sector)
+            .Include(x => x.Stock)
+            .ThenInclude(x => x.Industry)
+            .ThenInclude(x => x!.Sector)
             .Where(x => x.MarketIndexId == id);
 
         if (!includeFormer)
@@ -355,6 +359,8 @@ public class MarketIndicesController : ControllerBase
             ProviderSymbol = x.Stock.ProviderSymbol,
             Name = x.Stock.Name,
             CommonName = x.Stock.CommonName,
+            Sector = x.Stock.Industry?.Sector?.Name ?? x.Stock.Sector?.Name,
+            Industry = x.Stock.Industry?.Name,
             Exchange = x.Stock.Exchange,
             Isin = x.Stock.Isin,
             Wkn = x.Stock.Wkn,
@@ -528,7 +534,7 @@ public class MarketIndicesController : ControllerBase
             var now = providerResult.FetchedAt;
             int added = 0, updated = 0, unchanged = 0, closed = 0, conflicts = 0;
 
-            var normalizedConstituents = new List<(string Ticker, string ProviderSymbol, string CompanyName, string Exchange, string? Isin)>();
+            var normalizedConstituents = new List<(string Ticker, string ProviderSymbol, string CompanyName, string Exchange, string? Isin, string? Wkn, string? Sector, string? Industry)>();
             var sourceIdentities = new HashSet<string>(StringComparer.Ordinal);
             foreach (var constituent in providerResult.Constituents)
             {
@@ -539,6 +545,9 @@ public class MarketIndicesController : ControllerBase
                 var exchangeRaw = constituent.ProviderExchange?.Trim();
                 var providerSymbol = constituent.ProviderSymbol?.Trim();
                 var normalizedIsin = StockIdentifiers.Normalize(constituent.Isin);
+                var normalizedWkn = StockIdentifiers.Normalize(constituent.Wkn);
+                var normalizedSector = NormalizeConstituentClassification(constituent.Sector);
+                var normalizedIndustry = NormalizeConstituentClassification(constituent.Industry);
 
                 if (string.IsNullOrWhiteSpace(ticker)
                     || string.IsNullOrWhiteSpace(companyName)
@@ -550,6 +559,11 @@ public class MarketIndicesController : ControllerBase
                 }
 
                 if (normalizedIsin is not null && !StockIdentifiers.IsValidIsin(normalizedIsin))
+                {
+                    conflicts++;
+                    continue;
+                }
+                if (normalizedWkn is not null && !StockIdentifiers.IsValidWkn(normalizedWkn))
                 {
                     conflicts++;
                     continue;
@@ -569,7 +583,7 @@ public class MarketIndicesController : ControllerBase
                     continue;
                 }
 
-                normalizedConstituents.Add((ticker, providerSymbol, companyName, normalizedExchange, normalizedIsin));
+                normalizedConstituents.Add((ticker, providerSymbol, companyName, normalizedExchange, normalizedIsin, normalizedWkn, normalizedSector, normalizedIndustry));
             }
 
             var effectiveStatus = providerResult.Status;
@@ -593,15 +607,31 @@ public class MarketIndicesController : ControllerBase
                 .Select(c => c.Ticker)
                 .ToHashSet(StringComparer.Ordinal);
 
+            var sectorKeys = normalizedConstituents
+                .Select(c => c.Sector)
+                .Where(x => x is not null)
+                .Select(x => Normalize(x!))
+                .Where(x => x.Length > 0)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var sectorsByNormalizedName = await _context.Sectors
+                .Where(x => sectorKeys.Contains(x.NormalizedName))
+                .ToDictionaryAsync(x => x.NormalizedName, x => x, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
             var existingStocks = await _context.Stocks
                 .Where(s =>
                     (s.ProviderSymbol != null && allProviderSymbols.Contains(s.ProviderSymbol)) ||
                     allTickers.Contains(s.Ticker))
                 .ToListAsync(cancellationToken);
 
-            var byProviderSymbol = existingStocks
+            var industrySectorMap = await _context.Industries
+                .AsNoTracking()
+                .Select(x => new { x.Id, x.SectorId })
+                .ToDictionaryAsync(x => x.Id, x => x.SectorId, cancellationToken);
+
+            var byProviderSymbolExchange = existingStocks
                 .Where(s => s.ProviderSymbol != null)
-                .GroupBy(s => s.ProviderSymbol!)
+                .GroupBy(s => $"{s.ProviderSymbol}|{s.Exchange}")
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
             var byTickerExchange = existingStocks
@@ -616,13 +646,33 @@ public class MarketIndicesController : ControllerBase
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
+                    Sector? resolvedSector = null;
+                    if (!string.IsNullOrWhiteSpace(constituent.Sector))
+                    {
+                        var sectorKey = Normalize(constituent.Sector)!;
+                        if (!sectorsByNormalizedName.TryGetValue(sectorKey, out resolvedSector))
+                        {
+                            resolvedSector = new Sector
+                            {
+                                Name = constituent.Sector!,
+                                NormalizedName = sectorKey,
+                                SortOrder = 0,
+                                IsArchived = false,
+                                CreatedAtUtc = now,
+                                UpdatedAtUtc = now
+                            };
+                            _context.Sectors.Add(resolvedSector);
+                            sectorsByNormalizedName[sectorKey] = resolvedSector;
+                        }
+                    }
+
                     // Listing identity is exchange/provider-symbol/ticker specific.
                     // ISIN is security-level metadata and may legitimately be shared by multiple listings.
                     // Deduplication therefore uses concrete listing identity only.
                     Stock? stock = null;
 
                     if (stock is null)
-                        byProviderSymbol.TryGetValue(constituent.ProviderSymbol, out stock);
+                        byProviderSymbolExchange.TryGetValue($"{constituent.ProviderSymbol}|{constituent.Exchange}", out stock);
 
                     if (stock is null)
                         byTickerExchange.TryGetValue($"{constituent.Ticker}|{constituent.Exchange}", out stock);
@@ -636,12 +686,14 @@ public class MarketIndicesController : ControllerBase
                             CommonName = constituent.CompanyName,
                             Exchange = constituent.Exchange,
                             Isin = constituent.Isin,
+                            Wkn = constituent.Wkn,
+                            Sector = resolvedSector,
                             ProviderSymbol = constituent.ProviderSymbol,
                             TrackingStatus = StockTrackingStatus.CatalogOnly,
                             UpdatedAt = now,
                         };
                         _context.Stocks.Add(stock);
-                        byProviderSymbol[stock.ProviderSymbol!] = stock;
+                        byProviderSymbolExchange[$"{stock.ProviderSymbol}|{stock.Exchange}"] = stock;
                         byTickerExchange[$"{stock.Ticker}|{stock.Exchange}"] = stock;
                         stocksToEnrich.Add(stock);
                     }
@@ -661,6 +713,25 @@ public class MarketIndicesController : ControllerBase
                         if (stock.Isin is null && constituent.Isin is not null)
                         {
                             stock.Isin = constituent.Isin;
+                            stockChanged = true;
+                        }
+                        if (stock.Wkn is null && constituent.Wkn is not null)
+                        {
+                            stock.Wkn = constituent.Wkn;
+                            stockChanged = true;
+                        }
+                        if (resolvedSector is not null && stock.SectorId != resolvedSector.Id)
+                        {
+                            stock.Sector = resolvedSector;
+                            stockChanged = true;
+                        }
+                        if (stock.IndustryId is int industryId
+                            && resolvedSector is not null
+                            && industrySectorMap.TryGetValue(industryId, out var industrySectorId)
+                            && industrySectorId != resolvedSector.Id)
+                        {
+                            stock.IndustryId = null;
+                            stock.Industry = null;
                             stockChanged = true;
                         }
                         if (string.IsNullOrWhiteSpace(stock.ProviderSymbol))
@@ -1236,6 +1307,9 @@ public class MarketIndicesController : ControllerBase
             CreatedAt = marketIndex.CreatedAt,
             UpdatedAt = marketIndex.UpdatedAt
         };
+
+    private static string? NormalizeConstituentClassification(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
