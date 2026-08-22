@@ -102,7 +102,7 @@ describe('IndexConstituentsPanel 24h performance integration', () => {
     expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('2'));
   });
 
-  it('renders visible classification text in constituent table without legacy compact tags', async () => {
+  it('renders compact right-aligned classification codes in constituent table', async () => {
     render(<IndexConstituentsPanel indexId={1} isArchived={false} />);
     await waitFor(() => expect(screen.getAllByText('DAXA').length).toBeGreaterThan(0));
 
@@ -113,12 +113,17 @@ describe('IndexConstituentsPanel 24h performance integration', () => {
     expect(otherRow).not.toBeNull();
     expect(noneRow).not.toBeNull();
 
-    expect(screen.getByText('Information Technology · Software')).toBeInTheDocument();
-    expect(screen.getByText('Financials')).toBeInTheDocument();
+    expect(screen.getByText('IT')).toBeInTheDocument();
+    expect(screen.getByText('FIN')).toBeInTheDocument();
+    expect(screen.queryByText('Information Technology')).not.toBeInTheDocument();
+    expect(screen.queryByText('Financials')).not.toBeInTheDocument();
     expect(screen.queryByText('СЕК')).not.toBeInTheDocument();
     expect(screen.queryByText('ОТР')).not.toBeInTheDocument();
 
-    expect((daxRow as HTMLElement).querySelector('[aria-label="Классификация: Information Technology · Software"]')).not.toBeNull();
+    const classification = (daxRow as HTMLElement).querySelector('[aria-label="Классификация: Information Technology · Software"]');
+    expect(classification).not.toBeNull();
+    expect(classification).toHaveAttribute('title', 'Information Technology · Software');
+    expect(classification).toHaveStyle({ marginLeft: 'auto', textAlign: 'right', fontSize: '14px' });
     expect((noneRow as HTMLElement).querySelector('[aria-label^="Классификация:"]')).toBeNull();
   });
 

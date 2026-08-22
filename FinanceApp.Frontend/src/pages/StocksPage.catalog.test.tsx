@@ -281,7 +281,7 @@ describe('StocksPage catalog mode', () => {
     expect(screen.queryByRole('heading', { name: 'Портфель' })).not.toBeInTheDocument();
   });
 
-  it('renders visible classification text lines with expected separator behavior', async () => {
+  it('renders compact right-aligned classification codes with full tooltip/aria text', async () => {
     renderPage('catalog');
     await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
 
@@ -294,14 +294,17 @@ describe('StocksPage catalog mode', () => {
     expect(mcdRow).not.toBeNull();
     expect(bmwRow).not.toBeNull();
 
-    expect(within(appleRow as HTMLElement).getByText('Information Technology · Software')).toBeInTheDocument();
-    expect(within(basfRow as HTMLElement).getByText('Materials')).toBeInTheDocument();
-    expect(within(mcdRow as HTMLElement).getByText('Restaurants')).toBeInTheDocument();
-    expect(within(mcdRow as HTMLElement).queryByText('· Restaurants')).not.toBeInTheDocument();
+    expect(within(appleRow as HTMLElement).getByText('IT')).toBeInTheDocument();
+    expect(within(basfRow as HTMLElement).getByText('MAT')).toBeInTheDocument();
+    expect(within(mcdRow as HTMLElement).getByText('REST')).toBeInTheDocument();
+    expect(within(appleRow as HTMLElement).queryByText('Information Technology')).not.toBeInTheDocument();
+    expect(within(basfRow as HTMLElement).queryByText('Materials')).not.toBeInTheDocument();
+    expect(within(mcdRow as HTMLElement).queryByText('Restaurants')).not.toBeInTheDocument();
     expect(within(bmwRow as HTMLElement).queryByLabelText(/Классификация:/)).not.toBeInTheDocument();
 
     const appleClassification = within(appleRow as HTMLElement).getByLabelText('Классификация: Information Technology · Software');
     expect(appleClassification).toHaveAttribute('title', 'Information Technology · Software');
+    expect(appleClassification).toHaveStyle({ marginLeft: 'auto', textAlign: 'right', fontSize: '14px' });
 
     expect(screen.queryByText('СЕК')).not.toBeInTheDocument();
     expect(screen.queryByText('ОТР')).not.toBeInTheDocument();
