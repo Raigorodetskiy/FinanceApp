@@ -614,9 +614,22 @@ public class MarketIndicesController : ControllerBase
                 .Where(x => x.Length > 0)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            var importedSectorKeysByIsin = normalizedConstituents
+                .Where(c => c.Isin is not null && c.Sector is not null)
+                .GroupBy(c => c.Isin!, StringComparer.Ordinal)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(c => Normalize(c.Sector!))
+                        .Where(x => x.Length > 0)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    StringComparer.Ordinal);
+
             var sectorsByNormalizedName = await _context.Sectors
                 .Where(x => sectorKeys.Contains(x.NormalizedName))
                 .ToDictionaryAsync(x => x.NormalizedName, x => x, StringComparer.OrdinalIgnoreCase, cancellationToken);
+            var sectorById = sectorsByNormalizedName.Values
+                .Where(x => x.Id > 0)
+                .ToDictionary(x => x.Id, x => x);
 
             var existingStocks = await _context.Stocks
                 .Where(s =>
@@ -720,18 +733,11 @@ public class MarketIndicesController : ControllerBase
                             stock.Wkn = constituent.Wkn;
                             stockChanged = true;
                         }
-                        if (resolvedSector is not null && stock.SectorId != resolvedSector.Id)
+                        if (resolvedSector is not null
+                            && stock.SectorId != resolvedSector.Id
+                            && CanApplySectorToStock(stock, resolvedSector.Id, industrySectorMap))
                         {
                             stock.Sector = resolvedSector;
-                            stockChanged = true;
-                        }
-                        if (stock.IndustryId is int industryId
-                            && resolvedSector is not null
-                            && industrySectorMap.TryGetValue(industryId, out var industrySectorId)
-                            && industrySectorId != resolvedSector.Id)
-                        {
-                            stock.IndustryId = null;
-                            stock.Industry = null;
                             stockChanged = true;
                         }
                         if (string.IsNullOrWhiteSpace(stock.ProviderSymbol))
@@ -798,6 +804,85 @@ public class MarketIndicesController : ControllerBase
                     {
                         membership.EffectiveTo = now;
                         closed++;
+                    }
+                }
+
+                var propagationIsins = importedSectorKeysByIsin.Keys.ToHashSet(StringComparer.Ordinal);
+                if (propagationIsins.Count > 0)
+                {
+                    var stocksWithMatchingIsin = await _context.Stocks
+                        .Where(x => x.Isin != null && propagationIsins.Contains(x.Isin))
+                        .ToListAsync(cancellationToken);
+
+                    var effectiveSectorIds = stocksWithMatchingIsin
+                        .Select(x => GetEffectiveSectorId(x, industrySectorMap))
+                        .Where(x => x is not null)
+                        .Select(x => x!.Value)
+                        .Distinct()
+                        .ToArray();
+
+                    if (effectiveSectorIds.Length > 0)
+                    {
+                        var additionalSectors = await _context.Sectors
+                            .Where(x => effectiveSectorIds.Contains(x.Id))
+                            .ToListAsync(cancellationToken);
+
+                        foreach (var sector in additionalSectors)
+                        {
+                            sectorById[sector.Id] = sector;
+                        }
+                    }
+
+                    foreach (var group in stocksWithMatchingIsin
+                                 .Where(x => x.Isin is not null)
+                                 .GroupBy(x => x.Isin!, StringComparer.Ordinal))
+                    {
+                        if (!importedSectorKeysByIsin.TryGetValue(group.Key, out var sourceSectorKeys)
+                            || sourceSectorKeys.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var effectiveSectorKeys = new HashSet<string>(sourceSectorKeys, StringComparer.OrdinalIgnoreCase);
+                        foreach (var stock in group)
+                        {
+                            var effectiveSectorId = GetEffectiveSectorId(stock, industrySectorMap);
+                            if (effectiveSectorId is int sectorId
+                                && sectorById.TryGetValue(sectorId, out var sector))
+                            {
+                                effectiveSectorKeys.Add(sector.NormalizedName);
+                            }
+                        }
+
+                        if (effectiveSectorKeys.Count != 1)
+                        {
+                            conflicts++;
+                            continue;
+                        }
+
+                        var propagationSectorKey = effectiveSectorKeys.First();
+                        if (!sectorsByNormalizedName.TryGetValue(propagationSectorKey, out var propagationSector))
+                        {
+                            continue;
+                        }
+
+                        foreach (var targetStock in group)
+                        {
+                            if (targetStock.SectorId is not null)
+                            {
+                                continue;
+                            }
+
+                            if (targetStock.IndustryId is int industryId
+                                && industrySectorMap.ContainsKey(industryId))
+                            {
+                                continue;
+                            }
+
+                            targetStock.Sector = propagationSector;
+                            targetStock.UpdatedAt = now;
+                            updated++;
+                        }
                     }
                 }
 
@@ -1316,6 +1401,28 @@ public class MarketIndicesController : ControllerBase
 
     private static string? NormalizeProviderSymbol(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool CanApplySectorToStock(Stock stock, int sectorId, IReadOnlyDictionary<int, int> industrySectorMap)
+    {
+        if (stock.IndustryId is not int industryId)
+        {
+            return true;
+        }
+
+        return !industrySectorMap.TryGetValue(industryId, out var industrySectorId)
+               || industrySectorId == sectorId;
+    }
+
+    private static int? GetEffectiveSectorId(Stock stock, IReadOnlyDictionary<int, int> industrySectorMap)
+    {
+        if (stock.IndustryId is int industryId
+            && industrySectorMap.TryGetValue(industryId, out var industrySectorId))
+        {
+            return industrySectorId;
+        }
+
+        return stock.SectorId;
+    }
 
     private static bool IsDuplicateKeyException(DbUpdateException ex)
     {
