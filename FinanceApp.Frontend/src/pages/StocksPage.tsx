@@ -155,7 +155,8 @@ export const STOCKS_RIGHT_ALIGNED_MONEY_KEYS = ['savedPrice', 'changeEur', 'apiP
 const ELLIPSIS_STYLE: React.CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const CELL_BASE_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 };
 const CELL_NOWRAP_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, whiteSpace: 'nowrap' };
-const FLEX_MIN_WIDTH_STYLE: React.CSSProperties = { minWidth: 0, flex: 1 };
+const NAME_WITH_CLASSIFICATION_ROW_STYLE: React.CSSProperties = { ...CELL_BASE_STYLE, width: '100%' };
+const NAME_TEXT_STYLE: React.CSSProperties = { minWidth: 0, flex: '1 1 auto', fontSize: 16 };
 const TRACKING_STATUS_CATALOG_ONLY: StockTrackingStatus = 0;
 
 type LivePriceEntry = {
@@ -786,13 +787,13 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
         const stock = record as Stock;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={CELL_BASE_STYLE}>
-              <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
+            <div style={NAME_WITH_CLASSIFICATION_ROW_STYLE}>
+              <Text style={NAME_TEXT_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
+              <StockClassificationBadges
+                sector={stock.industry?.sector?.name ?? stock.sector?.name ?? null}
+                industry={stock.industry?.name ?? null}
+              />
             </div>
-            <StockClassificationBadges
-              sector={stock.industry?.sector?.name ?? stock.sector?.name ?? null}
-              industry={stock.industry?.name ?? null}
-            />
             {stock.commonName && stock.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 16 }} ellipsis={{ tooltip: stock.commonName }}>
                 {stock.commonName}

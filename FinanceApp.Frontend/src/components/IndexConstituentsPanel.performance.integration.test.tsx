@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import IndexConstituentsPanel from './IndexConstituentsPanel';
@@ -118,7 +118,14 @@ describe('IndexConstituentsPanel 24h performance integration', () => {
     expect(screen.queryByText('СЕК')).not.toBeInTheDocument();
     expect(screen.queryByText('ОТР')).not.toBeInTheDocument();
 
-    expect((daxRow as HTMLElement).querySelector('[aria-label="Классификация: Information Technology · Software"]')).not.toBeNull();
+    const daxName = within(daxRow as HTMLElement).getByText('Dax Member');
+    const daxClassification = within(daxRow as HTMLElement).getByLabelText('Классификация: Information Technology · Software');
+    expect(daxClassification).toHaveAttribute('title', 'Information Technology · Software');
+    expect(daxClassification.parentElement).toContainElement(daxName);
+    expect(daxClassification.parentElement).toHaveStyle({ display: 'flex', width: '100%' });
+    expect(daxName).toHaveStyle({ fontSize: '16px' });
+    expect(daxClassification).toHaveStyle({ marginLeft: 'auto', textAlign: 'right', fontSize: '14px' });
+    expect(daxClassification.closest('.ant-tag')).toBeNull();
     expect((noneRow as HTMLElement).querySelector('[aria-label^="Классификация:"]')).toBeNull();
   });
 

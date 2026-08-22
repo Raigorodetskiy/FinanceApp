@@ -31,6 +31,11 @@ describe('StockClassificationBadges', () => {
     render(<StockClassificationBadges sector="Information Technology" industry="Software" />);
     const classification = screen.getByLabelText('Классификация: Information Technology · Software');
     expect(classification).toHaveAttribute('title', 'Information Technology · Software');
+    expect(classification).toHaveStyle({
+      marginLeft: 'auto',
+      textAlign: 'right',
+      fontSize: '14px',
+    });
   });
 
   it('does not render anything when both values are absent', () => {

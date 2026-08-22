@@ -249,6 +249,8 @@ const TABLE_SCROLL_X =
   + PRICE_TIME_COL_WIDTH
   + ACTIONS_COL_WIDTH;
 const PRICE_TIME_FORMAT = 'DD.MM.YY HH:mm';
+const NAME_WITH_CLASSIFICATION_ROW_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, width: '100%' };
+const NAME_TEXT_STYLE: React.CSSProperties = { minWidth: 0, flex: '1 1 auto', fontSize: 16 };
 const COLOR_POSITIVE = '#389e0d';
 const COLOR_NEGATIVE = '#cf1322';
 const STALE_DELAY_LABEL = 'Задержано';
@@ -1004,21 +1006,21 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
       render: (name: string, record) => {
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return (
-          <Space direction="vertical" size={0}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <Text style={{ fontSize: 16 }} ellipsis={{ tooltip: name }}>{name}</Text>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <div style={NAME_WITH_CLASSIFICATION_ROW_STYLE}>
+              <Text style={NAME_TEXT_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
+              <StockClassificationBadges
+                sector={record.sector ?? null}
+                industry={record.industry ?? null}
+              />
             </div>
-            <StockClassificationBadges
-              sector={record.sector ?? null}
-              industry={record.industry ?? null}
-            />
             {record.commonName && record.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 16 }}>{record.commonName}</Text>
             )}
             {record.isin && (
               <Text type="secondary" style={{ fontSize: 16 }}>{record.isin}</Text>
             )}
-          </Space>
+          </div>
         );
       },
     },

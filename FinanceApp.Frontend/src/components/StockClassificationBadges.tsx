@@ -8,6 +8,17 @@ type Props = {
   industry?: string | null;
 };
 
+const CLASSIFICATION_STYLE: React.CSSProperties = {
+  marginLeft: 'auto',
+  paddingLeft: 12,
+  minWidth: 0,
+  maxWidth: '55%',
+  flex: '0 1 55%',
+  textAlign: 'right',
+  fontSize: 14,
+  lineHeight: '20px',
+};
+
 const buildClassificationText = (sector?: string | null, industry?: string | null): string | null => {
   if (sector && industry) {
     return `${sector} · ${industry}`;
@@ -29,7 +40,7 @@ const StockClassificationBadges: React.FC<Props> = ({ sector, industry }) => {
   return (
     <Text
       type="secondary"
-      style={{ display: 'block', fontSize: 16, lineHeight: 1.2 }}
+      style={CLASSIFICATION_STYLE}
       ellipsis={{ tooltip: classificationText }}
       title={classificationText}
       aria-label={`Классификация: ${classificationText}`}

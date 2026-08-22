@@ -300,8 +300,16 @@ describe('StocksPage catalog mode', () => {
     expect(within(mcdRow as HTMLElement).queryByText('· Restaurants')).not.toBeInTheDocument();
     expect(within(bmwRow as HTMLElement).queryByLabelText(/Классификация:/)).not.toBeInTheDocument();
 
+    const appleName = within(appleRow as HTMLElement).getByText('Apple Inc.');
     const appleClassification = within(appleRow as HTMLElement).getByLabelText('Классификация: Information Technology · Software');
+    const appleCommonName = within(appleRow as HTMLElement).getByText('Apple');
     expect(appleClassification).toHaveAttribute('title', 'Information Technology · Software');
+    expect(appleClassification.parentElement).toContainElement(appleName);
+    expect(appleClassification.parentElement).toHaveStyle({ display: 'flex', width: '100%' });
+    expect(appleName).toHaveStyle({ fontSize: '16px' });
+    expect(appleClassification).toHaveStyle({ marginLeft: 'auto', textAlign: 'right', fontSize: '14px' });
+    expect(appleClassification.closest('.ant-tag')).toBeNull();
+    expect(appleName.compareDocumentPosition(appleCommonName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     expect(screen.queryByText('СЕК')).not.toBeInTheDocument();
     expect(screen.queryByText('ОТР')).not.toBeInTheDocument();
