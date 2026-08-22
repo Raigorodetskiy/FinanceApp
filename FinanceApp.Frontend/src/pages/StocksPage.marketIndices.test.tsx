@@ -13,10 +13,12 @@ describe('StocksPage market indices form support', () => {
       commonName: 'Apple',
       exchange: 'NYSE',
       currentPrice: 100,
+      sectorId: 2,
       marketIndexIds: [1, 3],
     });
 
     expect(payload.marketIndexIds).toEqual([1, 3]);
+    expect(payload.sectorId).toBe(2);
   });
 
   it('includes selected market index ids in metadata update payload', () => {
@@ -25,9 +27,25 @@ describe('StocksPage market indices form support', () => {
       name: 'Apple Inc.',
       exchange: 'NYSE',
       currentPrice: 101,
+      sectorId: 4,
       marketIndexIds: [2],
     });
 
     expect(payload.marketIndexIds).toEqual([2]);
+    expect(payload.sectorId).toBe(4);
+  });
+
+  it('serializes classification clearing as nulls', () => {
+    const payload = buildCreateStockPayload({
+      ticker: 'AAPL',
+      name: 'Apple Inc.',
+      exchange: 'NYSE',
+      currentPrice: 101,
+      sectorId: undefined,
+      industryId: undefined,
+    });
+
+    expect(payload.sectorId).toBeNull();
+    expect(payload.industryId).toBeNull();
   });
 });

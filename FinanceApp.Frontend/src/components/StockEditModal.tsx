@@ -119,6 +119,7 @@ export const buildCreateStockPayload = (values: StockFormValues): CreateStockReq
     isin: normalizeId(values.isin),
     finanzenNetSlug: (values.finanzenNetSlug ?? '').trim().toLowerCase() || null,
     exchange: values.exchange,
+    sectorId: values.sectorId ?? null,
     industryId: values.industryId ?? null,
     marketIndexIds: values.marketIndexIds ?? [],
   };
@@ -133,6 +134,7 @@ export const buildUpdateStockMetadataPayload = (values: StockFormValues): Update
     isin: payload.isin,
     finanzenNetSlug: payload.finanzenNetSlug,
     currentPrice: payload.currentPrice,
+    sectorId: payload.sectorId,
     industryId: payload.industryId,
     marketIndexIds: payload.marketIndexIds,
   };

@@ -155,6 +155,8 @@ describe('IndexConstituentsPanel edit reconciliation helpers', () => {
   const constituent = makeConstituent({
     stockId: 1,
     providerSymbol: 'AAPL',
+    sector: 'Financials',
+    industry: 'Banks',
     currentPrice: 100,
     currentPriceChange: 2,
     currentPriceChangePercent: 1.5,
@@ -169,6 +171,8 @@ describe('IndexConstituentsPanel edit reconciliation helpers', () => {
       name: 'Apple Inc. Updated',
       commonName: 'Apple',
       exchange: 'NASDAQ',
+      sector: { id: 10, name: 'Information Technology', isArchived: false },
+      industry: { id: 11, name: 'Software', isArchived: false },
       currentPrice: 110,
       currentPriceChange: null,
       currentPriceChangePercent: null,
@@ -184,12 +188,34 @@ describe('IndexConstituentsPanel edit reconciliation helpers', () => {
     expect(result[0]).toMatchObject({
       stockId: 1,
       name: 'Apple Inc. Updated',
+      sector: 'Information Technology',
+      industry: 'Software',
       currentPrice: 110,
       currentPriceChange: null,
       currentPriceChangePercent: null,
       currentPriceAt: null,
       trackingStatus: 'CatalogOnly',
     });
+  });
+
+  it('clears sector/industry in the row when refreshed stock has no classification', () => {
+    const updatedStock: Stock = {
+      id: 1,
+      ticker: 'AAPL',
+      name: 'Apple Inc. Updated',
+      commonName: 'Apple',
+      exchange: 'NASDAQ',
+      currentPrice: 110,
+      updatedAt: '2026-08-18T01:00:00Z',
+      marketIndexIds: [5],
+      trackingStatus: 1,
+      sector: null,
+      industry: null,
+    };
+
+    const result = mergeEditedStockIntoConstituents([constituent], updatedStock, 5);
+    expect(result[0]?.sector).toBeNull();
+    expect(result[0]?.industry).toBeNull();
   });
 
   it('removes the row immediately when the edited stock is no longer assigned to the current index', () => {

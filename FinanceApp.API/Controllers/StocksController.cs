@@ -254,8 +254,10 @@ public class StocksController : ControllerBase
         var validationError = NormalizeAndValidateStock(stock);
         if (validationError != null) return validationError;
 
-        var (industryValidationError, industry) = await ValidateIndustryAssignmentAsync(stock.IndustryId);
-        if (industryValidationError != null) return industryValidationError;
+        var (classificationValidationError, sectorId, industryId) = await ResolveClassificationAssignmentAsync(
+            stock.SectorId,
+            stock.IndustryId);
+        if (classificationValidationError != null) return classificationValidationError;
 
         var requestedMarketIndexIds = stock.MarketIndexIds;
         var (marketIndicesValidationError, marketIndices) = await ValidateMarketIndexAssignmentsAsync(requestedMarketIndexIds);
@@ -268,7 +270,8 @@ public class StocksController : ControllerBase
         // Standard create always produces a Tracked stock; CatalogOnly is set only by import jobs.
         stock.TrackingStatus = StockTrackingStatus.Tracked;
         stock.Industry = null;
-        stock.SectorId = industry?.SectorId;
+        stock.IndustryId = industryId;
+        stock.SectorId = sectorId;
         var now = DateTime.UtcNow;
         stock.MarketIndices = marketIndices
             .Select(marketIndex => new StockMarketIndex
@@ -364,8 +367,12 @@ public class StocksController : ControllerBase
         var identifierError = ValidateIdentifiers(wkn, isin);
         if (identifierError is not null) return identifierError;
 
-        var (industryValidationError, industry) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
-        if (industryValidationError != null) return industryValidationError;
+        var (classificationValidationError, sectorId, industryId) = await ResolveClassificationAssignmentAsync(
+            request.SectorId,
+            request.IndustryId,
+            existing.SectorId,
+            existing.IndustryId);
+        if (classificationValidationError != null) return classificationValidationError;
 
         var currentMarketIndexIds = existing.MarketIndices.Select(x => x.MarketIndexId).ToHashSet();
         var (marketIndicesValidationError, marketIndices) = await ValidateMarketIndexAssignmentsAsync(request.MarketIndexIds, currentMarketIndexIds);
@@ -376,15 +383,8 @@ public class StocksController : ControllerBase
         existing.Wkn = wkn;
         existing.Isin = isin;
         existing.FinanzenNetSlug = finanzenNetSlug;
-        existing.IndustryId = request.IndustryId;
-        if (industry is not null)
-        {
-            existing.SectorId = industry.SectorId;
-        }
-        else if (request.IndustryId.HasValue)
-        {
-            existing.SectorId = null;
-        }
+        existing.IndustryId = industryId;
+        existing.SectorId = sectorId;
         existing.UpdatedAt = DateTime.UtcNow;
         SyncMarketIndices(existing, request.MarketIndexIds, marketIndices);
 
@@ -636,6 +636,43 @@ public class StocksController : ControllerBase
         }
 
         return (null, industry);
+    }
+
+    private async Task<(ActionResult? Error, int? SectorId, int? IndustryId)> ResolveClassificationAssignmentAsync(
+        int? requestedSectorId,
+        int? requestedIndustryId,
+        int? currentSectorId = null,
+        int? currentIndustryId = null)
+    {
+        var (industryValidationError, industry) = await ValidateIndustryAssignmentAsync(requestedIndustryId, currentIndustryId);
+        if (industryValidationError != null)
+        {
+            return (industryValidationError, null, null);
+        }
+
+        if (industry is not null)
+        {
+            return (null, industry.SectorId, industry.Id);
+        }
+
+        if (requestedSectorId is null)
+        {
+            return (null, null, null);
+        }
+
+        var sector = await _context.Sectors.FirstOrDefaultAsync(x => x.Id == requestedSectorId.Value);
+        if (sector is null)
+        {
+            return (BadRequest("Указанный сектор не найден."), null, null);
+        }
+
+        // Allow existing archived bindings to remain unchanged during metadata edits.
+        if (sector.IsArchived && sector.Id != currentSectorId)
+        {
+            return (BadRequest("Нельзя привязать акцию к архивному сектору."), null, null);
+        }
+
+        return (null, sector.Id, null);
     }
 
     private async Task<(ActionResult? Error, List<MarketIndex> MarketIndices)> ValidateMarketIndexAssignmentsAsync(

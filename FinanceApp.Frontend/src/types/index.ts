@@ -450,6 +450,7 @@ export interface CreateStockRequest {
   wkn?: string | null;
   isin?: string | null;
   finanzenNetSlug?: string | null;
+  sectorId?: number | null;
   industryId?: number | null;
   marketIndexIds?: number[];
 }
@@ -480,6 +481,7 @@ export interface UpdateStockMetadataRequest {
   isin?: string | null;
   finanzenNetSlug?: string | null;
   currentPrice: number;
+  sectorId?: number | null;
   industryId?: number | null;
   marketIndexIds?: number[];
 }

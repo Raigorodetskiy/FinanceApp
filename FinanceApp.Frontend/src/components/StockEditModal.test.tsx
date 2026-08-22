@@ -3,9 +3,11 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import {
+  buildCreateStockPayload,
   buildIndustryOptions,
   buildMarketIndexOptions,
   buildStockFormValues,
+  buildUpdateStockMetadataPayload,
   validateStockFinanzenNetSlug,
   validateStockIsin,
   validateStockWkn,
@@ -123,6 +125,30 @@ describe('StockEditModal helpers', () => {
     expect(validateStockFinanzenNetSlug('apple-aktie')).toBe(true);
     expect(validateStockFinanzenNetSlug('')).toBe(true);
     expect(validateStockFinanzenNetSlug('Bad/Slug')).toContain('строчные буквы');
+  });
+
+  it('includes selected sectorId in create/update payloads and serializes clearing as null', () => {
+    const createPayload = buildCreateStockPayload({
+      ticker: 'SAP',
+      name: 'SAP SE',
+      exchange: 'Frankfurt',
+      currentPrice: 100,
+      sectorId: 10,
+      industryId: undefined,
+    });
+    expect(createPayload.sectorId).toBe(10);
+    expect(createPayload.industryId).toBeNull();
+
+    const updatePayload = buildUpdateStockMetadataPayload({
+      ticker: 'SAP',
+      name: 'SAP SE',
+      exchange: 'Frankfurt',
+      currentPrice: 100,
+      sectorId: undefined,
+      industryId: undefined,
+    });
+    expect(updatePayload.sectorId).toBeNull();
+    expect(updatePayload.industryId).toBeNull();
   });
 });
 

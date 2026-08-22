@@ -323,6 +323,8 @@ export const mergeEditedStockIntoConstituents = (
         providerSymbol: updatedStock.providerSymbol ?? null,
         name: updatedStock.name,
         commonName: updatedStock.commonName,
+        sector: updatedStock.sector?.name ?? updatedStock.industry?.sector?.name ?? null,
+        industry: updatedStock.industry?.name ?? null,
         exchange: updatedStock.exchange,
         isin: updatedStock.isin ?? null,
         wkn: updatedStock.wkn ?? null,

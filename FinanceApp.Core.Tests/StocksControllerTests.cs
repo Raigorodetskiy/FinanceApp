@@ -1320,6 +1320,364 @@ public class StocksControllerTests
     }
 
     [Fact]
+    public async Task UpdateMetadata_SectorWithoutIndustry_PersistsDirectSector_AndProjectionReturnsIt()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var sector = new Sector
+        {
+            Id = 401,
+            Name = "Information Technology",
+            NormalizedName = "information technology",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.Add(sector);
+        context.Stocks.Add(new Stock
+        {
+            Id = 402,
+            Ticker = "SAP",
+            Name = "SAP SE",
+            CommonName = "SAP",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 100m,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var updateResult = await controller.UpdateMetadata(402, new UpdateStockMetadataRequest
+        {
+            Name = "SAP SE",
+            CommonName = "SAP",
+            CurrentPrice = 101m,
+            SectorId = sector.Id,
+            IndustryId = null
+        });
+
+        Assert.IsType<NoContentResult>(updateResult);
+        var persisted = await context.Stocks.SingleAsync(x => x.Id == 402);
+        Assert.Equal(sector.Id, persisted.SectorId);
+        Assert.Null(persisted.IndustryId);
+
+        var byId = await controller.GetById(402);
+        var responseStock = Assert.IsType<Stock>(byId.Value);
+        Assert.Equal(sector.Id, responseStock.Sector?.Id);
+        Assert.Equal("Information Technology", responseStock.Sector?.Name);
+        Assert.Null(responseStock.Industry);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_ClearSectorAndIndustry_PersistsNulls()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var sector = new Sector
+        {
+            Id = 411,
+            Name = "Health Care",
+            NormalizedName = "health care",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var industry = new Industry
+        {
+            Id = 412,
+            SectorId = sector.Id,
+            Sector = sector,
+            Name = "Biotechnology",
+            NormalizedName = "biotechnology",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.Add(sector);
+        context.Industries.Add(industry);
+        context.Stocks.Add(new Stock
+        {
+            Id = 413,
+            Ticker = "BAYN",
+            Name = "Bayer AG",
+            CommonName = "Bayer",
+            Exchange = StockExchanges.Frankfurt,
+            CurrentPrice = 50m,
+            SectorId = sector.Id,
+            IndustryId = industry.Id,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(413, new UpdateStockMetadataRequest
+        {
+            Name = "Bayer AG",
+            CommonName = "Bayer",
+            CurrentPrice = 51m,
+            SectorId = null,
+            IndustryId = null
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        var persisted = await context.Stocks.SingleAsync(x => x.Id == 413);
+        Assert.Null(persisted.SectorId);
+        Assert.Null(persisted.IndustryId);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_ConflictingSectorAndIndustry_UsesIndustrySector()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var sectorA = new Sector
+        {
+            Id = 421,
+            Name = "Financials",
+            NormalizedName = "financials",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var sectorB = new Sector
+        {
+            Id = 422,
+            Name = "Information Technology",
+            NormalizedName = "information technology",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var industryB = new Industry
+        {
+            Id = 423,
+            SectorId = sectorB.Id,
+            Sector = sectorB,
+            Name = "Software",
+            NormalizedName = "software",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.AddRange(sectorA, sectorB);
+        context.Industries.Add(industryB);
+        context.Stocks.Add(new Stock
+        {
+            Id = 424,
+            Ticker = "MSFT",
+            Name = "Microsoft",
+            CommonName = "Microsoft",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(424, new UpdateStockMetadataRequest
+        {
+            Name = "Microsoft",
+            CommonName = "Microsoft",
+            CurrentPrice = 101m,
+            SectorId = sectorA.Id,
+            IndustryId = industryB.Id
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        var persisted = await context.Stocks.SingleAsync(x => x.Id == 424);
+        Assert.Equal(industryB.Id, persisted.IndustryId);
+        Assert.Equal(sectorB.Id, persisted.SectorId);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_UnknownSector_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        context.Stocks.Add(new Stock
+        {
+            Id = 431,
+            Ticker = "AAPL",
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 100m,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.UpdateMetadata(431, new UpdateStockMetadataRequest
+        {
+            Name = "Apple Inc.",
+            CommonName = "Apple",
+            CurrentPrice = 101m,
+            SectorId = 999999,
+            IndustryId = null
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal("Указанный сектор не найден.", badRequest.Value);
+    }
+
+    [Fact]
+    public async Task UpdateMetadata_NewArchivedSectorAssignment_IsRejected_ButExistingArchivedCanBePreserved()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var archivedSector = new Sector
+        {
+            Id = 441,
+            Name = "Archived sector",
+            NormalizedName = "archived sector",
+            IsArchived = true,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.Add(archivedSector);
+        context.Stocks.AddRange(
+            new Stock
+            {
+                Id = 442,
+                Ticker = "S1",
+                Name = "Stock 1",
+                CommonName = "Stock 1",
+                Exchange = StockExchanges.Nyse,
+                CurrentPrice = 10m,
+                UpdatedAt = now
+            },
+            new Stock
+            {
+                Id = 443,
+                Ticker = "S2",
+                Name = "Stock 2",
+                CommonName = "Stock 2",
+                Exchange = StockExchanges.Nyse,
+                CurrentPrice = 20m,
+                SectorId = archivedSector.Id,
+                UpdatedAt = now
+            });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+
+        var rejected = await controller.UpdateMetadata(442, new UpdateStockMetadataRequest
+        {
+            Name = "Stock 1",
+            CommonName = "Stock 1",
+            CurrentPrice = 11m,
+            SectorId = archivedSector.Id,
+            IndustryId = null
+        });
+        var badRequest = Assert.IsType<BadRequestObjectResult>(rejected);
+        Assert.Equal("Нельзя привязать акцию к архивному сектору.", badRequest.Value);
+
+        var preserved = await controller.UpdateMetadata(443, new UpdateStockMetadataRequest
+        {
+            Name = "Stock 2 updated",
+            CommonName = "Stock 2",
+            CurrentPrice = 21m,
+            SectorId = archivedSector.Id,
+            IndustryId = null
+        });
+        Assert.IsType<NoContentResult>(preserved);
+        var preservedStock = await context.Stocks.SingleAsync(x => x.Id == 443);
+        Assert.Equal(archivedSector.Id, preservedStock.SectorId);
+        Assert.Null(preservedStock.IndustryId);
+    }
+
+    [Fact]
+    public async Task Create_SectorAndIndustryRules_AreAppliedConsistently()
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var sectorA = new Sector
+        {
+            Id = 451,
+            Name = "Financials",
+            NormalizedName = "financials",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var sectorB = new Sector
+        {
+            Id = 452,
+            Name = "Information Technology",
+            NormalizedName = "information technology",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var archivedSector = new Sector
+        {
+            Id = 453,
+            Name = "Archived sector",
+            NormalizedName = "archived sector",
+            IsArchived = true,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var industryB = new Industry
+        {
+            Id = 454,
+            SectorId = sectorB.Id,
+            Sector = sectorB,
+            Name = "Software",
+            NormalizedName = "software",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        context.Sectors.AddRange(sectorA, sectorB, archivedSector);
+        context.Industries.Add(industryB);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+
+        var directSectorCreate = await controller.Create(new Stock
+        {
+            Ticker = "C1",
+            Name = "Create 1",
+            CommonName = "Create 1",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 1m,
+            SectorId = sectorA.Id
+        });
+        var directStock = Assert.IsType<Stock>(Assert.IsType<CreatedAtActionResult>(directSectorCreate.Result).Value);
+        Assert.Equal(sectorA.Id, directStock.SectorId);
+        Assert.Null(directStock.IndustryId);
+        Assert.Equal(sectorA.Id, directStock.Sector?.Id);
+
+        var conflictingCreate = await controller.Create(new Stock
+        {
+            Ticker = "C2",
+            Name = "Create 2",
+            CommonName = "Create 2",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 2m,
+            SectorId = sectorA.Id,
+            IndustryId = industryB.Id
+        });
+        var conflictingStock = Assert.IsType<Stock>(Assert.IsType<CreatedAtActionResult>(conflictingCreate.Result).Value);
+        Assert.Equal(industryB.Id, conflictingStock.IndustryId);
+        Assert.Equal(sectorB.Id, conflictingStock.SectorId);
+        Assert.Equal(sectorB.Id, conflictingStock.Sector?.Id);
+
+        var missingSector = await controller.Create(new Stock
+        {
+            Ticker = "C3",
+            Name = "Create 3",
+            CommonName = "Create 3",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 3m,
+            SectorId = 999999
+        });
+        Assert.Equal("Указанный сектор не найден.", Assert.IsType<BadRequestObjectResult>(missingSector.Result).Value);
+
+        var archivedSectorCreate = await controller.Create(new Stock
+        {
+            Ticker = "C4",
+            Name = "Create 4",
+            CommonName = "Create 4",
+            Exchange = StockExchanges.Nyse,
+            CurrentPrice = 4m,
+            SectorId = archivedSector.Id
+        });
+        Assert.Equal("Нельзя привязать акцию к архивному сектору.", Assert.IsType<BadRequestObjectResult>(archivedSectorCreate.Result).Value);
+    }
+
+    [Fact]
     public async Task UpdateMetadata_BlankCommonName_FallsBackToName()
     {
         await using var context = CreateContext();
