@@ -104,6 +104,7 @@ public class StocksController : ControllerBase
     public async Task<ActionResult<IEnumerable<Stock>>> GetAll([FromQuery] bool includeCatalog = false)
     {
         var query = _context.Stocks
+            .Include(s => s.Sector)
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
             .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
@@ -172,6 +173,7 @@ public class StocksController : ControllerBase
     public async Task<ActionResult<Stock>> GetById(int id)
     {
         var stock = await _context.Stocks
+            .Include(s => s.Sector)
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
             .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
@@ -252,7 +254,7 @@ public class StocksController : ControllerBase
         var validationError = NormalizeAndValidateStock(stock);
         if (validationError != null) return validationError;
 
-        var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(stock.IndustryId);
+        var (industryValidationError, industry) = await ValidateIndustryAssignmentAsync(stock.IndustryId);
         if (industryValidationError != null) return industryValidationError;
 
         var requestedMarketIndexIds = stock.MarketIndexIds;
@@ -266,6 +268,7 @@ public class StocksController : ControllerBase
         // Standard create always produces a Tracked stock; CatalogOnly is set only by import jobs.
         stock.TrackingStatus = StockTrackingStatus.Tracked;
         stock.Industry = null;
+        stock.SectorId = industry?.SectorId;
         var now = DateTime.UtcNow;
         stock.MarketIndices = marketIndices
             .Select(marketIndex => new StockMarketIndex
@@ -339,6 +342,7 @@ public class StocksController : ControllerBase
     public async Task<IActionResult> UpdateMetadata(int id, UpdateStockMetadataRequest request)
     {
         var existing = await _context.Stocks
+            .Include(s => s.Sector)
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
             .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
@@ -360,7 +364,7 @@ public class StocksController : ControllerBase
         var identifierError = ValidateIdentifiers(wkn, isin);
         if (identifierError is not null) return identifierError;
 
-        var (industryValidationError, _) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
+        var (industryValidationError, industry) = await ValidateIndustryAssignmentAsync(request.IndustryId, existing.IndustryId);
         if (industryValidationError != null) return industryValidationError;
 
         var currentMarketIndexIds = existing.MarketIndices.Select(x => x.MarketIndexId).ToHashSet();
@@ -373,6 +377,14 @@ public class StocksController : ControllerBase
         existing.Isin = isin;
         existing.FinanzenNetSlug = finanzenNetSlug;
         existing.IndustryId = request.IndustryId;
+        if (industry is not null)
+        {
+            existing.SectorId = industry.SectorId;
+        }
+        else if (request.IndustryId.HasValue)
+        {
+            existing.SectorId = null;
+        }
         existing.UpdatedAt = DateTime.UtcNow;
         SyncMarketIndices(existing, request.MarketIndexIds, marketIndices);
 
@@ -501,6 +513,7 @@ public class StocksController : ControllerBase
     public async Task<ActionResult<Stock>> Track(int id, CancellationToken cancellationToken = default)
     {
         var stock = await _context.Stocks
+            .Include(s => s.Sector)
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
             .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
@@ -536,6 +549,7 @@ public class StocksController : ControllerBase
     public async Task<ActionResult<Stock>> Untrack(int id, CancellationToken cancellationToken = default)
     {
         var stock = await _context.Stocks
+            .Include(s => s.Sector)
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
             .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
@@ -582,6 +596,7 @@ public class StocksController : ControllerBase
 
     private async Task<Stock> LoadStockWithClassificationAsync(int id)
         => await _context.Stocks
+            .Include(s => s.Sector)
             .Include(s => s.Industry)
             .ThenInclude(i => i!.Sector)
             .Include(s => s.MarketIndices.Where(x => x.EffectiveTo == null))
@@ -699,6 +714,7 @@ public class StocksController : ControllerBase
 
     private static Stock PrepareStockForResponse(Stock stock)
     {
+        stock.Sector = stock.Industry?.Sector ?? stock.Sector;
         stock.MarketIndexIds = stock.MarketIndices
             .Where(x => x.EffectiveTo == null)
             .OrderBy(x => x.MarketIndex.SortOrder)

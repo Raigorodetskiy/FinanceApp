@@ -141,6 +141,12 @@ describe('IndexConstituentsPanel action/behavior contracts', () => {
     expect(panelSource).toContain('QUOTE_PERSIST_FAILURE_MESSAGE');
     expect(panelSource).toContain('Цена получена, но не удалось сохранить её');
   });
+
+  it('shows compact sector/industry badges in the name cell', () => {
+    expect(panelSource).toContain('StockClassificationBadges');
+    expect(panelSource).toContain('sector={record.sector ?? null}');
+    expect(panelSource).toContain('industry={record.industry ?? null}');
+  });
 });
 
 describe('IndexConstituentsPanel edit reconciliation helpers', () => {

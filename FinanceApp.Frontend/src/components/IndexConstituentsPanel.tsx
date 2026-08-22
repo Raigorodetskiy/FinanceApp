@@ -47,6 +47,7 @@ import StockEditModal, {
   buildUpdateStockMetadataPayload,
   loadStockMetadataLookups,
 } from './StockEditModal';
+import StockClassificationBadges from './StockClassificationBadges';
 import StockExchangeTag from './StockExchangeTag';
 import StockFundamentalsDrawer from './StockFundamentalsDrawer';
 import StockPriceChart from './StockPriceChart';
@@ -1004,7 +1005,13 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
         if (isChartRow(record)) return { children: null, props: { colSpan: 0 } };
         return (
           <Space direction="vertical" size={0}>
-            <Text style={{ fontSize: 16 }}>{name}</Text>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <Text style={{ fontSize: 16 }} ellipsis={{ tooltip: name }}>{name}</Text>
+              <StockClassificationBadges
+                sector={record.sector ?? null}
+                industry={record.industry ?? null}
+              />
+            </div>
             {record.commonName && record.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 16 }}>{record.commonName}</Text>
             )}

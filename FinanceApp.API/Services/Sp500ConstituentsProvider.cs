@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FinanceApp.Core.Models;
@@ -5,14 +6,64 @@ using FinanceApp.Core.Models;
 namespace FinanceApp.API.Services;
 
 /// <summary>
-/// Provides S&amp;P 500 constituents from a versioned curated snapshot bundled with the repository.
-/// Used because the official index owner (S&amp;P Dow Jones Indices) does not provide a free,
-/// stable public runtime endpoint without a commercial data license.
+/// Provides S&amp;P 500 constituents from the curated CSV snapshot bundled in the repository.
 /// </summary>
 public sealed class Sp500ConstituentsProvider : ISp500IndexConstituentsProvider
 {
-    public const string CuratedProviderName = "S&P Dow Jones Indices (curated snapshot)";
-    private const string SnapshotRelativePath = "Data/index-constituents/sp500.curated.snapshot.json";
+    public const string CuratedProviderName = "S&P Dow Jones Indices (curated CSV snapshot)";
+    private const string CsvRelativePath = "Data/index-constituents/SP500_2026-08-21.csv";
+    private const string LegacySnapshotRelativePath = "Data/index-constituents/sp500.curated.snapshot.json";
+    private const string ExpectedHeader = "Ticker;Company;ISIN;WKN;Sector";
+    private const int ExpectedDataRowCount = 503;
+    private static readonly DateTime SnapshotAsOfDateUtc = new(2026, 8, 21, 0, 0, 0, DateTimeKind.Utc);
+
+    private static readonly HashSet<string> AllowedSectors =
+    [
+        "Communication Services",
+        "Consumer Discretionary",
+        "Consumer Staples",
+        "Energy",
+        "Financials",
+        "Health Care",
+        "Industrials",
+        "Information Technology",
+        "Materials",
+        "Real Estate",
+        "Utilities",
+    ];
+
+    private static readonly IReadOnlyDictionary<string, string> ExplicitExchangeMap = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["APP"] = StockExchanges.Nasdaq,
+        ["ARES"] = StockExchanges.Nyse,
+        ["BNY"] = StockExchanges.Nyse,
+        ["CASY"] = StockExchanges.Nasdaq,
+        ["CIEN"] = StockExchanges.Nyse,
+        ["COHR"] = StockExchanges.Nyse,
+        ["CRH"] = StockExchanges.Nyse,
+        ["CVNA"] = StockExchanges.Nyse,
+        ["ECHO"] = StockExchanges.Nasdaq,
+        ["EME"] = StockExchanges.Nyse,
+        ["FDXF"] = StockExchanges.Nyse,
+        ["FERG"] = StockExchanges.Nyse,
+        ["FISV"] = StockExchanges.Nasdaq,
+        ["FIX"] = StockExchanges.Nyse,
+        ["FLEX"] = StockExchanges.Nasdaq,
+        ["FOX"] = StockExchanges.Nasdaq,
+        ["HONA"] = StockExchanges.Nasdaq,
+        ["HOOD"] = StockExchanges.Nasdaq,
+        ["IBKR"] = StockExchanges.Nasdaq,
+        ["LITE"] = StockExchanges.Nasdaq,
+        ["MRSH"] = StockExchanges.Nyse,
+        ["MRVL"] = StockExchanges.Nasdaq,
+        ["NWS"] = StockExchanges.Nasdaq,
+        ["Q"] = StockExchanges.Nyse,
+        ["RDDT"] = StockExchanges.Nyse,
+        ["SNDK"] = StockExchanges.Nasdaq,
+        ["VEEV"] = StockExchanges.Nyse,
+        ["VMRK"] = StockExchanges.Nyse,
+        ["VRT"] = StockExchanges.Nyse,
+    };
 
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<Sp500ConstituentsProvider> _logger;
@@ -38,149 +89,252 @@ public sealed class Sp500ConstituentsProvider : ISp500IndexConstituentsProvider
     {
         try
         {
-            var snapshotPath = ResolveSnapshotPath();
-            if (!File.Exists(snapshotPath))
+            var csvPath = ResolveCsvPath();
+            if (csvPath is null || !File.Exists(csvPath))
             {
                 return IndexConstituentsResult.Failure(
                     ProviderName,
-                    "Curated snapshot S&P 500 не найден в приложении.");
+                    "Curated CSV S&P 500 не найден в приложении.");
             }
 
-            var json = await File.ReadAllTextAsync(snapshotPath, cancellationToken);
-            var snapshot = JsonSerializer.Deserialize<Sp500CuratedSnapshot>(json);
-            if (snapshot is null)
-            {
-                return IndexConstituentsResult.Failure(
-                    ProviderName,
-                    "Curated snapshot S&P 500 повреждён или пуст.");
-            }
-
-            var validationError = Validate(snapshot, out var entries);
-            if (validationError is not null)
-            {
-                return IndexConstituentsResult.Failure(ProviderName, validationError);
-            }
+            var legacyExchangeMap = await LoadLegacySnapshotExchangeMapAsync(cancellationToken);
+            var (status, message, entries) = await ParseCsvAsync(csvPath, legacyExchangeMap, cancellationToken);
 
             return new IndexConstituentsResult(
-                Status: IndexConstituentsStatus.Success,
+                Status: status,
                 ProviderName: ProviderName,
                 FetchedAt: DateTime.UtcNow,
                 Constituents: entries,
-                Message: null,
-                AsOfDate: snapshot.AsOfDate,
-                SourceUrl: snapshot.SourceUrl,
+                Message: message,
+                AsOfDate: SnapshotAsOfDateUtc,
+                SourceUrl: "FinanceApp.Data/index-constituents/SP500_2026-08-21.csv",
                 IsCuratedSnapshot: true,
-                IsStale: false);
+                IsStale: status != IndexConstituentsStatus.Success);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load curated S&P 500 snapshot");
+            _logger.LogError(ex, "Failed to load curated S&P 500 CSV snapshot");
             return IndexConstituentsResult.Failure(
                 ProviderName,
-                "Не удалось загрузить curated snapshot S&P 500.");
+                "Не удалось загрузить curated CSV snapshot S&P 500.");
         }
     }
 
-    private string ResolveSnapshotPath()
+    private string? ResolveCsvPath()
     {
-        var appBaseSnapshotPath = Path.GetFullPath(Path.Combine(_baseDirectory, SnapshotRelativePath));
+        var appBaseCsvPath = Path.GetFullPath(Path.Combine(_baseDirectory, CsvRelativePath));
+        if (File.Exists(appBaseCsvPath))
+        {
+            return appBaseCsvPath;
+        }
+
+        var contentRootCsvPath = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, CsvRelativePath));
+        if (File.Exists(contentRootCsvPath))
+        {
+            return contentRootCsvPath;
+        }
+
+        var repoCsvPath = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, "..", "FinanceApp.Data", "index-constituents", "SP500_2026-08-21.csv"));
+        return File.Exists(repoCsvPath) ? repoCsvPath : null;
+    }
+
+    private string ResolveLegacySnapshotPath()
+    {
+        var appBaseSnapshotPath = Path.GetFullPath(Path.Combine(_baseDirectory, LegacySnapshotRelativePath));
         if (File.Exists(appBaseSnapshotPath))
         {
             return appBaseSnapshotPath;
         }
 
-        return Path.GetFullPath(Path.Combine(_environment.ContentRootPath, SnapshotRelativePath));
+        return Path.GetFullPath(Path.Combine(_environment.ContentRootPath, LegacySnapshotRelativePath));
     }
 
-    private static string? Validate(
-        Sp500CuratedSnapshot snapshot,
-        out IReadOnlyList<IndexConstituentEntry> entries)
+    private async Task<Dictionary<string, string>> LoadLegacySnapshotExchangeMapAsync(CancellationToken cancellationToken)
     {
-        entries = Array.Empty<IndexConstituentEntry>();
-
-        if (string.IsNullOrWhiteSpace(snapshot.SourceUrl))
-            return "Curated snapshot S&P 500 не содержит sourceUrl.";
-
-        if (snapshot.AsOfDate == default)
-            return "Curated snapshot S&P 500 не содержит корректную asOfDate.";
-
-        if (snapshot.Constituents is null || snapshot.Constituents.Count == 0)
-            return "Curated snapshot S&P 500 не содержит constituents.";
-
-        var normalizedEntries = new List<IndexConstituentEntry>(snapshot.Constituents.Count);
-        var uniqueKeys = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var item in snapshot.Constituents)
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var snapshotPath = ResolveLegacySnapshotPath();
+        if (!File.Exists(snapshotPath))
         {
-            var ticker = item.Ticker?.Trim().ToUpperInvariant();
-            var companyName = item.CompanyName?.Trim();
-            var providerExchange = item.Exchange?.Trim();
-            var providerSymbol = item.ProviderSymbol?.Trim();
-            var isin = StockIdentifiers.Normalize(item.Isin);
+            return map;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(snapshotPath, cancellationToken);
+            var snapshot = JsonSerializer.Deserialize<Sp500LegacySnapshot>(json);
+            if (snapshot?.Constituents is null)
+            {
+                return map;
+            }
+
+            foreach (var item in snapshot.Constituents)
+            {
+                var ticker = item.Ticker?.Trim().ToUpperInvariant();
+                if (string.IsNullOrWhiteSpace(ticker)) continue;
+                if (!StockExchanges.TryNormalize(item.Exchange, out var normalizedExchange)) continue;
+                map[ticker] = normalizedExchange;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load legacy SP500 exchange map; explicit map only will be used.");
+        }
+
+        return map;
+    }
+
+    private static async Task<(IndexConstituentsStatus Status, string? Message, IReadOnlyList<IndexConstituentEntry> Entries)> ParseCsvAsync(
+        string csvPath,
+        IReadOnlyDictionary<string, string> legacyExchangeMap,
+        CancellationToken cancellationToken)
+    {
+        using var stream = File.OpenRead(csvPath);
+        using var reader = new StreamReader(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), detectEncodingFromByteOrderMarks: true);
+
+        var header = (await reader.ReadLineAsync(cancellationToken) ?? string.Empty).Trim();
+        if (!string.Equals(header, ExpectedHeader, StringComparison.Ordinal))
+        {
+            return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500 имеет неожиданный заголовок: {header}", Array.Empty<IndexConstituentEntry>());
+        }
+
+        var entries = new List<IndexConstituentEntry>(ExpectedDataRowCount);
+        var unresolvedTickers = new List<string>();
+        var seenIdentities = new HashSet<string>(StringComparer.Ordinal);
+        var row = 1;
+
+        while (!reader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            row++;
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var columns = line.Split(';');
+            if (columns.Length != 5)
+            {
+                return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500: строка {row} содержит {columns.Length} колонок вместо 5.", Array.Empty<IndexConstituentEntry>());
+            }
+
+            var ticker = columns[0].Trim().ToUpperInvariant();
+            var companyName = NormalizeCompanyName(columns[1]);
+            var isin = StockIdentifiers.Normalize(columns[2]);
+            var wkn = StockIdentifiers.Normalize(columns[3]);
+            var sector = NormalizeClassification(columns[4]);
 
             if (string.IsNullOrWhiteSpace(ticker) || string.IsNullOrWhiteSpace(companyName))
-                return "Curated snapshot S&P 500 содержит пустой ticker или companyName.";
-
-            if (string.IsNullOrWhiteSpace(providerExchange))
-                return $"Curated snapshot S&P 500 содержит пустую биржу для тикера {ticker}.";
-
-            if (!StockExchanges.TryNormalize(providerExchange, out var normalizedExchange))
-                return $"Curated snapshot S&P 500 содержит неподдерживаемую биржу '{providerExchange}' для тикера {ticker}.";
+            {
+                return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500: строка {row} содержит пустой ticker/company.", Array.Empty<IndexConstituentEntry>());
+            }
 
             if (isin is not null && !StockIdentifiers.IsValidIsin(isin))
-                return $"Curated snapshot S&P 500 содержит некорректный ISIN для тикера {ticker}.";
+            {
+                return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500: некорректный ISIN для {ticker}.", Array.Empty<IndexConstituentEntry>());
+            }
 
-            providerSymbol ??= StockExchanges.ResolveProviderSymbol(ticker, normalizedExchange);
-            providerSymbol = providerSymbol?.Trim() ?? string.Empty;
-            if (providerSymbol.Length == 0)
-                return $"Curated snapshot S&P 500 содержит пустой providerSymbol для тикера {ticker}.";
+            if (wkn is not null && !StockIdentifiers.IsValidWkn(wkn))
+            {
+                return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500: некорректный WKN для {ticker}.", Array.Empty<IndexConstituentEntry>());
+            }
 
-            var uniqueKey = $"{providerSymbol}|{normalizedExchange}";
-            if (!uniqueKeys.Add(uniqueKey))
-                return $"Curated snapshot S&P 500 содержит дубликат identity: {uniqueKey}.";
+            if (sector is null || !AllowedSectors.Contains(sector))
+            {
+                return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500: некорректный Sector '{columns[4]}' для {ticker}.", Array.Empty<IndexConstituentEntry>());
+            }
 
-            normalizedEntries.Add(new IndexConstituentEntry(
+            var exchange = ResolveExchange(ticker, legacyExchangeMap);
+            if (exchange is null)
+            {
+                unresolvedTickers.Add(ticker);
+                continue;
+            }
+
+            var providerSymbol = ResolveProviderSymbol(ticker, exchange);
+            var identity = $"{providerSymbol}|{exchange}";
+            if (!seenIdentities.Add(identity))
+            {
+                return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500 содержит дубликат identity: {identity}.", Array.Empty<IndexConstituentEntry>());
+            }
+
+            entries.Add(new IndexConstituentEntry(
                 ProviderSymbol: providerSymbol,
                 Ticker: ticker,
                 CompanyName: companyName,
-                ProviderExchange: normalizedExchange,
-                Isin: isin));
+                ProviderExchange: exchange,
+                Isin: isin,
+                Wkn: wkn,
+                Sector: sector,
+                Industry: null));
         }
 
-        entries = normalizedEntries;
+        if (entries.Count + unresolvedTickers.Count != ExpectedDataRowCount)
+        {
+            return (IndexConstituentsStatus.ProviderFailure, $"Curated CSV S&P 500 содержит {entries.Count + unresolvedTickers.Count} непустых строк вместо {ExpectedDataRowCount}.", Array.Empty<IndexConstituentEntry>());
+        }
+
+        if (unresolvedTickers.Count > 0)
+        {
+            var preview = string.Join(", ", unresolvedTickers.Take(10));
+            var message = $"Не удалось определить биржу NYSE/NASDAQ для {unresolvedTickers.Count} тикеров: {preview}.";
+            return (IndexConstituentsStatus.Partial, message, entries);
+        }
+
+        return (IndexConstituentsStatus.Success, null, entries);
+    }
+
+    private static string ResolveProviderSymbol(string ticker, string exchange)
+    {
+        if (ticker is "BRK.B" or "BF.B" or "BRK.A" or "BF.A")
+        {
+            return ticker.Replace('.', '-');
+        }
+
+        return StockExchanges.ResolveProviderSymbol(ticker, exchange);
+    }
+
+    private static string? ResolveExchange(string ticker, IReadOnlyDictionary<string, string> legacyExchangeMap)
+    {
+        if (legacyExchangeMap.TryGetValue(ticker, out var fromLegacy) && StockExchanges.TryNormalize(fromLegacy, out var normalizedLegacy))
+        {
+            return normalizedLegacy;
+        }
+
+        if (ExplicitExchangeMap.TryGetValue(ticker, out var explicitExchange) && StockExchanges.TryNormalize(explicitExchange, out var normalizedExplicit))
+        {
+            return normalizedExplicit;
+        }
+
         return null;
     }
 
-    private sealed class Sp500CuratedSnapshot
+    private static string NormalizeCompanyName(string? value)
     {
-        [JsonPropertyName("sourceName")]
-        public string SourceName { get; init; } = string.Empty;
+        var normalized = (value ?? string.Empty).Trim();
+        if (normalized.EndsWith('|'))
+        {
+            normalized = normalized.TrimEnd('|').TrimEnd();
+        }
 
-        [JsonPropertyName("sourceUrl")]
-        public string SourceUrl { get; init; } = string.Empty;
-
-        [JsonPropertyName("asOfDate")]
-        public DateTime AsOfDate { get; init; }
-
-        [JsonPropertyName("constituents")]
-        public List<Sp500ConstituentItem> Constituents { get; init; } = [];
+        return normalized;
     }
 
-    private sealed class Sp500ConstituentItem
+    private static string? NormalizeClassification(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed class Sp500LegacySnapshot
+    {
+        [JsonPropertyName("constituents")]
+        public List<Sp500LegacyConstituent> Constituents { get; init; } = [];
+    }
+
+    private sealed class Sp500LegacyConstituent
     {
         [JsonPropertyName("ticker")]
         public string Ticker { get; init; } = string.Empty;
 
-        [JsonPropertyName("providerSymbol")]
-        public string? ProviderSymbol { get; init; }
-
-        [JsonPropertyName("companyName")]
-        public string CompanyName { get; init; } = string.Empty;
-
         [JsonPropertyName("exchange")]
         public string Exchange { get; init; } = string.Empty;
-
-        [JsonPropertyName("isin")]
-        public string? Isin { get; init; }
     }
 }

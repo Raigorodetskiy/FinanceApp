@@ -32,6 +32,7 @@ export interface IndustryRef {
   id: number;
   name: string;
   isArchived: boolean;
+  sector?: SectorRef | null;
 }
 
 export interface SectorRef {
@@ -574,6 +575,8 @@ export interface IndexConstituentDto {
   providerSymbol?: string | null;
   name: string;
   commonName?: string | null;
+  sector?: string | null;
+  industry?: string | null;
   exchange: StockExchange;
   isin?: string | null;
   wkn?: string | null;

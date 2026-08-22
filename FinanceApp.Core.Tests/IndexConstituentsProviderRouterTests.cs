@@ -159,8 +159,7 @@ public class IndexConstituentsProviderRouterTests
         Assert.True(result.IsCuratedSnapshot);
         Assert.NotNull(result.AsOfDate);
         Assert.NotNull(result.SourceUrl);
-        // S&P 500 has 500 companies but 503 securities due to multiple share classes
-        // (BRK.A/BRK.B, BF.A/BF.B, and GOOGL/GOOG each contribute two lines: 500 + 3 = 503).
+        // S&P 500 snapshot includes 503 securities.
         Assert.Equal(503, result.Constituents.Count);
         Assert.All(result.Constituents, c =>
         {
@@ -192,9 +191,77 @@ public class IndexConstituentsProviderRouterTests
         Assert.Contains(result.Constituents, c => c.Ticker == "NVDA");
         // Class-share tickers must be present with correct providerSymbol (Yahoo Finance convention)
         Assert.Contains(result.Constituents, c => c.Ticker == "BRK.B" && c.ProviderSymbol == "BRK-B");
-        Assert.Contains(result.Constituents, c => c.Ticker == "BRK.A" && c.ProviderSymbol == "BRK-A");
         Assert.Contains(result.Constituents, c => c.Ticker == "BF.B" && c.ProviderSymbol == "BF-B");
-        Assert.Contains(result.Constituents, c => c.Ticker == "BF.A" && c.ProviderSymbol == "BF-A");
+    }
+
+    [Fact]
+    public async Task Sp500CuratedSnapshot_ExposesExpectedSectorVocabulary()
+    {
+        var provider = CreateSp500Provider();
+        var spx = new MarketIndex { Code = "SPX", NormalizedCode = "SPX" };
+
+        var result = await provider.GetConstituentsAsync(spx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        var sectors = result.Constituents
+            .Select(c => c.Sector)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(11, sectors.Count);
+        Assert.Contains("Information Technology", sectors);
+        Assert.Contains("Health Care", sectors);
+        Assert.Contains("Real Estate", sectors);
+    }
+
+    [Fact]
+    public async Task Sp500CuratedSnapshot_HandlesKnownAnomalies_WithoutInventingIdentifiers()
+    {
+        var provider = CreateSp500Provider();
+        var spx = new MarketIndex { Code = "SPX", NormalizedCode = "SPX" };
+
+        var result = await provider.GetConstituentsAsync(spx);
+
+        Assert.Equal(IndexConstituentsStatus.Success, result.Status);
+        var rmd = Assert.Single(result.Constituents, c => c.Ticker == "RMD");
+        Assert.Equal("ResMed", rmd.CompanyName);
+
+        var vmrk = Assert.Single(result.Constituents, c => c.Ticker == "VMRK");
+        Assert.Null(vmrk.Isin);
+        Assert.Null(vmrk.Wkn);
+    }
+
+    [Fact]
+    public async Task Sp500CuratedSnapshot_InvalidHeader_ReturnsProviderFailure()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"financeapp-sp500-bad-header-{Guid.NewGuid():N}");
+        var dataDir = Path.Combine(root, "Data", "index-constituents");
+        Directory.CreateDirectory(dataDir);
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "SP500_2026-08-21.csv"),
+            "\uFEFFTicker,Company,ISIN,WKN,Sector\nAAPL;Apple Inc.;US0378331005;865985;Information Technology\n");
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "sp500.curated.snapshot.json"),
+            "{\"constituents\":[]}");
+
+        try
+        {
+            var provider = new Sp500ConstituentsProvider(
+                new StubWebHostEnvironment { ContentRootPath = root },
+                NullLogger<Sp500ConstituentsProvider>.Instance,
+                root);
+
+            var result = await provider.GetConstituentsAsync(new MarketIndex { Code = "SPX", NormalizedCode = "SPX" });
+
+            Assert.Equal(IndexConstituentsStatus.ProviderFailure, result.Status);
+            Assert.Contains("неожиданный заголовок", result.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     [Fact]
