@@ -586,13 +586,6 @@ public class MarketIndicesController : ControllerBase
                 normalizedConstituents.Add((ticker, providerSymbol, companyName, normalizedExchange, normalizedIsin, normalizedWkn, normalizedSector, normalizedIndustry));
             }
 
-            var effectiveStatus = providerResult.Status;
-            var canCloseMissingMemberships = providerResult.Status == IndexConstituentsStatus.Success && conflicts == 0;
-            if (providerResult.Status == IndexConstituentsStatus.Success && conflicts > 0)
-            {
-                effectiveStatus = IndexConstituentsStatus.Partial;
-            }
-
             // Load existing current memberships for this index.
             var existingMemberships = await _context.StockMarketIndices
                 .Include(x => x.Stock)
@@ -605,6 +598,12 @@ public class MarketIndicesController : ControllerBase
 
             var allTickers = normalizedConstituents
                 .Select(c => c.Ticker)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var allValidIsins = normalizedConstituents
+                .Select(c => c.Isin)
+                .Where(x => x is not null)
+                .Select(x => x!)
                 .ToHashSet(StringComparer.Ordinal);
 
             var sectorKeys = normalizedConstituents
@@ -621,7 +620,8 @@ public class MarketIndicesController : ControllerBase
             var existingStocks = await _context.Stocks
                 .Where(s =>
                     (s.ProviderSymbol != null && allProviderSymbols.Contains(s.ProviderSymbol)) ||
-                    allTickers.Contains(s.Ticker))
+                    allTickers.Contains(s.Ticker) ||
+                    (s.Isin != null && allValidIsins.Contains(s.Isin)))
                 .ToListAsync(cancellationToken);
 
             var industrySectorMap = await _context.Industries
@@ -640,6 +640,8 @@ public class MarketIndicesController : ControllerBase
 
             var seenStocks = new HashSet<Stock>(ReferenceEqualityComparer.Instance);
             var stocksToEnrich = new HashSet<Stock>(ReferenceEqualityComparer.Instance);
+            var effectiveStatus = providerResult.Status;
+            var canCloseMissingMemberships = providerResult.Status == IndexConstituentsStatus.Success && conflicts == 0;
             try
             {
                 foreach (var constituent in normalizedConstituents)
@@ -789,6 +791,70 @@ public class MarketIndicesController : ControllerBase
                     }
 
                     seenStocks.Add(stock);
+                }
+
+                var stocksForIsinPropagation = new HashSet<Stock>(existingStocks, ReferenceEqualityComparer.Instance);
+                stocksForIsinPropagation.UnionWith(seenStocks);
+
+                var stocksByValidIsin = stocksForIsinPropagation
+                    .Select(stock => new { Stock = stock, Isin = StockIdentifiers.Normalize(stock.Isin) })
+                    .Where(x =>
+                        x.Isin is not null
+                        && StockIdentifiers.IsValidIsin(x.Isin)
+                        && allValidIsins.Contains(x.Isin))
+                    .GroupBy(x => x.Isin!, StringComparer.Ordinal);
+
+                foreach (var isinGroup in stocksByValidIsin)
+                {
+                    var sectorEvidence = isinGroup
+                        .Select(x => x.Stock)
+                        .Where(x => x.SectorId.HasValue || x.Sector is not null)
+                        .Select(x => new
+                        {
+                            x.SectorId,
+                            x.Sector,
+                            SectorKey = x.SectorId.HasValue
+                                ? $"id:{x.SectorId.Value}"
+                                : $"name:{Normalize(x.Sector!.NormalizedName)}"
+                        })
+                        .ToList();
+
+                    var distinctSectorKeys = sectorEvidence
+                        .Select(x => x.SectorKey)
+                        .Distinct()
+                        .ToList();
+
+                    if (distinctSectorKeys.Count > 1)
+                    {
+                        conflicts++;
+                        continue;
+                    }
+
+                    if (distinctSectorKeys.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var propagatedSector = sectorEvidence[0];
+                    foreach (var entry in isinGroup.Where(x => x.Stock.SectorId is null))
+                    {
+                        if (propagatedSector.Sector is not null)
+                        {
+                            entry.Stock.Sector = propagatedSector.Sector;
+                        }
+                        else
+                        {
+                            entry.Stock.SectorId = propagatedSector.SectorId;
+                        }
+                        entry.Stock.UpdatedAt = now;
+                        updated++;
+                    }
+                }
+
+                canCloseMissingMemberships = providerResult.Status == IndexConstituentsStatus.Success && conflicts == 0;
+                if (providerResult.Status == IndexConstituentsStatus.Success && conflicts > 0)
+                {
+                    effectiveStatus = IndexConstituentsStatus.Partial;
                 }
 
                 if (canCloseMissingMemberships)
