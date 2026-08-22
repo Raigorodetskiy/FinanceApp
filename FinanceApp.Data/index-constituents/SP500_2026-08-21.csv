@@ -1,0 +1,504 @@
+﻿Ticker;Company;ISIN;WKN;Sector
+MMM;3M;US88579Y1010;;Industrials
+AOS;A. O. Smith;US8318652091;;Industrials
+ABT;Abbott Laboratories;US0028241000;850103;Health Care
+ABBV;AbbVie;US00287Y1091;A1J84E;Health Care
+ACN;Accenture;IE00B4BNMY34;A0YAQA;Information Technology
+ADBE;Adobe Inc.;US00724F1012;871981;Information Technology
+AMD;Advanced Micro Devices;US0079031078;863186;Information Technology
+AES;AES Corporation;US00130H1059;;Utilities
+AFL;Aflac;US0010551028;853081;Financials
+A;Agilent Technologies;US00846U1016;;Health Care
+APD;Air Products;US0091581068;854912;Materials
+ABNB;Airbnb;US0090661010;A2QG35;Consumer Discretionary
+AKAM;Akamai Technologies;US00971T1016;;Information Technology
+ALB;Albemarle Corporation;US0126531013;;Materials
+ARE;Alexandria Real Estate Equities;US0152711091;;Real Estate
+ALGN;Align Technology;US0162551016;;Health Care
+ALLE;Allegion;IE00BFRT3W74;;Industrials
+LNT;Alliant Energy;US0188021085;;Utilities
+ALL;Allstate;US0200021014;886429;Financials
+GOOGL;Alphabet Inc. (Class A);US02079K3059;A14Y6F;Communication Services
+GOOG;Alphabet Inc. (Class C);US02079K1079;A14Y6H;Communication Services
+MO;Altria;US02209S1033;200417;Consumer Staples
+AMZN;Amazon;US0231351067;906866;Consumer Discretionary
+AMCR;Amcor;JE00BJ1F3079;;Materials
+AEE;Ameren;US0236081024;;Utilities
+AEP;American Electric Power;US0255371017;850222;Utilities
+AXP;American Express;US0258161092;850226;Financials
+AIG;American International Group;US0268747849;;Financials
+AMT;American Tower;US03027X1000;A1JRLA;Real Estate
+AWK;American Water Works;US0304201033;;Utilities
+AMP;Ameriprise Financial;US03076C1062;A0F55S;Financials
+AME;Ametek;US0311001004;;Industrials
+AMGN;Amgen;US0311621009;867900;Health Care
+APH;Amphenol;US0320951017;882749;Information Technology
+ADI;Analog Devices;US0326541051;862485;Information Technology
+AON;Aon plc;IE00BLP1HW54;A2P2JR;Financials
+APA;APA Corporation;US03743Q1085;;Energy
+APO;Apollo Global Management;US03769M1062;A3DB5F;Financials
+AAPL;Apple Inc.;US0378331005;865985;Information Technology
+AMAT;Applied Materials;US0382221051;865177;Information Technology
+APP;AppLovin;US03831W1080;A2QR0K;Communication Services
+APTV;Aptiv;JE00BTDN8H13;;Consumer Discretionary
+ACGL;Arch Capital Group;BMG0450A1053;;Financials
+ADM;Archer Daniels Midland;US0394831020;;Consumer Staples
+ARES;Ares Management;US03990B1017;;Financials
+ANET;Arista Networks;US0404132054;A40V33;Information Technology
+AJG;Arthur J. Gallagher & Co.;US3635761097;869761;Financials
+AIZ;Assurant;US04621X1081;;Financials
+T;AT&T;US00206R1023;A0HL9Z;Communication Services
+ATO;Atmos Energy;US0495601058;;Utilities
+ADSK;Autodesk;US0527691069;869964;Information Technology
+ADP;Automatic Data Processing;US0530151036;850347;Industrials
+AZO;AutoZone;US0533321024;881531;Consumer Discretionary
+AVY;Avery Dennison;US0536111091;;Materials
+AXON;Axon Enterprise;US05464C1018;;Industrials
+BKR;Baker Hughes;US05722G1004;;Energy
+BALL;Ball Corporation;US0584981064;;Materials
+BAC;Bank of America;US0605051046;858388;Financials
+BAX;Baxter International;US0718131099;;Health Care
+BDX;Becton Dickinson;US0758871091;857675;Health Care
+BRK.B;Berkshire Hathaway;US0846707026;A0YJQ2;Financials
+BBY;Best Buy;US0865161014;;Consumer Discretionary
+TECH;Bio-Techne;US09073M1045;;Health Care
+BIIB;Biogen;US09062X1037;;Health Care
+BLK;BlackRock;US09290D1019;A40PW4;Financials
+BX;Blackstone Inc.;US09260D1072;A2PM4W;Financials
+XYZ;Block, Inc.;US8522341036;;Financials
+BNY;BNY Mellon;CA74643T1049;A0MVKA;Financials
+BA;Boeing;US0970231058;;Industrials
+BKNG;Booking Holdings;US09857L1089;A2JEXP;Consumer Discretionary
+BSX;Boston Scientific;US1011371077;;Health Care
+BMY;Bristol Myers Squibb;US1101221083;850501;Health Care
+AVGO;Broadcom;US11135F1012;A2JG9Z;Information Technology
+BR;Broadridge Financial Solutions;US11133T1034;;Industrials
+BRO;Brown & Brown;US1152361010;;Financials
+BF.B;Brown–Forman;US1156372096;;Consumer Staples
+BLDR;Builders FirstSource;US12008R1077;;Industrials
+BG;Bunge Global;BMG169621056;;Consumer Staples
+BXP;BXP, Inc.;US1011211018;;Real Estate
+CHRW;C.H. Robinson;US12541W2098;;Industrials
+CDNS;Cadence Design Systems;US1273871087;873567;Information Technology
+CPT;Camden Property Trust;US1331311027;;Real Estate
+COF;Capital One;US14040H1059;893413;Financials
+CAH;Cardinal Health;US14149Y1082;;Health Care
+CCL;Carnival Corporation;BMG2004J1036;;Consumer Discretionary
+CARR;Carrier Global;US14448C1045;A2P1UY;Industrials
+CVNA;Carvana;US1468691027;;Consumer Discretionary
+CASY;Casey's;US1475281036;;Consumer Staples
+CAT;Caterpillar Inc.;US1491231015;850598;Industrials
+CBOE;Cboe Global Markets;US12503M1080;;Financials
+CBRE;CBRE Group;US12504L1098;;Real Estate
+CDW;CDW Corporation;US12514G1085;;Information Technology
+COR;Cencora;US03073E1055;766149;Health Care
+CNC;Centene Corporation;US15135B1017;;Health Care
+CNP;CenterPoint Energy;US15189T1079;;Utilities
+CF;CF Industries;US1252691001;;Materials
+CRL;Charles River Laboratories;US1598641074;;Health Care
+SCHW;Charles Schwab Corporation;US8085131055;874171;Financials
+CHTR;Charter Communications;US16119P1084;;Communication Services
+CVX;Chevron Corporation;US1667641005;852552;Energy
+CMG;Chipotle Mexican Grill;US1696561059;A0ESP5;Consumer Discretionary
+CB;Chubb Limited;CH0044328745;A0Q636;Financials
+CHD;Church & Dwight;US1713401024;;Consumer Staples
+CIEN;Ciena;US1717793095;;Information Technology
+CI;Cigna;US1255231003;;Health Care
+CINF;Cincinnati Financial;US1720621010;;Financials
+CTAS;Cintas;US1729081059;880205;Industrials
+CSCO;Cisco;US17275R1023;878841;Information Technology
+C;Citigroup;US1729674242;A1H92V;Financials
+CFG;Citizens Financial Group;US1746101054;;Financials
+CLX;Clorox;US1890541097;;Consumer Staples
+CME;CME Group;US12572Q1058;A0MW32;Financials
+CMS;CMS Energy;US1258961002;;Utilities
+KO;Coca-Cola Company (The);US1912161007;850663;Consumer Staples
+CTSH;Cognizant;US1924461023;;Information Technology
+COHR;Coherent Corp.;US19247G1076;;Information Technology
+COIN;Coinbase;US19260Q1076;A2QP7J;Financials
+CL;Colgate-Palmolive;US1941621039;;Consumer Staples
+CMCSA;Comcast;US20030N1019;157484;Communication Services
+FIX;Comfort Systems USA;US1999081045;;Industrials
+COP;ConocoPhillips;US20825C1045;575302;Energy
+ED;Consolidated Edison;US2091151041;;Utilities
+STZ;Constellation Brands;US21036P1084;;Consumer Staples
+CEG;Constellation Energy;US21037T1097;A3DCXB;Utilities
+COO;Cooper Companies (The);US2166485019;;Health Care
+CPRT;Copart;US2172041061;893807;Industrials
+GLW;Corning Inc.;US2193501051;850808;Information Technology
+CPAY;Corpay;US2199481068;;Financials
+CTVA;Corteva;US22052L1044;A2PKRR;Materials
+CSGP;CoStar Group;US22160N1090;;Real Estate
+COST;Costco;US22160K1051;888351;Consumer Staples
+CRH;CRH plc;IE0001827041;864684;Materials
+CRWD;CrowdStrike;US22788C1053;A2PK2R;Information Technology
+CCI;Crown Castle;US22822V1017;;Real Estate
+CSX;CSX Corporation;US1264081035;865857;Industrials
+CMI;Cummins;US2310211063;853121;Industrials
+CVS;CVS Health;US1266501006;859034;Health Care
+DHR;Danaher Corporation;US2358511028;866197;Health Care
+DRI;Darden Restaurants;US2371941053;;Consumer Discretionary
+DDOG;Datadog;US23804L1035;;Information Technology
+DVA;DaVita;US23918K1088;;Health Care
+DECK;Deckers Brands;US2435371073;;Consumer Discretionary
+DE;Deere & Company;US2441991054;850866;Industrials
+DELL;Dell Technologies;US24703L2025;A2N6WP;Information Technology
+DAL;Delta Air Lines;US2473617023;;Industrials
+DVN;Devon Energy;US25179M1036;925345;Energy
+DXCM;Dexcom;US2521311074;;Health Care
+FANG;Diamondback Energy;US25278X1090;A1J6Y4;Energy
+DLR;Digital Realty;CA44049C4011;A0DLFT;Real Estate
+DG;Dollar General;US2566771059;;Consumer Staples
+DLTR;Dollar Tree;US2567461080;;Consumer Staples
+D;Dominion Energy;US25746U1097;932798;Utilities
+DPZ;Domino's;US25754A2015;;Consumer Discretionary
+DASH;DoorDash;US25809K1051;A2QHEA;Consumer Discretionary
+DOV;Dover Corporation;US2600031080;;Industrials
+DOW;Dow Inc.;US2605571031;;Materials
+DHI;D. R. Horton;US23331A1097;884312;Consumer Discretionary
+DTE;DTE Energy;US2333311072;;Utilities
+DUK;Duke Energy;US26441C2044;A1J0EV;Utilities
+DD;DuPont;US26614N1028;;Industrials
+ETN;Eaton Corporation;IE00B8KQN827;A1J88N;Industrials
+EBAY;eBay Inc.;US2786421030;;Consumer Discretionary
+ECHO;EchoStar;US2787681061;;Communication Services
+ECL;Ecolab;US2788651006;854545;Materials
+EIX;Edison International;US2810201077;;Utilities
+EW;Edwards Lifesciences;US28176E1082;936853;Health Care
+ELV;Elevance Health;US0367521038;A12FMV;Health Care
+EME;Emcor;US29084Q1004;;Industrials
+EMR;Emerson Electric;US2910111044;;Industrials
+ETR;Entergy;US29364G1031;;Utilities
+EOG;EOG Resources;US26875P1012;;Energy
+EQT;EQT Corporation;US26884L1098;;Energy
+EFX;Equifax;US2944291051;;Industrials
+EQIX;Equinix;US29444U7000;A14M21;Real Estate
+ERIE;Erie Indemnity;US29530P1021;;Financials
+ESS;Essex Property Trust;US2971781057;;Real Estate
+EL;Estée Lauder Companies (The);US5184391044;;Consumer Staples
+EG;Everest Group;BMG3223R1088;;Financials
+EVRG;Evergy;US30034W1062;;Utilities
+ES;Eversource Energy;US30040W1080;;Utilities
+EXC;Exelon;US30161N1019;852011;Utilities
+EXE;Expand Energy;US1651677353;;Energy
+EXPE;Expedia Group;US30212P3038;;Consumer Discretionary
+EXPD;Expeditors International;US3021301094;;Industrials
+EXR;Extra Space Storage;US30225T1025;;Real Estate
+XOM;ExxonMobil;US30231G1022;852549;Energy
+FFIV;F5, Inc.;US3156161024;;Information Technology
+FDS;FactSet;US3030751057;;Financials
+FICO;Fair Isaac;US3032501047;;Information Technology
+FAST;Fastenal;US3119001044;;Industrials
+FRT;Federal Realty Investment Trust;US3137451015;;Real Estate
+FDX;FedEx;US31428X1063;912029;Industrials
+FDXF;FedEx Freight;US3143521058;;Industrials
+FERG;Ferguson Enterprises;JE00BJVNSS43;;Industrials
+FIS;Fidelity National Information Services;US31620M1062;;Financials
+FITB;Fifth Third Bancorp;US3167731005;;Financials
+FSLR;First Solar;US3364331070;;Information Technology
+FE;FirstEnergy;US3379321074;;Utilities
+FISV;Fiserv;US3377381088;;Financials
+FLEX;Flex Ltd.;SG9999000020;;Information Technology
+F;Ford Motor Company;US3453708600;502391;Consumer Discretionary
+FTNT;Fortinet;US34959E1091;A0YEFE;Information Technology
+FTV;Fortive;US34959J1088;;Industrials
+FOXA;Fox Corporation (Class A);US35137L1052;;Communication Services
+FOX;Fox Corporation (Class B);US35137L2043;;Communication Services
+BEN;Franklin Resources;US3546131018;;Financials
+FCX;Freeport-McMoRan;US35671D8570;896476;Materials
+GRMN;Garmin;CH0114405324;;Consumer Discretionary
+IT;Gartner;US3666511072;;Information Technology
+GE;GE Aerospace;US3696043013;A3CSML;Industrials
+GEHC;GE HealthCare;US36266G1076;;Health Care
+GEV;GE Vernova;US36828A1016;A404PC;Industrials
+GEN;Gen Digital;US6687711084;;Information Technology
+GNRC;Generac;US3687361044;;Industrials
+GD;General Dynamics;US3695501086;;Industrials
+GIS;General Mills;US3703341046;;Consumer Staples
+GM;General Motors;US37045V1008;A1C9CM;Consumer Discretionary
+GPC;Genuine Parts Company;US3724601055;;Consumer Discretionary
+GILD;Gilead Sciences;US3755581036;885823;Health Care
+GPN;Global Payments;US37940X1028;;Financials
+GL;Globe Life;US37959E1029;;Financials
+GDDY;GoDaddy;US3802371076;;Information Technology
+GS;Goldman Sachs;US38141G1040;920332;Financials
+HAL;Halliburton;US4062161017;;Energy
+HIG;Hartford (The);US4165151048;;Financials
+HAS;Hasbro;US4180561072;;Consumer Discretionary
+HCA;HCA Healthcare;US40412C1018;A1JFMW;Health Care
+DOC;Healthpeak Properties;US42250P1030;;Real Estate
+HSIC;Henry Schein;US8064071025;;Health Care
+HSY;Hershey Company (The);US4278661081;;Consumer Staples
+HPE;Hewlett Packard Enterprise;US42824C1099;;Information Technology
+HLT;Hilton Worldwide;US43300A2033;;Consumer Discretionary
+HD;Home Depot (The);US4370761029;866953;Consumer Discretionary
+HONA;Honeywell Aerospace;US43849R1059;;Industrials
+HON;Honeywell Technologies;US4385161066;870153;Industrials
+HRL;Hormel Foods;US4404521001;;Consumer Staples
+HST;Host Hotels & Resorts;US44107P1049;;Real Estate
+HWM;Howmet Aerospace;US4432011082;A2PZ2D;Industrials
+HPQ;HP Inc.;US40434L1052;;Information Technology
+HUBB;Hubbell Incorporated;US4435106079;;Industrials
+HUM;Humana;US4448591028;;Health Care
+HBAN;Huntington Bancshares;US4461501045;;Financials
+HII;Huntington Ingalls Industries;US4464131063;;Industrials
+IBM;IBM;US4592001014;851399;Information Technology
+IEX;IDEX Corporation;US45167R1041;;Industrials
+IDXX;Idexx Laboratories;US45168D1046;;Health Care
+ITW;Illinois Tool Works;US4523081093;861219;Industrials
+INCY;Incyte;US45337C1027;;Health Care
+IR;Ingersoll Rand;US45687V1061;;Industrials
+PODD;Insulet Corporation;US45784P1012;;Health Care
+INTC;Intel;US4581401001;855681;Information Technology
+IBKR;Interactive Brokers;US45841N1072;;Financials
+ICE;Intercontinental Exchange;US45866F1049;A1W5H0;Financials
+IFF;International Flavors & Fragrances;US4595061015;;Materials
+IP;International Paper;US4601461035;;Materials
+INTU;Intuit;US4612021034;886053;Information Technology
+ISRG;Intuitive Surgical;US46120E6023;888024;Health Care
+IVZ;Invesco;BMG491BT1088;;Financials
+INVH;Invitation Homes;US46187W1071;;Real Estate
+IQV;IQVIA;US46266C1053;;Health Care
+IRM;Iron Mountain;US46284V1017;;Real Estate
+JBHT;J.B. Hunt;US4456581077;;Industrials
+JBL;Jabil;US4663131039;;Information Technology
+JKHY;Jack Henry & Associates;US4262811015;;Financials
+J;Jacobs Solutions;US4698141078;;Industrials
+JNJ;Johnson & Johnson;US4781601046;853260;Health Care
+JCI;Johnson Controls;IE00BY7QL619;A2AQCA;Industrials
+JPM;JPMorgan Chase;US46625H1005;850628;Financials
+KVUE;Kenvue;US49177J1025;;Consumer Staples
+KDP;Keurig Dr Pepper;US49271V1008;;Consumer Staples
+KEY;KeyCorp;US4932671088;;Financials
+KEYS;Keysight Technologies;US49338L1035;;Information Technology
+KMB;Kimberly-Clark;US4943681035;;Consumer Staples
+KIM;Kimco Realty;US49446R1095;;Real Estate
+KMI;Kinder Morgan;US49456B1017;A1H6GK;Energy
+KKR;KKR & Co.;US48251W1045;A2LQV6;Financials
+KLAC;KLA Corporation;US4824801009;865884;Information Technology
+KHC;Kraft Heinz;US5007541064;;Consumer Staples
+KR;Kroger;US5010441013;851544;Consumer Staples
+LHX;L3Harris;US5024311095;A2PM3H;Industrials
+LH;Labcorp;US50540R4092;;Health Care
+LRCX;Lam Research;US5128073062;A40L1V;Information Technology
+LVS;Las Vegas Sands;US5178341070;;Consumer Discretionary
+LDOS;Leidos;US5253271028;;Industrials
+LEN;Lennar;US5260571048;;Consumer Discretionary
+LII;Lennox International;US5261071071;;Industrials
+LLY;Lilly (Eli);US5324571083;858560;Health Care
+LIN;Linde plc;IE000S9YS762;A3D7VW;Materials
+LYV;Live Nation Entertainment;US5380341090;;Communication Services
+LMT;Lockheed Martin;US5398301094;894648;Industrials
+L;Loews Corporation;US5404241086;;Financials
+LOW;Lowe's;US5486611073;859545;Consumer Discretionary
+LULU;Lululemon Athletica;US5500211090;;Consumer Discretionary
+LITE;Lumentum;US55024U1097;;Information Technology
+LYB;LyondellBasell;NL0009434992;;Materials
+MTB;M&T Bank;US55261F1049;;Financials
+MPC;Marathon Petroleum;US56585A1025;;Energy
+MAR;Marriott International;US5719032022;913070;Consumer Discretionary
+MRSH;Marsh McLennan;US5717481023;;Financials
+MLM;Martin Marietta Materials;US5732841060;;Materials
+MRVL;Marvell Technology;US5738741041;A3CNLD;Information Technology
+MAS;Masco;US5745991068;;Industrials
+MA;Mastercard;US57636Q1040;A0F602;Financials
+MKC;McCormick & Company;US5797802064;;Consumer Staples
+MCD;McDonald's;US5801351017;856958;Consumer Discretionary
+MCK;McKesson Corporation;US58155Q1031;893953;Health Care
+MDT;Medtronic;IE00BTN1Y115;A14M2J;Health Care
+MRK;Merck & Co.;US58933Y1055;A0YD8Q;Health Care
+META;Meta Platforms;US30303M1027;A1JWVX;Communication Services
+MET;MetLife;US59156R1086;934623;Financials
+MTD;Mettler Toledo;US5926881054;;Health Care
+MGM;MGM Resorts;US5529531015;;Consumer Discretionary
+MCHP;Microchip Technology;US5950171042;;Information Technology
+MU;Micron Technology;US5951121038;869020;Information Technology
+MSFT;Microsoft;US5949181045;870747;Information Technology
+MAA;Mid-America Apartment Communities;US59522J1034;;Real Estate
+MRNA;Moderna;US60770K1079;;Health Care
+TAP;Molson Coors Beverage Company;US60871R2094;;Consumer Staples
+MDLZ;Mondelez International;US6092071058;A1J4U0;Consumer Staples
+MPWR;Monolithic Power Systems;US6098391054;;Information Technology
+MNST;Monster Beverage;US61174X1090;A14U5Z;Consumer Staples
+MCO;Moody's Corporation;US6153691059;;Financials
+MS;Morgan Stanley;US6174464486;885836;Financials
+MOS;Mosaic Company (The);US61945C1036;;Materials
+MSI;Motorola Solutions;US6200763075;A0YHMA;Information Technology
+MSCI;MSCI;US55354G1004;A0M63R;Financials
+NDAQ;Nasdaq, Inc.;US6311031081;;Financials
+NTAP;NetApp;US64110D1046;;Information Technology
+NFLX;Netflix;US64110L1061;552484;Communication Services
+NEM;Newmont;US6516391066;853823;Materials
+NWSA;News Corp (Class A);US65249B1098;;Communication Services
+NWS;News Corp (Class B);US65249B2088;;Communication Services
+NEE;NextEra Energy;US65339F1012;A1CZ4H;Utilities
+NKE;Nike, Inc.;US6541061031;866993;Consumer Discretionary
+NI;NiSource;US65473P1057;;Utilities
+NDSN;Nordson Corporation;US6556631025;;Industrials
+NSC;Norfolk Southern;US6558441084;867028;Industrials
+NTRS;Northern Trust;US6658591044;;Financials
+NOC;Northrop Grumman;US6668071029;;Industrials
+NCLH;Norwegian Cruise Line Holdings;BMG667211046;;Consumer Discretionary
+NRG;NRG Energy;US6293775085;;Utilities
+NUE;Nucor;US6703461052;;Materials
+NVDA;Nvidia;US67066G1040;918422;Information Technology
+NVR;NVR, Inc.;US62944T1051;;Consumer Discretionary
+NXPI;NXP Semiconductors;NL0009538784;;Information Technology
+ORLY;O'Reilly Automotive;US67103H1077;;Consumer Discretionary
+OXY;Occidental Petroleum;US6745991058;851921;Energy
+ODFL;Old Dominion;US6795801009;;Industrials
+OMC;Omnicom Group;US6819191064;;Communication Services
+ON;ON Semiconductor;US6821891057;;Information Technology
+OKE;Oneok;US6826801036;911060;Energy
+ORCL;Oracle Corporation;US68389X1054;871460;Information Technology
+OTIS;Otis Worldwide;US68902V1070;;Industrials
+PCAR;Paccar;US6937181088;861114;Industrials
+PKG;Packaging Corporation of America;US6951561090;;Materials
+PLTR;Palantir Technologies;US69608A1088;A2QA4J;Information Technology
+PANW;Palo Alto Networks;US6974351057;A1JZ0Q;Information Technology
+PSKY;Paramount Skydance Corporation;US69932A2042;;Communication Services
+PH;Parker Hannifin;US7010941042;855950;Industrials
+PAYX;Paychex;US7043261079;868284;Industrials
+PYPL;PayPal;US70450Y1038;A14R7U;Financials
+PNR;Pentair;IE00BLS09M33;;Industrials
+PEP;PepsiCo;US7134481081;851995;Consumer Staples
+PFE;Pfizer;US7170811035;852009;Health Care
+PCG;PG&E Corporation;AU000000PCG4;;Utilities
+PM;Philip Morris International;US7181721090;A0NDBJ;Consumer Staples
+PSX;Phillips 66;US7185461040;;Energy
+PNW;Pinnacle West Capital;US7234841010;;Utilities
+PNC;PNC Financial Services;US6934751057;867679;Financials
+PPG;PPG Industries;US6935061076;;Materials
+PPL;PPL Corporation;US69351T1060;;Utilities
+PFG;Principal Financial Group;US74251V1026;;Financials
+PG;Procter & Gamble;US7427181091;852062;Consumer Staples
+PGR;Progressive Corporation;US7433151039;865496;Financials
+PLD;Prologis;US74340W1036;A1JBD1;Real Estate
+PRU;Prudential Financial;US7443201022;;Financials
+PEG;Public Service Enterprise Group;US7445731067;852070;Utilities
+PTC;PTC Inc.;US69370C1009;;Information Technology
+PSA;Public Storage;US74460D1090;867609;Real Estate
+PHM;PulteGroup;US7458671010;;Consumer Discretionary
+PWR;Quanta Services;US74762E1029;;Industrials
+QCOM;Qualcomm;US7475251036;883121;Information Technology
+DGX;Quest Diagnostics;US74834L1008;;Health Care
+Q;Qnity Electronics;US74743L1008;;Information Technology
+RL;Ralph Lauren Corporation;US7512121010;;Consumer Discretionary
+RJF;Raymond James Financial;US7547301090;;Financials
+RDDT;Reddit;US75734B1008;;Communication Services
+RTX;RTX Corporation;US75513E1010;A2PZ0R;Industrials
+O;Realty Income;US7561091049;899744;Real Estate
+REG;Regency Centers;US7588491032;;Real Estate
+REGN;Regeneron Pharmaceuticals;US75886F1075;881535;Health Care
+RF;Regions Financial Corporation;US7591EP1005;;Financials
+RSG;Republic Services;US7607591002;915201;Industrials
+RMD;ResMed|;US7611521078;;Health Care
+RVTY;Revvity;US7140461093;;Health Care
+HOOD;Robinhood Markets;US7707001027;;Financials
+ROK;Rockwell Automation;US7739031091;;Industrials
+ROL;Rollins, Inc.;US7757111049;;Industrials
+ROP;Roper Technologies;US7766961061;883563;Information Technology
+ROST;Ross Stores;US7782961038;;Consumer Discretionary
+RCL;Royal Caribbean Group;LR0008862868;886286;Consumer Discretionary
+SPGI;S&P Global;US78409V1044;A2AHZ7;Financials
+CRM;Salesforce;US79466L3024;A0B87V;Information Technology
+SNDK;Sandisk;US80004C2008;;Information Technology
+SBAC;SBA Communications;US78410G1040;;Real Estate
+SLB;Schlumberger;AN8068571086;853390;Energy
+STX;Seagate Technology;IE00BKVD2N49;;Information Technology
+SRE;Sempra;US8168511090;915266;Utilities
+NOW;ServiceNow;US81762P1021;A1JX4P;Information Technology
+SHW;Sherwin-Williams;US8243481061;;Materials
+SPG;Simon Property Group;US8288061091;916647;Real Estate
+SWKS;Skyworks Solutions;US83088M1027;;Information Technology
+SJM;J.M. Smucker Company (The);US8326964058;;Consumer Staples
+SW;Smurfit Westrock;IE00028FXN24;;Materials
+SNA;Snap-on;US8330341012;;Industrials
+SOLV;Solventum;US83444M1018;;Health Care
+SO;Southern Company;US8425871071;852523;Utilities
+LUV;Southwest Airlines;US8447411088;;Industrials
+SWK;Stanley Black & Decker;US8545021011;;Industrials
+SBUX;Starbucks;US8552441094;884437;Consumer Discretionary
+STT;State Street Corporation;US8574771031;;Financials
+STLD;Steel Dynamics;US8581191009;;Materials
+STE;Steris;IE00BFY8C754;;Health Care
+SYK;Stryker Corporation;US8636671013;864952;Health Care
+SMCI;Supermicro;US86800U3023;;Information Technology
+SYF;Synchrony Financial;US87165B1035;;Financials
+SNPS;Synopsys;US8716071076;883703;Information Technology
+SYY;Sysco;US8718291078;;Consumer Staples
+TMUS;T-Mobile US;US8725901040;A1T7LU;Communication Services
+TROW;T. Rowe Price;US74144T1088;;Financials
+TTWO;Take-Two Interactive;US8740541094;;Communication Services
+TPR;Tapestry, Inc.;US8760301072;;Consumer Discretionary
+TRGP;Targa Resources;US87612G1013;;Energy
+TGT;Target Corporation;US87612E1064;856243;Consumer Staples
+TEL;TE Connectivity;IE000IVNQZ81;A40R4H;Information Technology
+TDY;Teledyne Technologies;US8793601050;;Information Technology
+TER;Teradyne;US8807701029;;Information Technology
+TSLA;Tesla, Inc.;US88160R1014;A1CX3T;Consumer Discretionary
+TXN;Texas Instruments;US8825081040;852654;Information Technology
+TPL;Texas Pacific Land Corporation;US88262P1021;;Energy
+TXT;Textron;US8832031012;;Industrials
+TMO;Thermo Fisher Scientific;US8835561023;857209;Health Care
+TJX;TJX Companies;US8725401090;854854;Consumer Discretionary
+TKO;TKO Group Holdings;US87256C1018;;Communication Services
+TTD;Trade Desk (The);US88339J1051;;Communication Services
+TSCO;Tractor Supply;US8923561067;;Consumer Discretionary
+TT;Trane Technologies;IE00BK9ZQ967;A2P09K;Industrials
+TDG;TransDigm Group;US8936411003;;Industrials
+TRV;Travelers Companies (The);US89417E1091;A0MLX4;Financials
+TRMB;Trimble Inc.;US8962391004;;Information Technology
+TFC;Truist Financial;US89832Q1094;A2PWMZ;Financials
+TYL;Tyler Technologies;US9022521051;;Information Technology
+TSN;Tyson Foods;US9024941034;;Consumer Staples
+USB;U.S. Bancorp;US9029733048;917523;Financials
+UBER;Uber;US90353T1007;A2PHHG;Industrials
+UDR;UDR, Inc.;US9026531049;;Real Estate
+ULTA;Ulta Beauty;US90384S3031;;Consumer Discretionary
+UNP;Union Pacific Corporation;US9078181081;858144;Industrials
+UAL;United Airlines Holdings;US9100471096;;Industrials
+UPS;United Parcel Service;US9113121068;929198;Industrials
+URI;United Rentals;US9113631090;;Industrials
+UNH;UnitedHealth Group;US91324P1021;869561;Health Care
+UHS;Universal Health Services;US9139031002;;Health Care
+VLO;Valero Energy;US91913Y1001;;Energy
+VEEV;Veeva Systems;US9224751084;;Health Care
+VTR;Ventas;US92276F1003;;Real Estate
+VLTO;Veralto;US92338C1036;;Industrials
+VRSN;Verisign;US92343E1029;;Information Technology
+VRSK;Verisk Analytics;US92345Y1064;;Industrials
+VZ;Verizon;US92343V1044;868402;Communication Services
+VRTX;Vertex Pharmaceuticals;US92532F1003;882807;Health Care
+VRT;Vertiv;US92537N1081;;Industrials
+VTRS;Viatris;US92556V1061;;Health Care
+VICI;Vici Properties;US9256521090;;Real Estate
+V;Visa Inc.;US92826C8394;A0NC7B;Financials
+VST;Vistra Corp.;US92840M1027;;Utilities
+VMRK;Vivmark Residential;;;Real Estate
+VMC;Vulcan Materials Company;US9291601097;;Materials
+WRB;W. R. Berkley Corporation;US0844231029;;Financials
+GWW;W. W. Grainger;US3848021040;;Industrials
+WAB;Wabtec;US9297401088;;Industrials
+WMT;Walmart;US9311421039;860853;Consumer Staples
+DIS;Walt Disney Company (The);US2546871060;855686;Communication Services
+WBD;Warner Bros. Discovery;US9344231041;;Communication Services
+WM;Waste Management;US94106L1098;893579;Industrials
+WAT;Waters Corporation;US9418481035;;Health Care
+WEC;WEC Energy Group;US92939U1060;;Utilities
+WFC;Wells Fargo;US9497461015;857949;Financials
+WELL;Welltower;US95040Q1040;A1409D;Real Estate
+WST;West Pharmaceutical Services;US9553061055;;Health Care
+WDC;Western Digital;US9581021055;863060;Information Technology
+WY;Weyerhaeuser;US9621661043;;Real Estate
+WSM;Williams-Sonoma, Inc.;US9699041011;;Consumer Discretionary
+WMB;Williams Companies;US9694571004;855451;Energy
+WTW;Willis Towers Watson;IE00BDB6Q211;;Financials
+WDAY;Workday, Inc.;US98138H1014;A1J39P;Information Technology
+WYNN;Wynn Resorts;US9831341071;;Consumer Discretionary
+XEL;Xcel Energy;US98389B1008;;Utilities
+XYL;Xylem Inc.;US98419M1009;;Industrials
+YUM;Yum! Brands;US9884981013;;Consumer Discretionary
+ZBRA;Zebra Technologies;US9892071054;;Information Technology
+ZBH;Zimmer Biomet;US98956P1021;;Health Care
+ZTS;Zoetis;US98978V1035;A1KBYX;Health Care
