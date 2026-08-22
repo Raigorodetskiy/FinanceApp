@@ -1007,11 +1007,11 @@ const IndexConstituentsPanel: React.FC<IndexConstituentsPanelProps> = ({
           <Space direction="vertical" size={0}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <Text style={{ fontSize: 16 }} ellipsis={{ tooltip: name }}>{name}</Text>
-              <StockClassificationBadges
-                sector={record.sector ?? null}
-                industry={record.industry ?? null}
-              />
             </div>
+            <StockClassificationBadges
+              sector={record.sector ?? null}
+              industry={record.industry ?? null}
+            />
             {record.commonName && record.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 16 }}>{record.commonName}</Text>
             )}
