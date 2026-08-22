@@ -41,8 +41,8 @@ const baseConstituentsResponse = {
     indexName: 'DAX',
     totalCount: 3,
     constituents: [
-      { stockId: 1, ticker: 'DAXA', name: 'Dax Member', commonName: 'Dax Member', exchange: 'Frankfurt', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
-      { stockId: 2, ticker: 'OTHR', name: 'Other Index', commonName: 'Other Index', exchange: 'NYSE', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
+      { stockId: 1, ticker: 'DAXA', name: 'Dax Member', commonName: 'Dax Member', sector: 'Information Technology', industry: 'Software', exchange: 'Frankfurt', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
+      { stockId: 2, ticker: 'OTHR', name: 'Other Index', commonName: 'Other Index', sector: 'Financials', industry: null, exchange: 'NYSE', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
       { stockId: 3, ticker: 'NONE', name: 'No Index', commonName: 'No Index', exchange: 'NYSE', trackingStatus: 'CatalogOnly', importedAt: '2026-08-19T00:00:00Z' },
     ],
   },
@@ -100,6 +100,26 @@ describe('IndexConstituentsPanel 24h performance integration', () => {
     const ids = rows.map((row) => row.getAttribute('data-row-key'));
     expect(ids.indexOf('3')).toBeLessThan(ids.indexOf('1'));
     expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('2'));
+  });
+
+  it('renders visible classification text in constituent table without legacy compact tags', async () => {
+    render(<IndexConstituentsPanel indexId={1} isArchived={false} />);
+    await waitFor(() => expect(screen.getAllByText('DAXA').length).toBeGreaterThan(0));
+
+    const daxRow = document.querySelector('tr[data-row-key="1"]');
+    const otherRow = document.querySelector('tr[data-row-key="2"]');
+    const noneRow = document.querySelector('tr[data-row-key="3"]');
+    expect(daxRow).not.toBeNull();
+    expect(otherRow).not.toBeNull();
+    expect(noneRow).not.toBeNull();
+
+    expect(screen.getByText('Information Technology · Software')).toBeInTheDocument();
+    expect(screen.getByText('Financials')).toBeInTheDocument();
+    expect(screen.queryByText('СЕК')).not.toBeInTheDocument();
+    expect(screen.queryByText('ОТР')).not.toBeInTheDocument();
+
+    expect((daxRow as HTMLElement).querySelector('[aria-label="Классификация: Information Technology · Software"]')).not.toBeNull();
+    expect((noneRow as HTMLElement).querySelector('[aria-label^="Классификация:"]')).toBeNull();
   });
 
   it('does not let stale older range responses overwrite the latest selection', async () => {

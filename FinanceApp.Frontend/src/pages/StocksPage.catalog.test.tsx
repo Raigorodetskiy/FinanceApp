@@ -23,6 +23,13 @@ const trackedStock: Stock = {
   updatedAt: '2026-08-18T00:00:00Z',
   trackingStatus: 1,
   marketIndexIds: [1],
+  sector: { id: 15, name: 'Information Technology', isArchived: false },
+  industry: {
+    id: 1501,
+    name: 'Software',
+    isArchived: false,
+    sector: { id: 15, name: 'Information Technology', isArchived: false },
+  },
 };
 
 const untrackedStock: Stock = {
@@ -35,6 +42,7 @@ const untrackedStock: Stock = {
   updatedAt: '2026-08-18T00:00:00Z',
   trackingStatus: 0,
   marketIndexIds: [],
+  sector: { id: 20, name: 'Materials', isArchived: false },
 };
 
 const mcdCatalogStock: Stock = {
@@ -47,6 +55,12 @@ const mcdCatalogStock: Stock = {
   updatedAt: '2026-08-18T00:00:00Z',
   trackingStatus: 0,
   marketIndexIds: [],
+  industry: {
+    id: 1901,
+    name: 'Restaurants',
+    isArchived: false,
+    sector: null,
+  },
 };
 
 const buildHistoryResponse = (range: '1y' | '6m') => ({
@@ -265,6 +279,32 @@ describe('StocksPage catalog mode', () => {
     expect(screen.queryByRole('heading', { name: 'Цены на франкфуртской бирже' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Цены на нью-йоркской бирже' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Портфель' })).not.toBeInTheDocument();
+  });
+
+  it('renders visible classification text lines with expected separator behavior', async () => {
+    renderPage('catalog');
+    await waitFor(() => expect(screen.getAllByText('AAPL').length).toBeGreaterThan(0));
+
+    const appleRow = document.querySelector('tr[data-row-key="1"]');
+    const basfRow = document.querySelector('tr[data-row-key="2"]');
+    const mcdRow = document.querySelector('tr[data-row-key="4"]');
+    const bmwRow = document.querySelector('tr[data-row-key="3"]');
+    expect(appleRow).not.toBeNull();
+    expect(basfRow).not.toBeNull();
+    expect(mcdRow).not.toBeNull();
+    expect(bmwRow).not.toBeNull();
+
+    expect(within(appleRow as HTMLElement).getByText('Information Technology · Software')).toBeInTheDocument();
+    expect(within(basfRow as HTMLElement).getByText('Materials')).toBeInTheDocument();
+    expect(within(mcdRow as HTMLElement).getByText('Restaurants')).toBeInTheDocument();
+    expect(within(mcdRow as HTMLElement).queryByText('· Restaurants')).not.toBeInTheDocument();
+    expect(within(bmwRow as HTMLElement).queryByLabelText(/Классификация:/)).not.toBeInTheDocument();
+
+    const appleClassification = within(appleRow as HTMLElement).getByLabelText('Классификация: Information Technology · Software');
+    expect(appleClassification).toHaveAttribute('title', 'Information Technology · Software');
+
+    expect(screen.queryByText('СЕК')).not.toBeInTheDocument();
+    expect(screen.queryByText('ОТР')).not.toBeInTheDocument();
   });
 
   // Test 2: No visible «Статус», «Отслеживается» or «Не отслеживается» text

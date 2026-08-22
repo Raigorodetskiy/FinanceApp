@@ -31,7 +31,9 @@ public class SectorsController : ControllerBase
             .ThenBy(x => x.Name)
             .ToListAsync();
 
-        var stockCounts = await LoadStockCountsAsync(sectors.SelectMany(x => x.Industries).Select(x => x.Id));
+        var stockCounts = await LoadStockCountsAsync(
+            sectors.Select(x => x.Id),
+            sectors.SelectMany(x => x.Industries).Select(x => x.Id));
 
         return Ok(sectors.Select(x => MapSector(x, stockCounts)));
     }
@@ -155,6 +157,11 @@ public class SectorsController : ControllerBase
         if (await _context.Industries.AnyAsync(x => x.SectorId == id))
         {
             return Conflict("Нельзя удалить сектор, в котором есть отрасли.");
+        }
+
+        if (await _context.Stocks.AnyAsync(x => x.SectorId == id))
+        {
+            return Conflict("Нельзя удалить сектор, к которому напрямую привязаны акции.");
         }
 
         _context.Sectors.Remove(sector);
@@ -368,7 +375,9 @@ public class SectorsController : ControllerBase
             .Include(x => x.Industries)
             .FirstAsync(x => x.Id == sectorId);
 
-        var stockCounts = await LoadStockCountsAsync(sector.Industries.Select(x => x.Id));
+        var stockCounts = await LoadStockCountsAsync(
+            new[] { sector.Id },
+            sector.Industries.Select(x => x.Id));
 
         return MapSector(sector, stockCounts);
     }
@@ -379,28 +388,50 @@ public class SectorsController : ControllerBase
             .AsNoTracking()
             .FirstAsync(x => x.Id == industryId && x.SectorId == sectorId);
 
-        var stockCounts = await LoadStockCountsAsync(new[] { industry.Id });
+        var stockCounts = await LoadStockCountsAsync(
+            new[] { sectorId },
+            new[] { industry.Id });
 
         return MapIndustry(industry, stockCounts);
     }
 
-    private async Task<Dictionary<int, int>> LoadStockCountsAsync(IEnumerable<int> industryIds)
+    private async Task<StockCountSnapshot> LoadStockCountsAsync(
+        IEnumerable<int> sectorIds,
+        IEnumerable<int> industryIds)
     {
+        var sectorIdArray = sectorIds.Distinct().ToArray();
         var ids = industryIds.Distinct().ToArray();
-        if (ids.Length == 0)
+        if (sectorIdArray.Length == 0 && ids.Length == 0)
         {
-            return new Dictionary<int, int>();
+            return StockCountSnapshot.Empty;
         }
 
-        return await _context.Stocks
-            .AsNoTracking()
-            .Where(x => x.IndustryId.HasValue && ids.Contains(x.IndustryId.Value))
-            .GroupBy(x => x.IndustryId!.Value)
-            .Select(x => new { IndustryId = x.Key, Count = x.Count() })
-            .ToDictionaryAsync(x => x.IndustryId, x => x.Count);
+        var industryStockCounts = ids.Length == 0
+            ? new Dictionary<int, int>()
+            : await _context.Stocks
+                .AsNoTracking()
+                .Where(x => x.IndustryId.HasValue && ids.Contains(x.IndustryId.Value))
+                .GroupBy(x => x.IndustryId!.Value)
+                .Select(x => new { IndustryId = x.Key, Count = x.Count() })
+                .ToDictionaryAsync(x => x.IndustryId, x => x.Count);
+
+        var sectorStockCounts = sectorIdArray.Length == 0
+            ? new Dictionary<int, int>()
+            : await (
+                from stock in _context.Stocks.AsNoTracking()
+                join industry in _context.Industries.AsNoTracking()
+                    on stock.IndustryId equals (int?)industry.Id into industryGroup
+                from industry in industryGroup.DefaultIfEmpty()
+                let effectiveSectorId = industry != null ? (int?)industry.SectorId : stock.SectorId
+                where effectiveSectorId.HasValue && sectorIdArray.Contains(effectiveSectorId.Value)
+                group stock by effectiveSectorId.Value into grouped
+                select new { SectorId = grouped.Key, Count = grouped.Count() }
+            ).ToDictionaryAsync(x => x.SectorId, x => x.Count);
+
+        return new StockCountSnapshot(industryStockCounts, sectorStockCounts);
     }
 
-    private static SectorTreeItemDto MapSector(Sector sector, IReadOnlyDictionary<int, int> stockCounts)
+    private static SectorTreeItemDto MapSector(Sector sector, StockCountSnapshot stockCounts)
     {
         var industries = sector.Industries
             .OrderBy(x => x.SortOrder)
@@ -416,14 +447,14 @@ public class SectorsController : ControllerBase
             IsArchived = sector.IsArchived,
             SortOrder = sector.SortOrder,
             IndustryCount = industries.Length,
-            StockCount = industries.Sum(x => x.StockCount),
+            StockCount = stockCounts.SectorStockCounts.GetValueOrDefault(sector.Id),
             CreatedAtUtc = sector.CreatedAtUtc,
             UpdatedAtUtc = sector.UpdatedAtUtc,
             Industries = industries
         };
     }
 
-    private static IndustryTreeItemDto MapIndustry(Industry industry, IReadOnlyDictionary<int, int> stockCounts)
+    private static IndustryTreeItemDto MapIndustry(Industry industry, StockCountSnapshot stockCounts)
         => new()
         {
             Id = industry.Id,
@@ -432,10 +463,19 @@ public class SectorsController : ControllerBase
             NormalizedName = industry.NormalizedName,
             IsArchived = industry.IsArchived,
             SortOrder = industry.SortOrder,
-            StockCount = stockCounts.GetValueOrDefault(industry.Id),
+            StockCount = stockCounts.IndustryStockCounts.GetValueOrDefault(industry.Id),
             CreatedAtUtc = industry.CreatedAtUtc,
             UpdatedAtUtc = industry.UpdatedAtUtc
         };
+
+    private sealed record StockCountSnapshot(
+        IReadOnlyDictionary<int, int> IndustryStockCounts,
+        IReadOnlyDictionary<int, int> SectorStockCounts)
+    {
+        public static readonly StockCountSnapshot Empty = new(
+            new Dictionary<int, int>(),
+            new Dictionary<int, int>());
+    }
 
     private static string NormalizeReferenceName(string? value)
         => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
