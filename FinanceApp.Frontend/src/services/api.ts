@@ -168,8 +168,41 @@ export const deleteDividend = (portfolioId: number, id: number) =>
   api.delete(`/Portfolios/${portfolioId}/finance/dividends/${id}`);
 
 // Sectors API
+type SectorApiItem = SectorDto & {
+  StockCount?: number;
+  IndustryCount?: number;
+  Industries?: IndustryApiItem[];
+};
+
+type IndustryApiItem = IndustryDto & {
+  StockCount?: number;
+};
+
+const toNumberOrZero = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizeIndustryDto = (industry: IndustryApiItem): IndustryDto => ({
+  ...industry,
+  stockCount: toNumberOrZero(industry.stockCount ?? industry.StockCount),
+});
+
+const normalizeSectorDto = (sector: SectorApiItem): SectorDto => ({
+  ...sector,
+  industryCount: toNumberOrZero(sector.industryCount ?? sector.IndustryCount),
+  stockCount: toNumberOrZero(sector.stockCount ?? sector.StockCount),
+  industries: Array.isArray(sector.industries)
+    ? sector.industries.map(normalizeIndustryDto)
+    : Array.isArray(sector.Industries)
+      ? sector.Industries.map(normalizeIndustryDto)
+      : [],
+});
+
 export const getSectors = (includeArchived = false) =>
-  api.get<SectorDto[]>('/sectors', { params: { includeArchived } }).then((r) => r.data);
+  api.get<SectorApiItem[]>('/sectors', { params: { includeArchived } }).then((r) =>
+    (Array.isArray(r.data) ? r.data : []).map(normalizeSectorDto),
+  );
 
 export const createSector = (req: CreateSectorRequest) =>
   api.post<SectorDto>('/sectors', req).then((r) => r.data);

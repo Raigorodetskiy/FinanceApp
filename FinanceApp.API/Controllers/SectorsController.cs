@@ -411,8 +411,9 @@ public class SectorsController : ControllerBase
             : await _context.Stocks
                 .AsNoTracking()
                 .Where(x => x.IndustryId.HasValue && ids.Contains(x.IndustryId.Value))
-                .GroupBy(x => x.IndustryId!.Value)
-                .Select(x => new { IndustryId = x.Key, Count = x.Count() })
+                .Select(x => new { StockId = x.Id, IndustryId = x.IndustryId!.Value })
+                .GroupBy(x => x.IndustryId)
+                .Select(x => new { IndustryId = x.Key, Count = x.Select(i => i.StockId).Distinct().Count() })
                 .ToDictionaryAsync(x => x.IndustryId, x => x.Count);
 
         var sectorStockCounts = sectorIdArray.Length == 0
@@ -424,9 +425,11 @@ public class SectorsController : ControllerBase
                 from industry in industryGroup.DefaultIfEmpty()
                 let effectiveSectorId = industry != null ? (int?)industry.SectorId : stock.SectorId
                 where effectiveSectorId.HasValue && sectorIdArray.Contains(effectiveSectorId.Value)
-                group stock by effectiveSectorId.Value into grouped
-                select new { SectorId = grouped.Key, Count = grouped.Count() }
-            ).ToDictionaryAsync(x => x.SectorId, x => x.Count);
+                select new { StockId = stock.Id, SectorId = effectiveSectorId.Value }
+            )
+                .GroupBy(x => x.SectorId)
+                .Select(x => new { SectorId = x.Key, Count = x.Select(i => i.StockId).Distinct().Count() })
+                .ToDictionaryAsync(x => x.SectorId, x => x.Count);
 
         return new StockCountSnapshot(industryStockCounts, sectorStockCounts);
     }

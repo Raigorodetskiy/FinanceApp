@@ -786,13 +786,13 @@ const StocksPage: React.FC<StocksPageProps> = ({ mode = 'tracked' }) => {
         const stock = record as Stock;
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={CELL_BASE_STYLE}>
-              <Text style={FLEX_MIN_WIDTH_STYLE} ellipsis={{ tooltip: name }}>{name}</Text>
+            <div style={{ ...CELL_BASE_STYLE, gap: 8 }}>
+              <Text style={{ ...FLEX_MIN_WIDTH_STYLE, fontSize: 16 }} ellipsis={{ tooltip: name }}>{name}</Text>
+              <StockClassificationBadges
+                sector={stock.industry?.sector?.name ?? stock.sector?.name ?? null}
+                industry={stock.industry?.name ?? null}
+              />
             </div>
-            <StockClassificationBadges
-              sector={stock.industry?.sector?.name ?? stock.sector?.name ?? null}
-              industry={stock.industry?.name ?? null}
-            />
             {stock.commonName && stock.commonName !== name && (
               <Text type="secondary" style={{ fontSize: 16 }} ellipsis={{ tooltip: stock.commonName }}>
                 {stock.commonName}

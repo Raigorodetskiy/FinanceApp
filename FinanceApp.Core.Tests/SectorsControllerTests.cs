@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using Xunit;
 
 namespace FinanceApp.Core.Tests;
@@ -195,6 +196,33 @@ public class SectorsControllerTests
         var ok = Assert.IsType<OkObjectResult>(updateResult.Result);
         var dto = Assert.IsType<IndustryTreeItemDto>(ok.Value);
         Assert.Equal(2, dto.StockCount);
+    }
+
+    [Fact]
+    public async Task GetAll_SerializesStockCountToJsonContract()
+    {
+        await using var context = await CreateSqliteContextAsync();
+        var now = DateTime.UtcNow;
+        var sector = CreateSector(9011, "Materials", now);
+        var industry = CreateIndustry(9211, sector.Id, "Chemicals", now);
+        context.Sectors.Add(sector);
+        context.Industries.Add(industry);
+        context.Stocks.Add(CreateStock(9316, "BAS", now, StockTrackingStatus.CatalogOnly, industryId: industry.Id));
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context);
+        var result = await controller.GetAll(includeArchived: true);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsAssignableFrom<IEnumerable<SectorTreeItemDto>>(ok.Value);
+        var target = Assert.Single(payload, x => x.Id == sector.Id);
+
+        var json = JsonSerializer.Serialize(target, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        Assert.Equal(1, root.GetProperty("stockCount").GetInt32());
+        var industries = root.GetProperty("industries");
+        Assert.Equal(1, industries[0].GetProperty("stockCount").GetInt32());
     }
 
     [Fact]
